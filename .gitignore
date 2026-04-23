@@ -1,0 +1,14 @@
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略强化学习模型权重和归一化字典
+*.zip
+*.pkl
+rl_models/
+
+# 忽略 TensorBoard 训练日志
+rl_logs/
+
+# 忽略 Mac 系统文件 (如果你用 Mac 的话)
+.DS_Store
