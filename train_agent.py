@@ -1,4 +1,19 @@
+"""
+完整 SAC 训练入口。
+
+本脚本训练的是最原始、动作空间最大的策略：SAC 同时输出
+`[g_th, alpha_th, irs_codebook]` 三个动作维度。它适合验证“RL 是否能自动联合优化
+传输门限、AirComp 对齐振幅和 IRS 码本选择”这个问题。
+
+从后续实验结果看，这个完整 SAC baseline 不是当前最强策略，但它仍然是论文对比中
+非常重要的学习型基线。训练时必须同时保存模型权重和 VecNormalize 统计文件，
+否则评估阶段的输入分布会和训练阶段不一致。
+"""
+
 import os
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
+
 import numpy as np
 # 导入 Stable Baselines3 (SB3) 的核心算法 SAC
 from stable_baselines3 import SAC
@@ -20,19 +35,37 @@ class TrackSuccessCallback(BaseCallback):
     这个类的作用像是一个“战地记者”，专门去环境里把“到底成功发送了多少个节点”这个物理指标挖出来并画图。
     """
     def __init__(self, verbose=0):
+        """保留 SB3 回调的标准初始化接口，`verbose` 控制日志冗余程度。"""
         super().__init__(verbose)
 
     def _on_step(self) -> bool:
+        """
+        每个环境 step 后由 SB3 自动调用。
+
+        多进程环境里一次会返回多个 `info`，只有某个子环境 episode 结束时，
+        `info["total_tx"]` 才代表该 episode 的最终成功节点数。
+        """
         # locals 包含了当前这一步所有的局部变量，infos 是环境中产生的额外信息
-        for info in self.locals.get("infos", []):
+        dones = self.locals.get("dones", [])
+        for env_idx, info in enumerate(self.locals.get("infos", [])):
             # 找到当前环境的索引，检查这个环境当前是否正好结束了 (done == True)
             # 并且确保 info 字典里有 "total_tx" 这个你自己在 step() 函数里写的指标
-            if "total_tx" in info and self.locals["dones"][self.locals["infos"].index(info)]:
+            if "total_tx" in info and env_idx < len(dones) and dones[env_idx]:
                 # 将这个数值记录到 TensorBoard 的 custom_metrics/final_total_tx_nodes 目录下
                 self.logger.record("custom_metrics/final_total_tx_nodes", info["total_tx"])
         return True # 返回 True 表示允许训练继续进行
 
 def main():
+    """
+    构建并训练完整 SAC 策略。
+
+    主要流程：
+    1. 创建 8 个并行环境，提高样本收集速度。
+    2. 使用 4 帧观测堆叠，让策略看到短期历史。
+    3. 使用 VecNormalize 稳定物理量尺度。
+    4. 训练 SAC 并定期 checkpoint。
+    5. 保存最终模型和归一化统计文件。
+    """
     print(">>> 启动训练引擎...")
     
     # =====================================================================

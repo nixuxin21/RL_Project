@@ -1,4 +1,16 @@
+"""
+单回合完整 SAC 策略评估脚本。
+
+这个脚本用于“肉眼检查”一个 episode 内 SAC 的逐时隙行为：
+每个时隙打印 SAC 输出的物理参数、IRS 索引、本槽调度节点数、累计成功节点数、
+平均功率和理论 MSE。它不适合做论文统计表，但非常适合调试策略是否出现明显异常，
+例如 `g_th/alpha_th` 偏高、IRS 索引固定、前几个时隙调度不够激进等。
+"""
+
 import os
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
+
 import numpy as np
 # 导入 SB3 的 SAC 算法模型
 from stable_baselines3 import SAC
@@ -9,6 +21,14 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecNorm
 from test_env import MSAirCompEnv
 
 def evaluate():
+    """
+    加载完整 SAC 模型并运行一个确定性评估回合。
+
+    关键工程要求：
+    - 评估环境必须复用训练时的 `VecFrameStack(n_stack=4)`；
+    - 必须加载训练时保存的 `VecNormalize` 统计量；
+    - 评估时必须冻结 `venv.training=False`，避免测试样本污染归一化统计。
+    """
     # =====================================================================
     # 1. 路径配置：告诉代码去哪里找训练好的“大脑”和“记忆字典”
     # =====================================================================
@@ -51,7 +71,7 @@ def evaluate():
         
     model = SAC.load(model_path, env=venv)
 
-    # 初始化评估环境
+    # 初始化评估环境。`venv.reset()` 返回的 obs 已经经过 VecFrameStack 和 VecNormalize 处理。
     obs = venv.reset()
     mse_list = []
     
@@ -78,7 +98,8 @@ def evaluate():
         alpha_th = 0.05 + (a_raw[1] + 1) * 0.05                          # 目标对齐振幅
         irs_idx = int(np.clip(np.round((a_raw[2] + 1) * 0.5 * 15), 0, 15)) # 挑选的 IRS 波束方向
 
-        # 环境真实步进，执行物理模拟
+        # 环境真实步进，执行物理模拟。向量化环境返回的是批量结果，
+        # 即使这里只有 1 个环境，也需要从 `info_list[0]` 取出实际字典。
         obs, reward, done, info_list = venv.step(action)
         info = info_list[0] # 从包裹的向量化环境中提取字典
 
