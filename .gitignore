@@ -1,9 +1,11 @@
 # 忽略 Python 缓存
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # 忽略 IDE 本地状态
 .idea/
+.vscode/
 
 # 忽略强化学习模型权重和归一化字典
 *.zip
@@ -16,10 +18,12 @@ rl_logs/
 # 忽略 Matplotlib 本地缓存
 .matplotlib/
 
+# 忽略本地虚拟环境
+.venv/
+venv/
+
 # 忽略 Mac 系统文件 (如果你用 Mac 的话)
 .DS_Store
 
-# 保留结果目录中的 summary CSV 和图，但默认不版本化大体量逐 episode/step 明细和监督模型 checkpoint
-results/**/*_episodes.csv
-results/**/*_steps.csv
-results/imitation/*_classifier.pt
+# 实验结果默认本地保留，不直接版本化；需要发布的关键 CSV/图可手动 force add。
+results/

@@ -15,10 +15,14 @@
 - `evaluate_random_irs_baseline.py`: 随机 IRS 相位 baseline。
 - `evaluate_policy_comparison.py`: 共享随机种子的策略对比脚本，覆盖 SAC、SAC Fixed g/a、Codebook-Aware SAC、Feature Argmax IRS、Feature Argmax PowerTie IRS、Greedy IRS、Random IRS、Fixed IRS、No IRS 等策略。
 - `evaluate_parameter_sweep.py`: 对 `K/N/M/C` 做一因子参数扫描，比较 Feature Argmax、Feature Argmax PowerTie、Greedy、Random 和 No IRS。
+- `evaluate_partial_probing_sweep.py`: 在每时隙只能 preview 少量 IRS 码本的设定下，比较随机 probing、固定网格、轮换网格、局部邻域和混合 probing。
+- `evaluate_channel_estimation_error_sweep.py`: 在决策 preview 使用带误差的等效信道、执行仍使用真实信道的设定下，扫描 IRS 选择规则对信道估计误差的鲁棒性。
+- `evaluate_limited_csi_ms_aircomp.py`: 有限 CSI 评估框架，将策略基于估计/partial probing 的节点邀请集合与真实信道执行成功集合分离。
 - `benchmark_policy_runtime.py`: 运行时间 benchmark，统计 Feature Argmax、Feature Argmax PowerTie、Greedy、SAC 和 Codebook-Aware SAC 的决策耗时、环境 step 耗时和 preview 次数。
-- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描和动作诊断命令入口。
-- `tests/smoke_checks.py`: 默认场景的轻量正确性测试，覆盖 preview 无副作用、codebook features 一致性、PowerTie 与 Greedy tie-break 一致性。
-- `results/`: 已生成实验结果。关键 summary CSV 和图可以版本化，逐 episode/step 明细默认只本地保留。
+- `experiments/archive/`: 早期探索实验归档，包括 noisy feature sweep、learned probing selector 和 probing cost tradeoff；这些脚本仍可通过 Makefile 运行，但不是当前主线。
+- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep 和动作诊断命令入口。
+- `tests/smoke_checks.py`: 默认场景的轻量正确性测试，覆盖 preview 无副作用、codebook features 一致性、PowerTie 与 Greedy tie-break 一致性、limited CSI 零误差一致性和“未邀请节点不自动成功”。
+- `results/`: 已生成实验结果，默认按本地生成物处理；需要发布的关键 CSV/图可手动添加。
 - `rl_models/`: 模型 checkpoint 和 VecNormalize 统计文件。
 - `rl_logs/`: TensorBoard 训练日志。
 
@@ -151,6 +155,27 @@ results/imitation/greedy_imitation_train5000_eval1000_seed2026_latency.png
 results/imitation/greedy_imitation_train5000_eval1000_seed2026_slot_curves.png
 ```
 
+也可以训练 noise-aware imitation selector。下面命令在训练/验证观测的 codebook features 上加入 `noise_std=0.2`，再扫描多个评估噪声强度：
+
+```bash
+./.venv/bin/python train_greedy_imitation_selector.py \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --codebook-feature-noise-std 0.2 \
+  --eval-noise-std-values 0,0.02,0.05,0.1,0.15,0.2,0.3
+```
+
+对应输出前缀会追加 feature noise 后缀，例如：
+
+```text
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_train_history.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_summary.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_slot_stats.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_confusion.png
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_noise_sweep.png
+```
+
 ## 参数扫描
 
 对节点数、时隙数、IRS 单元数和码本大小做一因子扫描：
@@ -180,6 +205,158 @@ results/parameter_sweep/parameter_sweep_ep300_seed2026_energy.png
 ```
 
 summary CSV 会额外记录 `decision_preview_calls_per_slot_mean` 和 `tie_candidates_mean`。这里的 preview 次数表示在已获得 codebook features 后，策略决策阶段额外调用 `preview_codebook_index` 的次数；Greedy IRS 则需要每个决策时隙 preview 全部 `C` 个候选。
+
+## Noisy Feature Sweep
+
+给观测中的 C 维 codebook quality features 加高斯噪声，测试规则策略在 feature 不再精确时的退化速度：
+
+```bash
+./.venv/bin/python experiments/archive/evaluate_noisy_feature_sweep.py \
+  --episodes 300 \
+  --noise-std-values 0,0.05,0.1,0.2,0.3
+```
+
+如需同时评估已有 Codebook-Aware SAC 在 noisy features 下的零样本鲁棒性：
+
+```bash
+./.venv/bin/python experiments/archive/evaluate_noisy_feature_sweep.py \
+  --episodes 300 \
+  --include-codebook-aware-sac
+```
+
+默认输出：
+
+```text
+results/noisy_features/noisy_feature_sweep_ep300_runs1_seed2026.csv
+results/noisy_features/noisy_feature_sweep_ep300_runs1_seed2026.png
+```
+
+也可以直接在主对比脚本中指定单个噪声强度：
+
+```bash
+./.venv/bin/python evaluate_policy_comparison.py \
+  --episodes 1000 \
+  --num-seeds 5 \
+  --include-codebook-aware-sac \
+  --codebook-feature-noise-std 0.1
+```
+
+## Partial Probing Sweep
+
+限制每个决策时隙只能精确 preview `B` 个 IRS 码本，然后在已 preview 候选中按 Greedy 的调度节点数、平均功率和剩余增益排序选择 IRS：
+
+```bash
+./.venv/bin/python evaluate_partial_probing_sweep.py \
+  --episodes 300 \
+  --probe-budgets 1,2,4,8
+```
+
+默认比较：
+
+```text
+Random Probe
+Fixed Grid Probe
+Rotating Grid Probe
+Local Probe
+Hybrid Local+Grid Probe
+Greedy Full Preview
+```
+
+默认输出：
+
+```text
+results/partial_probing/partial_probing_sweep_ep300_runs1_seed2026_b1-2-4-8.csv
+results/partial_probing/partial_probing_sweep_ep300_runs1_seed2026_b1-2-4-8.png
+```
+
+CSV 中的 `decision_preview_calls_per_slot_mean` 是策略实际使用的 probe budget；`oracle_match_rate` 和 `oracle_tx_gap_mean` 使用 full Greedy 做离线诊断，不计入策略 preview budget。
+
+## Learned Probing
+
+训练一个低维状态的 learned probing selector。模型不观察完整 codebook quality features，只输入基础 7 维状态和上一 IRS index 编码，预测每个码本的可调度比例；评估时只 preview 预测 top-B 候选：
+
+```bash
+./.venv/bin/python experiments/archive/train_learned_probing_selector.py \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --num-eval-seeds 5 \
+  --probe-budgets 1,2,4,8
+```
+
+默认输出：
+
+```text
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_train_history.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_val_topk.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_eval_summary.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_eval.png
+```
+
+模型 checkpoint `*_regressor.pt` 默认只本地保留。
+
+## Probing Cost Tradeoff
+
+把每个 episode 的总 preview 次数纳入 node-equivalent utility：
+
+```text
+utility = success_mean - slot_cost * slots_mean - preview_cost * total_preview_calls_mean
+```
+
+运行成本网格分析：
+
+```bash
+./.venv/bin/python experiments/archive/evaluate_probing_cost_tradeoff.py
+```
+
+默认读取正式 partial probing 和 learned probing summary，输出：
+
+```text
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_candidates.csv
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_utilities.csv
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_winners.csv
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_frontier.png
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_winners.png
+```
+
+## Channel Estimation Error Sweep
+
+在该实验中，环境执行仍使用真实等效信道；策略决策时的 preview 使用加入复高斯估计误差的等效信道：
+
+```bash
+./.venv/bin/python evaluate_channel_estimation_error_sweep.py \
+  --episodes 1000 \
+  --num-seeds 5 \
+  --error-std-values 0,0.02,0.05,0.1,0.2,0.3
+```
+
+默认输出：
+
+```text
+results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_err0-0p02-0p05-0p1-0p2-0p3.csv
+results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_err0-0p02-0p05-0p1-0p2-0p3.png
+```
+
+`Exact Greedy Full Preview` 作为真实信道 oracle；`Estimated Greedy Full Preview`、`Estimated Rotating Grid B=4/B=8` 和 `Estimated Count Argmax` 只在决策 preview 阶段看到估计信道。`oracle_match_rate` 与 `oracle_tx_gap_mean` 是离线诊断指标，不改变策略预算。
+
+## Limited CSI MS-AirComp
+
+该实验不再让环境自动调度所有真实可行节点。策略只能基于有限 probing/估计信道选择 IRS，并邀请估计可发送的节点；执行阶段再用真实信道验证这些被邀请节点是否真的成功：
+
+```bash
+./.venv/bin/python evaluate_limited_csi_ms_aircomp.py \
+  --episodes 300 \
+  --probe-budgets 2,4,8 \
+  --error-std-values 0,0.05,0.1,0.2,0.3 \
+  --robust-gain-margins 1.25 \
+  --robust-power-margins 0.9 \
+  --risk-weights 0.5 \
+  --risk-power-weights 0.1 \
+  --risk-invite-thresholds 0.5 \
+  --adaptive-risk-base-weights 0.5
+```
+
+默认比较 `No IRS`、`Fixed IRS`、`Exact Greedy Full CSI`、`Estimated Greedy Full Preview`、`Estimated Random Probe`、`Estimated Rotating Grid`、`Robust Rotating Grid`、`Risk-Aware Rotating Grid` 和 `Adaptive Risk-Aware Rotating Grid`。`Risk-Aware` 策略会根据估计信道距离可行阈值的距离生成节点成功可靠度，优先选择期望成功数高、边界风险低、平均功率低的 IRS 候选；默认 `risk-invite-threshold=0.5` 主要体现风险感知 IRS 选择，调高该门限则会更保守地过滤边界节点。`Adaptive Risk-Aware` 会在 CSI error 较高时提高风险权重，并在接近 deadline 或剩余节点 backlog 较高时降低风险权重。新增指标包括 `scheduled_nodes_mean`、`failed_nodes_mean`、`execution_failure_rate`、`missed_opportunity_rate`、`decision_preview_calls_per_slot_mean`、`effective_risk_weight_mean` 和 `oracle_tx_gap_mean`。
 
 ## 运行时间 Benchmark
 
@@ -212,6 +389,12 @@ make smoke
 make policy-comparison
 make runtime
 make parameter-sweep
+make noisy-feature-sweep
+make partial-probing-sweep
+make learned-probing
+make probing-cost-tradeoff
+make channel-estimation-sweep
+make limited-csi-sweep
 make action-diagnostics
 ```
 
@@ -221,12 +404,13 @@ make action-diagnostics
 
 当前结论成立于以下默认场景：
 
-- 完整 codebook quality features 可观测。
+- 默认主对比假设完整且精确的 codebook quality features 可观测。
 - `g_th=0.001`、`alpha_th=0.05` 固定。
 - Rayleigh fading 信道、DFT IRS codebook。
-- 没有显式 probing cost；preview 次数只作为决策阶段复杂度代理。
+- 默认物理环境没有显式 probing cost；probing cost tradeoff 是基于 summary 的离线效用分析。
+- Channel estimation sweep 中只有决策 preview 使用估计信道，实际执行仍使用真实信道。
 
-如果加入 noisy/partial features、probing cost、信道估计误差或多目标约束，结论需要重新评估。
+Noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff 和 channel estimation error sweep 都已经完成：feature 噪声会显著拉低完美覆盖率并拉长时延，直接训练 noisy Greedy-index imitation 仍没有超过 Feature Argmax；partial probing 下，简单的 Rotating Grid Probe 已经是很强的新基线；低维状态 learned probing 也没有超过 Rotating Grid；显式 preview cost 下 Rotating Grid 通常比 full Greedy 更优；等效信道估计误差会降低 oracle match 并拉长时延，但在当前误差模型下 Estimated Greedy/Rotating Grid 仍维持接近满覆盖。下一阶段更应转向多目标约束、执行阶段信道失配或更真实的估计误差模型。
 
 ## 当前基线结果
 
@@ -259,6 +443,50 @@ make action-diagnostics
 - `Feature Argmax` 与 Greedy IRS 的 index 匹配率只有 `56.19%`，但 `oracle_tx_gap_mean=0.0`，说明很多不同码本索引在调度节点数上是等价的；Greedy 的功率 tie-break 对覆盖率影响很小。
 - 当前最强的非学习规则已经几乎等于 Greedy IRS，因此 Codebook-Aware SAC 落后的直接原因不是特征不足，而是 RL 训练没有学到“优先选择当前 codebook feature 最大值”的简单策略。
 
+Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_summary.csv`。主要结论：
+
+- 在 `noise_std=0.2` 的 noisy features 上训练后，验证标签准确率峰值只有 `10.21%`，最终为 `8.54%`。
+- 该 selector 在所有评估噪声强度下都没有超过 Feature Argmax；例如 `eval_noise=0.2` 时，Greedy Imitation 为 `49.389/50`、完美覆盖率 `58.4%`、平均 `6.777` 个时隙，而 Feature Argmax 为 `49.905/50`、`91.4%`、`5.409` 个时隙。
+- 该模型长期偏向 dominant IRS index `13`，更像带状态微调的固定索引策略。下一步不应继续 plain Greedy-index imitation，而应转向 partial probing 或 learned probing policy。
+
+## 当前 Partial Probing 结论
+
+当前推荐引用 `results/partial_probing/partial_probing_sweep_ep1000_runs5_seed2026_b1-2-4-8.csv`，对应 `episodes=1000, seed=2026, num_seeds=5, --probe-budgets 1,2,4,8`。主要结论：
+
+- `Rotating Grid Probe` 是当前最强非学习 probing baseline。`B=4` 时达到 `49.9946/50`、`99.48%` 完美覆盖率、平均 `3.1598` 个时隙，只用 `4` 次 preview/slot。
+- `B=8` 的 Rotating Grid 达到 `2.7694` 个时隙，接近 full Greedy 的 `2.5496`，但 preview 次数只有一半。
+- `B=1` 固定网格退化明显，只有 `41.0186/50`、`0.02%` 完美覆盖率；说明固定少量码本不是有效 probing。
+- `Local Probe` 也不够稳，`B=2` 只有 `49.18%` 完美覆盖率；上一时隙最优 IRS 的邻域并不可靠。
+- 下一步若做学习策略，应学习 probe schedule / candidate selection，并且必须在 `B=2/4` 下超过 Rotating Grid，而不是继续直接预测 Greedy index。
+
+## 当前 Learned Probing 结论
+
+当前推荐引用 `results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_eval_summary.csv`。该模型在 rotating-grid `B=4` 轨迹上收集训练状态，用 full preview 的 C 维 tx-count fractions 作为监督目标。主要结论：
+
+- Learned Probe 没有在任何预算下超过 Rotating Grid。`B=4` 时 Learned Probe 为 `49.981/50`、`98.14%` 完美覆盖率、`3.430` slots；Rotating Grid 为 `49.995/50`、`99.48%`、`3.160` slots。
+- `B=8` 时 Learned Probe 为 `2.887` slots，仍落后于 Rotating Grid 的 `2.769`，也略落后于 Random Probe 的 `2.859`。
+- 验证集 top-k oracle hit rate 随预算上升，但不足以支撑策略胜出：`B=1/2/4/8` 分别为 `22.15%/36.98%/55.57%/78.27%`。
+- 结论是低维状态加上一时隙 IRS index 不足以学习出比 deterministic rotating schedule 更强的 probing policy。继续学习方向需要更丰富的观测、显式 probing cost 目标，或把问题改成主动探索/信息增益，而不是再调当前 MLP。
+
+## 当前 Probing Cost 结论
+
+当前推荐引用 `results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_winners.csv`。主要结论：
+
+- 当 `preview_cost=0` 时，full Greedy 因 `2.550` slots 的最低时延胜出。
+- 当 preview 有非零成本时，winner 基本切换到 Rotating Grid：例如 `slot_cost=0.1, preview_cost=0.002` 时选 `B=8`，`preview_cost=0.005/0.01` 时选 `B=4`，`preview_cost=0.02/0.05` 时选 `B=2`。
+- `slot_cost=0.05, preview_cost=0.001` 已经从 Greedy 切到 `Rotating Grid B=8`，说明 full preview 的额外 18 个左右 preview/episode 只有在 preview 几乎免费时才合理。
+- Learned Probe 没有在默认成本网格中成为 winner。
+- 论文叙事上应把 Rotating Grid 作为 probing-cost 场景的强规则算法，而不是把 learned probing 作为当前主贡献。
+
+## 当前 Channel Estimation 结论
+
+当前推荐引用 `results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_err0-0p02-0p05-0p1-0p2-0p3.csv`。主要结论：
+
+- `error_std=0.3` 时，`Estimated Greedy Full Preview` 仍达到 `49.9918/50`、`99.22%` 完美覆盖率、`3.3108` slots，但 oracle match 从 `99.94%` 降到 `34.94%`，说明很多估计错误仍落在近等价候选上。
+- `Estimated Rotating Grid B=4` 在 `error_std=0.3` 下为 `49.9874/50`、`98.78%`、`3.8162` slots；`B=8` 为 `49.9900/50`、`99.02%`、`3.5034` slots。
+- `Estimated Count Argmax` 对误差更敏感，`error_std=0.3` 时降到 `49.8812/50`、`88.24%` 完美覆盖率、`4.5880` slots。
+- 当前等效信道误差模型还没有让学习策略自然变得必要；它主要确认 full/partial probing 规则有较强鲁棒性。下一步若继续做鲁棒性，应加入执行阶段信道失配、延迟/偏置估计或多目标约束。
+
 ## 当前参数扫描结论
 
 当前推荐引用 `results/parameter_sweep/parameter_sweep_ep300_seed2026_summary.csv`，对应默认 `K/N/M/C` 一因子扫描。主要结论：
@@ -271,4 +499,4 @@ make action-diagnostics
 
 运行时间结果推荐引用 `results/runtime/runtime_benchmark_ep200_seed2026.csv`。其中 PowerTie 的平均决策耗时约 `0.0925 ms`，Greedy 约 `0.4345 ms`；PowerTie 与 Greedy 能耗相同，但额外 preview 次数约 `2.54` vs `16.00`。
 
-下一步研究重点应转向 noisy/partial feature 或多目标约束场景，让 RL 问题真正有学习价值。
+下一步研究重点应转向信道估计误差或多目标约束场景，让 RL 问题真正有学习价值。

@@ -8,6 +8,8 @@
 
 能耗改进实验也已经完成：在 Feature Argmax 的 max-count 并列候选内加入功率 tie-break 后，`Feature Argmax PowerTie IRS` 在所有扫描配置下复现 Greedy IRS 的覆盖率、时延和能耗，同时每个决策时隙只额外 preview 少量并列候选。
 
+后续 noisy feature、partial probing、probing cost 和 channel estimation error 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；但在当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖，尚未给学习策略创造明确优势。
+
 这意味着当前问题形态下，继续单纯训练 SAC 的收益不大。`Codebook-Aware SAC` 落后不是因为缺少有效特征，而是因为 RL 训练没有学到一个非常简单、稳定、可解释的规则：
 
 ```text
@@ -212,16 +214,304 @@ Interpretation:
 - PowerTie 的额外 preview 次数明显小于 Greedy；但这里的 preview 次数是在 codebook features 已经可用的前提下统计的决策阶段额外开销。
 - No IRS 的 success rate 稳定在约 `0.775-0.784` 且完美覆盖率为 `0%`，动态 IRS 选择的价值在不同参数下都存在。
 
+## Noisy Feature 鲁棒性证据
+
+噪声扫描命令：
+
+```bash
+./.venv/bin/python experiments/archive/evaluate_noisy_feature_sweep.py \
+  --episodes 1000 \
+  --num-seeds 5 \
+  --noise-std-values 0,0.02,0.05,0.1,0.15,0.2,0.3 \
+  --include-codebook-aware-sac
+```
+
+推荐引用文件：
+
+```text
+results/noisy_features/noisy_feature_sweep_ep1000_runs5_seed2026_cbsac.csv
+results/noisy_features/noisy_feature_sweep_ep1000_runs5_seed2026_cbsac.png
+```
+
+这里的噪声是在归一化后的 codebook quality features 上加入的高斯观测噪声。Greedy IRS 仍使用精确 preview，因此代表上界；Feature Argmax/PowerTie 和 Codebook-Aware SAC 只能看到 noisy features。
+
+关键结果：
+
+| Noise std | Policy | Success | Perfect % | Slots | Energy | Preview / Slot |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | Feature Argmax PowerTie IRS | 49.995 | 99.48 | 2.550 | 15.978 | 2.32 |
+| 0.00 | Greedy IRS | 49.995 | 99.48 | 2.550 | 15.978 | 16.00 |
+| 0.05 | Feature Argmax PowerTie IRS | 49.967 | 96.74 | 4.145 | 16.575 | 0.01 |
+| 0.05 | Random IRS | 49.965 | 96.66 | 5.146 | 16.571 | 0.00 |
+| 0.10 | Feature Argmax PowerTie IRS | 49.934 | 93.62 | 4.891 | 16.510 | 0.15 |
+| 0.10 | Codebook-Aware SAC | 49.806 | 83.14 | 6.333 | 16.490 | 0.00 |
+| 0.20 | Feature Argmax PowerTie IRS | 49.904 | 90.94 | 5.231 | 16.428 | 0.73 |
+| 0.20 | Codebook-Aware SAC | 49.710 | 76.38 | 6.846 | 16.432 | 0.00 |
+| 0.30 | Feature Argmax PowerTie IRS | 49.893 | 90.16 | 5.345 | 16.399 | 1.05 |
+| 0.30 | Codebook-Aware SAC | 49.608 | 71.28 | 7.184 | 16.366 | 0.00 |
+| 0.30 | Greedy IRS | 49.995 | 99.48 | 2.550 | 15.978 | 16.00 |
+
+Interpretation:
+
+- Noisy features 的主要影响不是让 success mean 立刻崩掉，而是显著拉低完美覆盖率并拉长完成时延。
+- `noise_std=0.05` 时，Feature Argmax/PowerTie 的完美覆盖率已经从 `99.48%` 降到 `96.74%`，平均时隙从约 `2.55` 增加到约 `4.15`。
+- `noise_std=0.10` 后，Feature Argmax/PowerTie 的时延接近 Random IRS；`noise_std=0.20/0.30` 时，PowerTie 的 slots 已经略高于 Random IRS，但完美覆盖率低于 Random IRS。
+- PowerTie 在 noisy features 下仍能略降能耗和时延，但无法恢复 Greedy 的覆盖率和时延；它的优势仍是 tie-break，而不是纠正 noisy argmax。
+- 现有 Codebook-Aware SAC 是 exact-feature 训练得到的零样本模型，在 noisy features 下不比规则策略更稳健；`noise_std=0.30` 时完美覆盖率降到 `71.28%`，slots 升到 `7.184`。
+- 当前 noisy feature 实验已经证明 exact feature 是规则策略接近 Greedy 的关键条件之一，但也说明“直接复用现有 SAC”不是解决鲁棒性的有效路径。
+
+## Noise-Aware Imitation 证据
+
+在 noisy feature sweep 之后，进一步训练了一个 noise-aware supervised imitation selector：训练和验证时都在 codebook quality features 上加入 `noise_std=0.2` 的高斯噪声，但标签仍来自精确 Greedy IRS。评估时扫描 `noise_std in {0,0.02,0.05,0.1,0.15,0.2,0.3}`。
+
+训练命令：
+
+```bash
+./.venv/bin/python train_greedy_imitation_selector.py \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --codebook-feature-noise-std 0.2 \
+  --eval-noise-std-values 0,0.02,0.05,0.1,0.15,0.2,0.3
+```
+
+推荐引用文件：
+
+```text
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_train_history.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_summary.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_slot_stats.csv
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_confusion.png
+results/imitation/greedy_imitation_train5000_eval1000_seed2026_featnoise0p2_eval_noise_sweep.png
+```
+
+关键结果：
+
+| Eval noise | Policy | Success | Perfect % | Slots | Oracle match % | Oracle tx gap | Dominant IRS |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | Greedy Imitation | 49.356 | 55.30 | 7.034 | 6.65 | 1.473 | 13 |
+| 0.00 | Feature Argmax | 49.997 | 99.70 | 2.529 | 56.19 | 0.000 | 0 |
+| 0.00 | Greedy IRS | 49.997 | 99.70 | 2.536 | 100.00 | 0.000 | 7 |
+| 0.10 | Greedy Imitation | 49.329 | 54.50 | 6.959 | 5.78 | 1.636 | 13 |
+| 0.10 | Feature Argmax | 49.941 | 94.40 | 4.817 | 11.83 | 1.279 | 4 |
+| 0.20 | Greedy Imitation | 49.389 | 58.40 | 6.777 | 5.12 | 1.750 | 13 |
+| 0.20 | Feature Argmax | 49.905 | 91.40 | 5.409 | 8.41 | 1.598 | 0 |
+| 0.30 | Greedy Imitation | 49.460 | 64.40 | 6.573 | 5.13 | 1.832 | 13 |
+| 0.30 | Feature Argmax | 49.887 | 89.60 | 5.583 | 7.90 | 1.675 | 0 |
+| 0.30 | Greedy IRS | 49.997 | 99.70 | 2.536 | 100.00 | 0.000 | 7 |
+
+Interpretation:
+
+- Noise-aware imitation 是负结果：它在所有评估噪声强度下都没有超过 Feature Argmax。
+- 验证标签准确率峰值只有 `10.21%`，最终为 `8.54%`；相比 exact-feature imitation 的约 `58%`，noisy observations 难以恢复 Greedy index 标签。
+- Imitation 策略学到了明显的偏置，dominant IRS index 长期为 `13`，dominant rate 约 `22%-25%`，更接近一个带状态微调的固定索引策略，而不是 robust Greedy selector。
+- 在高噪声下 imitation 的平均时隙数略低于现有 Codebook-Aware SAC 零样本模型，但它的完美覆盖率远低于 Feature Argmax；这不足以支持继续投入 plain Greedy-index imitation。
+- 下一步如果要做鲁棒学习，不应继续模仿 noisy observation 下的 Greedy index，而应转向 partial probing、probing cost、选择少量候选后再精确评估，或学习 tx-count/风险估计而不是直接预测 Greedy index。
+
+## Partial Probing 证据
+
+在 partial probing 场景中，不再假设每个时隙都能免费获得完整的 C 维 codebook quality features。策略每个决策时隙只能精确 preview `B` 个码本，并在已 preview 候选内按 Greedy 的调度节点数、平均功率、剩余增益排序选择 IRS。Full Greedy 仍作为 `B=C=16` 的 oracle 上界；`oracle_match_rate` 和 `oracle_tx_gap_mean` 只用于离线诊断，不计入策略 preview budget。
+
+实验命令：
+
+```bash
+./.venv/bin/python evaluate_partial_probing_sweep.py \
+  --episodes 1000 \
+  --num-seeds 5 \
+  --probe-budgets 1,2,4,8
+```
+
+推荐引用文件：
+
+```text
+results/partial_probing/partial_probing_sweep_ep1000_runs5_seed2026_b1-2-4-8.csv
+results/partial_probing/partial_probing_sweep_ep1000_runs5_seed2026_b1-2-4-8.png
+```
+
+关键结果：
+
+| Probe B | Policy | Success | Perfect % | Slots | Energy | Preview / Slot | Oracle tx gap |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | Fixed Grid Probe | 41.019 | 0.02 | 9.998 | 12.283 | 1.00 | 7.302 |
+| 1 | Random Probe | 49.857 | 87.22 | 5.943 | 16.484 | 1.00 | 1.840 |
+| 1 | Rotating Grid Probe | 49.963 | 96.52 | 5.166 | 16.588 | 1.00 | 1.718 |
+| 2 | Random Probe | 49.968 | 96.94 | 4.394 | 16.383 | 2.00 | 1.258 |
+| 2 | Rotating Grid Probe | 49.993 | 99.30 | 3.873 | 16.377 | 2.00 | 1.212 |
+| 4 | Random Probe | 49.991 | 99.12 | 3.402 | 16.226 | 4.00 | 0.781 |
+| 4 | Rotating Grid Probe | 49.995 | 99.48 | 3.160 | 16.206 | 4.00 | 0.731 |
+| 8 | Random Probe | 49.994 | 99.46 | 2.859 | 16.085 | 8.00 | 0.353 |
+| 8 | Rotating Grid Probe | 49.995 | 99.48 | 2.769 | 16.078 | 8.00 | 0.316 |
+| 16 | Greedy Full Preview | 49.995 | 99.48 | 2.550 | 15.978 | 16.00 | 0.000 |
+
+Interpretation:
+
+- Partial probing 是比 noisy Greedy-index imitation 更有价值的下一阶段问题：它保留了强 Greedy 上界，同时引入真实的 preview budget 约束。
+- 固定探测少量码本非常弱：`B=1` 固定网格几乎退化到固定 IRS，完美覆盖率只有 `0.02%`。
+- 单纯 local tracking 也不可靠；`B=2` Local Probe 只有 `49.18%` 完美覆盖率，说明上一槽最优 IRS 的邻域不一定适合下一槽剩余节点。
+- Rotating Grid 是当前最强的非学习 probing baseline。`B=4` 已达到与 Greedy 相同的 `99.48%` 完美覆盖率，但 slots 仍为 `3.160`，高于 Greedy 的 `2.550`。
+- `B=8` Rotating Grid 只用一半 preview 次数，slots 降到 `2.769`，已经接近 full Greedy；剩余差距主要是每槽 oracle tx gap 仍有 `0.316`。
+- 如果继续做学习策略，目标不应是直接预测 Greedy index，而应学习 probe schedule / candidate selection，并且必须和 `B=2/4` Rotating Grid 这个强规则 baseline 对比。
+
+## Learned Probing 证据
+
+在 partial probing 之后，训练了一个低维状态 learned probing selector。模型不观察完整 codebook quality features；输入只包含基础 7 维观测和上一时隙 IRS index 编码，输出 C 个码本的预计可调度比例。评估时，策略只 preview 预测 top-B 候选，并在这些候选内按 Greedy 排序规则选 IRS。
+
+训练和评估命令：
+
+```bash
+./.venv/bin/python experiments/archive/train_learned_probing_selector.py \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --num-eval-seeds 5 \
+  --probe-budgets 1,2,4,8
+```
+
+推荐引用文件：
+
+```text
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_train_history.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_val_topk.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_eval_summary.csv
+results/learned_probing/learned_probing_train5000_eval1000_seed2026_rotatinggrid_b4_evalb1-2-4-8_eval.png
+```
+
+验证集 top-k 诊断：
+
+| Probe B | Top-k oracle hit % | Oracle tx gap |
+| ---: | ---: | ---: |
+| 1 | 22.15 | 2.123 |
+| 2 | 36.98 | 1.390 |
+| 4 | 55.57 | 0.793 |
+| 8 | 78.27 | 0.342 |
+
+评估关键结果：
+
+| Probe B | Policy | Success | Perfect % | Slots | Energy | Oracle tx gap |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | Learned Probe | 49.668 | 75.78 | 6.042 | 16.384 | 1.796 |
+| 1 | Rotating Grid Probe | 49.963 | 96.52 | 5.166 | 16.588 | 1.718 |
+| 2 | Learned Probe | 49.905 | 91.04 | 4.539 | 16.348 | 1.237 |
+| 2 | Rotating Grid Probe | 49.993 | 99.30 | 3.873 | 16.377 | 1.212 |
+| 4 | Learned Probe | 49.981 | 98.14 | 3.430 | 16.226 | 0.773 |
+| 4 | Rotating Grid Probe | 49.995 | 99.48 | 3.160 | 16.206 | 0.731 |
+| 8 | Learned Probe | 49.991 | 99.12 | 2.887 | 16.057 | 0.391 |
+| 8 | Rotating Grid Probe | 49.995 | 99.48 | 2.769 | 16.078 | 0.316 |
+| 16 | Greedy Full Preview | 49.995 | 99.48 | 2.550 | 15.978 | 0.000 |
+
+Interpretation:
+
+- Learned probing 是负结果：它在所有预算下都没有超过 Rotating Grid。
+- `B=4` 时 learned probing 接近满覆盖，但 slots 为 `3.430`，仍明显高于 Rotating Grid 的 `3.160`。
+- `B=8` 时 learned probing 的能耗略低，但覆盖率、时延和 oracle tx gap 仍落后于 Rotating Grid；这不是一个足够强的学习型改进。
+- 验证集 top-k hit rate 表明，低维状态只能预测出平均意义上的好码本，不能稳定识别当前信道/剩余节点状态下的最优候选集合。
+- 继续学习方向必须改变问题设定：增加更有信息量的观测、显式建模 probing cost、或让策略学习主动信息获取；继续调当前低维 MLP 不是优先路线。
+
+## Probing Cost Tradeoff 证据
+
+在 partial probing 与 learned probing 的 summary 结果上，进一步做了显式成本分析。这里不重新运行物理环境，而是把每个策略的覆盖、时延和 preview 次数转成 node-equivalent utility：
+
+```text
+utility = success_mean - slot_cost * slots_mean - preview_cost * total_preview_calls_mean
+```
+
+其中 `total_preview_calls_mean = decision_preview_calls_per_slot_mean * slots_mean`。这个定义用于回答：当一次 preview 有明确代价时，full Greedy 的低时延是否仍值得。
+
+分析命令：
+
+```bash
+./.venv/bin/python experiments/archive/evaluate_probing_cost_tradeoff.py
+```
+
+推荐引用文件：
+
+```text
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_candidates.csv
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_winners.csv
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_frontier.png
+results/probing_cost/probing_cost_tradeoff_slot0-0p05-0p1-0p2_preview0-0p0005-0p001-0p002-0p005-0p01-0p02-0p05_winners.png
+```
+
+代表性 winner：
+
+| Slot cost | Preview cost | Winner | Utility | Success | Perfect % | Slots | Total previews |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | 0.0000 | Greedy Full Preview B=16 | 49.995 | 49.995 | 99.48 | 2.550 | 40.794 |
+| 0.00 | 0.0005 | Rotating Grid Probe B=2 | 49.989 | 49.993 | 99.30 | 3.873 | 7.746 |
+| 0.05 | 0.0010 | Rotating Grid Probe B=8 | 49.834 | 49.995 | 99.48 | 2.769 | 22.155 |
+| 0.05 | 0.0050 | Rotating Grid Probe B=4 | 49.773 | 49.995 | 99.48 | 3.160 | 12.639 |
+| 0.10 | 0.0010 | Greedy Full Preview B=16 | 49.699 | 49.995 | 99.48 | 2.550 | 40.794 |
+| 0.10 | 0.0020 | Rotating Grid Probe B=8 | 49.673 | 49.995 | 99.48 | 2.769 | 22.155 |
+| 0.10 | 0.0050 | Rotating Grid Probe B=4 | 49.615 | 49.995 | 99.48 | 3.160 | 12.639 |
+| 0.10 | 0.0200 | Rotating Grid Probe B=2 | 49.451 | 49.993 | 99.30 | 3.873 | 7.746 |
+| 0.20 | 0.0020 | Greedy Full Preview B=16 | 49.403 | 49.995 | 99.48 | 2.550 | 40.794 |
+| 0.20 | 0.0050 | Rotating Grid Probe B=8 | 49.330 | 49.995 | 99.48 | 2.769 | 22.155 |
+| 0.20 | 0.0100 | Rotating Grid Probe B=4 | 49.236 | 49.995 | 99.48 | 3.160 | 12.639 |
+
+Interpretation:
+
+- Full Greedy 只在 preview cost 为零或极低、且 slot cost 足够高时胜出。
+- 只要 preview 有非零成本，Rotating Grid 的低预算版本通常成为最优；preview cost 越高，最优预算从 `B=8` 逐步降到 `B=4` 或 `B=2`。
+- `slot_cost=0.05, preview_cost=0.001` 已经足以让 `Rotating Grid B=8` 超过 full Greedy，说明 full preview 的时延优势对 preview cost 非常敏感。
+- Learned Probe 没有在默认成本网格中成为 winner；它仍不是当前 probing-cost 场景的主算法候选。
+- 当前最稳的论文路线是：把 Rotating Grid / Feature Argmax PowerTie 作为低复杂度规则算法主线；学习策略只有在引入更丰富观测、估计误差或多目标约束后才值得继续尝试。
+
+## Channel Estimation Error 证据
+
+在信道估计误差实验中，环境执行仍使用真实等效信道；策略决策时的 preview 使用加入复高斯估计误差的等效信道。该实验回答的是：如果 IRS 选择只能基于估计信道，full preview / partial probing 规则会怎样退化。
+
+实验命令：
+
+```bash
+./.venv/bin/python evaluate_channel_estimation_error_sweep.py \
+  --episodes 1000 \
+  --num-seeds 5 \
+  --error-std-values 0,0.02,0.05,0.1,0.2,0.3
+```
+
+推荐引用文件：
+
+```text
+results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_err0-0p02-0p05-0p1-0p2-0p3.csv
+results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_err0-0p02-0p05-0p1-0p2-0p3.png
+```
+
+关键结果：
+
+| Error std | Policy | Success | Perfect % | Slots | Energy | Preview / Slot | Oracle match % | Oracle tx gap |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | Exact Greedy Full Preview | 49.995 | 99.48 | 2.550 | 15.978 | 16.00 | 100.00 | 0.000 |
+| 0.00 | Estimated Greedy Full Preview | 49.995 | 99.48 | 2.550 | 15.978 | 16.00 | 99.94 | 0.000 |
+| 0.10 | Estimated Count Argmax | 49.988 | 98.86 | 3.060 | 16.206 | 16.00 | 40.68 | 0.404 |
+| 0.10 | Estimated Greedy Full Preview | 49.995 | 99.48 | 2.741 | 15.717 | 16.00 | 62.42 | 0.313 |
+| 0.10 | Estimated Rotating Grid B=4 | 49.994 | 99.38 | 3.319 | 16.009 | 4.00 | 28.34 | 0.897 |
+| 0.20 | Estimated Count Argmax | 49.949 | 95.00 | 3.801 | 16.044 | 16.00 | 28.62 | 0.746 |
+| 0.20 | Estimated Greedy Full Preview | 49.994 | 99.44 | 3.012 | 15.663 | 16.00 | 45.90 | 0.622 |
+| 0.20 | Estimated Rotating Grid B=8 | 49.993 | 99.34 | 3.219 | 15.766 | 8.00 | 34.22 | 0.810 |
+| 0.30 | Estimated Count Argmax | 49.881 | 88.24 | 4.588 | 15.958 | 16.00 | 20.63 | 1.008 |
+| 0.30 | Estimated Greedy Full Preview | 49.992 | 99.22 | 3.311 | 15.664 | 16.00 | 34.94 | 0.884 |
+| 0.30 | Estimated Rotating Grid B=4 | 49.987 | 98.78 | 3.816 | 15.990 | 4.00 | 21.77 | 1.218 |
+| 0.30 | Estimated Rotating Grid B=8 | 49.990 | 99.02 | 3.503 | 15.768 | 8.00 | 28.08 | 1.033 |
+
+Interpretation:
+
+- 等效信道估计误差首先表现为时延和 oracle match 退化，而不是 success mean 立刻崩溃。
+- `Estimated Greedy Full Preview` 在 `error_std=0.3` 下仍有 `99.22%` 完美覆盖率，但 slots 从 `2.550` 增加到 `3.311`；说明估计误差会错过最优快速清空选择。
+- `Estimated Count Argmax` 明显更脆弱，`error_std=0.3` 时完美覆盖率降到 `88.24%`，平均 slots 升到 `4.588`；只有 noisy count 而没有候选内真实排序时，误差影响更大。
+- `Estimated Rotating Grid B=8` 在高误差下仍接近 full estimated greedy，`error_std=0.3` 时 `99.02%` 完美覆盖率、`3.503` slots；它仍是强 partial-probing baseline。
+- 该误差模型没有改变“强规则优先”的主结论。若要让学习策略有价值，下一步需要更难的失配：执行阶段也使用估计动作后遭遇真实信道偏移、信道延迟/偏置、或者和能耗/MSE 约束耦合。
+
 ## 当前结论边界
 
 当前结论成立于：
 
-- 完整 codebook quality features 可观测。
+- 默认主对比中，完整且精确的 codebook quality features 可观测。
 - 固定传输参数 `g_th=0.001`、`alpha_th=0.05`。
 - Rayleigh fading 信道和 DFT IRS codebook。
-- 无显式 probing cost；preview 次数只作为决策阶段复杂度代理。
+- 默认物理环境无显式 probing cost；probing cost tradeoff 是离线效用分析。
+- Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
 
-若加入 noisy/partial features、probing cost、信道估计误差或多目标约束，PowerTie 与学习策略的相对优势需要重新实验验证。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -303,10 +593,10 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. Noisy feature 实验：给 codebook features 加噪声或延迟，测试规则和 RL 的鲁棒性差异。
-2. Partial probing 实验：限制每时隙只能 preview 或观测部分 codebook，比较 PowerTie、Greedy 近似和学习策略。
-3. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-4. Multi-objective reward：显式优化 coverage + latency + power，看 RL 是否能在能耗上超过 Feature Argmax PowerTie。
-5. 整理论文图表：把主对比、runtime benchmark、参数扫描和动作诊断压缩成最终论文表格与图。
+1. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
+2. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
+3. More informative learned probing：若继续学习，需要加入 probe history、少量实时测量或不确定性/信息增益目标，而不是只用 7 维基础状态。
+4. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
+5. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost 和 channel estimation 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比和 runtime benchmark 已经完成。下一步应构造 noisy/partial feature 场景，判断在信息不完美或 probing 成本存在时，RL 是否能比简单规则更稳健。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff 和 channel estimation error sweep 已经完成。下一步若继续保留学习方向，应优先转向多目标约束、更真实的执行阶段信道失配或更高信息量的主动 probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP 或仅决策 preview 误差。

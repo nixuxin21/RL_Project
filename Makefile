@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep action-diagnostics
+.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -8,11 +8,17 @@ py-compile:
 		train_agent.py \
 		train_codebook_aware_agent.py \
 		train_greedy_imitation_selector.py \
+		experiments/archive/train_learned_probing_selector.py \
 		evaluate_agent.py \
 		evaluate_batch.py \
 		evaluate_random_irs_baseline.py \
 		evaluate_policy_comparison.py \
 		evaluate_parameter_sweep.py \
+		experiments/archive/evaluate_noisy_feature_sweep.py \
+		evaluate_partial_probing_sweep.py \
+		experiments/archive/evaluate_probing_cost_tradeoff.py \
+		evaluate_channel_estimation_error_sweep.py \
+		evaluate_limited_csi_ms_aircomp.py \
 		diagnose_policy_actions.py \
 		benchmark_policy_runtime.py \
 		tests/smoke_checks.py
@@ -32,6 +38,19 @@ smoke: test
 		--skip-sac \
 		--skip-codebook-aware-sac \
 		--output /tmp/runtime_benchmark_smoke.csv
+	$(PYTHON) evaluate_limited_csi_ms_aircomp.py \
+		--episodes 2 \
+		--num-seeds 1 \
+		--error-std-values 0.1 \
+		--probe-budgets 2 \
+		--robust-gain-margins 1.25 \
+		--robust-power-margins 0.9 \
+		--risk-weights 0.5 \
+		--risk-power-weights 0.1 \
+		--risk-invite-thresholds 0.5 \
+		--adaptive-risk-base-weights 0.5 \
+		--output-prefix /tmp/limited_csi_smoke \
+		--no-plots
 
 policy-comparison:
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -45,6 +64,24 @@ runtime:
 
 parameter-sweep:
 	$(PYTHON) evaluate_parameter_sweep.py
+
+noisy-feature-sweep:
+	$(PYTHON) experiments/archive/evaluate_noisy_feature_sweep.py
+
+partial-probing-sweep:
+	$(PYTHON) evaluate_partial_probing_sweep.py
+
+learned-probing:
+	$(PYTHON) experiments/archive/train_learned_probing_selector.py
+
+probing-cost-tradeoff:
+	$(PYTHON) experiments/archive/evaluate_probing_cost_tradeoff.py
+
+channel-estimation-sweep:
+	$(PYTHON) evaluate_channel_estimation_error_sweep.py
+
+limited-csi-sweep:
+	$(PYTHON) evaluate_limited_csi_ms_aircomp.py
 
 action-diagnostics:
 	$(PYTHON) diagnose_policy_actions.py --episodes 1000
