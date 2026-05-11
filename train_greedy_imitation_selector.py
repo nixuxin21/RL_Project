@@ -53,6 +53,23 @@ def parse_args():
     parser.add_argument("--num-codebook-states", type=int, default=16)
     parser.add_argument("--g-th", type=float, default=0.001)
     parser.add_argument("--alpha-th", type=float, default=0.05)
+    parser.add_argument(
+        "--codebook-feature-noise-std",
+        type=float,
+        default=0.0,
+        help=(
+            "Gaussian noise std added to normalized codebook quality features "
+            "during train/val and default evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--eval-noise-std-values",
+        default=None,
+        help=(
+            "Optional comma-separated feature-noise std values for evaluation. "
+            "When omitted, evaluate only --codebook-feature-noise-std."
+        ),
+    )
     parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument("--hidden-layers", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=30)
@@ -63,6 +80,17 @@ def parse_args():
     parser.add_argument("--output-prefix", default=None)
     parser.add_argument("--no-plots", action="store_true")
     return parser.parse_args()
+
+
+def parse_float_list(value):
+    """把形如 `0,0.05,0.1` 的字符串解析为浮点列表。"""
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def format_float_for_suffix(value):
+    """把浮点参数转换成适合文件名的短字符串。"""
+    text = f"{value:g}"
+    return text.replace("-", "m").replace(".", "p")
 
 
 def validate_args(args):
@@ -83,6 +111,16 @@ def validate_args(args):
     for name, value in positive_ints.items():
         if value <= 0:
             raise ValueError(f"{name} must be positive")
+    if args.codebook_feature_noise_std < 0:
+        raise ValueError("--codebook-feature-noise-std must be non-negative")
+    if args.eval_noise_std_values is None:
+        args.eval_noise_std_values = [args.codebook_feature_noise_std]
+    else:
+        args.eval_noise_std_values = parse_float_list(args.eval_noise_std_values)
+        if not args.eval_noise_std_values:
+            raise ValueError("--eval-noise-std-values must contain at least one value")
+        if any(value < 0 for value in args.eval_noise_std_values):
+            raise ValueError("--eval-noise-std-values must be non-negative")
 
 
 def ensure_parent_dir(path):
@@ -103,17 +141,24 @@ def resolve_output_prefix(args):
         f"greedy_imitation_train{args.train_episodes}_"
         f"eval{args.eval_episodes}_seed{args.seed}",
     )
+    if args.codebook_feature_noise_std > 0:
+        output_prefix += f"_featnoise{format_float_for_suffix(args.codebook_feature_noise_std)}"
     ensure_parent_dir(output_prefix)
     return output_prefix
 
 
-def make_env(args):
+def make_env(args, codebook_feature_noise_std=None):
     """
     创建带 codebook features 的环境。
 
     imitation 模型和 Feature Argmax 都依赖观测尾部 C 维码本质量特征，
     因此这里固定 `include_codebook_features=True`。
     """
+    noise_std = (
+        args.codebook_feature_noise_std
+        if codebook_feature_noise_std is None
+        else codebook_feature_noise_std
+    )
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -123,6 +168,7 @@ def make_env(args):
         include_codebook_features=True,
         codebook_feature_g_th=args.g_th,
         codebook_feature_alpha_th=args.alpha_th,
+        codebook_feature_noise_std=noise_std,
     )
 
 
@@ -181,14 +227,19 @@ def greedy_candidate(env, args):
     return max(candidates, key=candidate_key)
 
 
-def collect_greedy_dataset(args, episodes, seed, split_name):
+def collect_greedy_dataset(args, episodes, seed, split_name, codebook_feature_noise_std=None):
     """
     收集 Greedy 标签数据。
 
     每个样本是某个时隙开始时的观测 `obs`，标签是 Greedy IRS 选择的 `irs_index`。
     收集数据时环境实际执行 Greedy 动作，因此后续状态分布也是 Greedy 轨迹下的状态分布。
     """
-    env = make_env(args)
+    noise_std = (
+        args.codebook_feature_noise_std
+        if codebook_feature_noise_std is None
+        else codebook_feature_noise_std
+    )
+    env = make_env(args, codebook_feature_noise_std=noise_std)
     episode_seeds = make_episode_seeds(seed, episodes)
     observations = []
     labels = []
@@ -223,6 +274,7 @@ def collect_greedy_dataset(args, episodes, seed, split_name):
     targets = np.asarray(labels, dtype=np.int64)
     print(
         f"Collected {split_name}: episodes={episodes}, samples={len(targets)}, "
+        f"feature_noise_std={noise_std:g}, "
         f"mean greedy success={np.mean(success_nodes):.3f}/{args.num_nodes}"
     )
     return features, targets, metadata
@@ -385,14 +437,27 @@ def feature_argmax_index(obs, args):
     return int(np.argmax(features))
 
 
-def evaluate_policy(args, policy_name, episode_seeds, model=None, obs_mean=None, obs_std=None):
+def evaluate_policy(
+    args,
+    policy_name,
+    episode_seeds,
+    model=None,
+    obs_mean=None,
+    obs_std=None,
+    codebook_feature_noise_std=None,
+):
     """
     在独立评估 seeds 上评估 imitation、Feature Argmax 或 Greedy。
 
     每个 step 都会同时计算 Greedy oracle，用于记录当前策略是否选中了同一个 index，
     以及相对 oracle 少调度了多少节点。
     """
-    env = make_env(args)
+    noise_std = (
+        args.codebook_feature_noise_std
+        if codebook_feature_noise_std is None
+        else codebook_feature_noise_std
+    )
+    env = make_env(args, codebook_feature_noise_std=noise_std)
     episode_rows = []
     step_rows = []
 
@@ -426,6 +491,7 @@ def evaluate_policy(args, policy_name, episode_seeds, model=None, obs_mean=None,
             step_rows.append(
                 {
                     "policy": policy_name,
+                    "noise_std": noise_std,
                     "episode_idx": episode_idx,
                     "episode_seed": episode_seed,
                     "slot": slot,
@@ -447,6 +513,7 @@ def evaluate_policy(args, policy_name, episode_seeds, model=None, obs_mean=None,
         episode_rows.append(
             {
                 "policy": policy_name,
+                "noise_std": noise_std,
                 "episode_idx": episode_idx,
                 "episode_seed": episode_seed,
                 "success_nodes": total_tx,
@@ -507,6 +574,7 @@ def summarize_eval(episode_rows, step_rows):
         summary_rows.append(
             {
                 "policy": policy,
+                "noise_std": mean([row["noise_std"] for row in episodes]),
                 "episodes": len(episodes),
                 "steps": len(steps),
                 "success_mean": mean(success),
@@ -562,6 +630,7 @@ def compute_slot_stats(episode_rows, step_rows, args):
             rows.append(
                 {
                     "policy": policy,
+                    "noise_std": mean([episode["noise_std"] for episode in episodes]),
                     "slot": slot,
                     "episode_count": len(episodes),
                     "active_episode_count": active_count,
@@ -603,6 +672,7 @@ def save_checkpoint(path, model, obs_mean, obs_std, args):
             "hidden_layers": args.hidden_layers,
             "g_th": args.g_th,
             "alpha_th": args.alpha_th,
+            "codebook_feature_noise_std": args.codebook_feature_noise_std,
         },
         path,
     )
@@ -713,16 +783,77 @@ def print_eval_summary(rows):
     print("Greedy Imitation Evaluation")
     print("=" * 116)
     print(
-        f"{'Policy':<18} {'Success':>9} {'Perfect%':>9} {'Slots':>8} "
+        f"{'Noise':>7} {'Policy':<18} {'Success':>9} {'Perfect%':>9} {'Slots':>8} "
         f"{'Match%':>9} {'Gap':>7} {'Dominant IRS':>13}"
     )
     for row in rows:
         print(
-            f"{row['policy']:<18} {row['success_mean']:>9.3f} "
+            f"{row['noise_std']:>7.3f} {row['policy']:<18} {row['success_mean']:>9.3f} "
             f"{row['perfect_rate']:>8.2f}% {row['slots_mean']:>8.3f} "
             f"{row['irs_oracle_match_rate']:>8.2f}% {row['oracle_tx_gap_mean']:>7.3f} "
             f"{row['dominant_irs_index']:>13}"
         )
+
+
+def plot_eval_noise_sweep(path, summary_rows):
+    """绘制 noise-aware imitation 在不同 feature noise 下的鲁棒性曲线。"""
+    policies = []
+    for row in summary_rows:
+        if row["policy"] not in policies:
+            policies.append(row["policy"])
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    cmap = plt.get_cmap("tab10")
+    colors = {policy: cmap(idx % 10) for idx, policy in enumerate(policies)}
+
+    for policy in policies:
+        rows = sorted(
+            [row for row in summary_rows if row["policy"] == policy],
+            key=lambda row: row["noise_std"],
+        )
+        x = [row["noise_std"] for row in rows]
+        axes[0].plot(
+            x,
+            [row["success_mean"] for row in rows],
+            marker="o",
+            linewidth=1.8,
+            label=policy,
+            color=colors[policy],
+        )
+        axes[1].plot(
+            x,
+            [row["perfect_rate"] for row in rows],
+            marker="o",
+            linewidth=1.8,
+            label=policy,
+            color=colors[policy],
+        )
+        axes[2].plot(
+            x,
+            [row["slots_mean"] for row in rows],
+            marker="o",
+            linewidth=1.8,
+            label=policy,
+            color=colors[policy],
+        )
+
+    axes[0].set_title("Success Nodes vs Feature Noise")
+    axes[0].set_ylabel("Success Nodes")
+    axes[1].set_title("Perfect Coverage vs Feature Noise")
+    axes[1].set_ylabel("Perfect Coverage (%)")
+    axes[1].set_ylim(0.0, 105.0)
+    axes[2].set_title("Latency vs Feature Noise")
+    axes[2].set_ylabel("Slots Used")
+
+    for ax in axes:
+        ax.set_xlabel("Codebook Feature Noise Std")
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.legend(fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+    print(f"Saved: {path}")
 
 
 def main():
@@ -739,14 +870,26 @@ def main():
         f"Greedy imitation training: train_episodes={args.train_episodes}, "
         f"val_episodes={args.val_episodes}, eval_episodes={args.eval_episodes}, seed={args.seed}"
     )
+    print(
+        f"Train/val feature noise std={args.codebook_feature_noise_std}, "
+        f"eval noise std values={args.eval_noise_std_values}"
+    )
     print(f"Output prefix: {output_prefix}")
     print("=" * 96)
 
     train_x, train_y, _train_meta = collect_greedy_dataset(
-        args, args.train_episodes, args.seed, "train"
+        args,
+        args.train_episodes,
+        args.seed,
+        "train",
+        codebook_feature_noise_std=args.codebook_feature_noise_std,
     )
     val_x, val_y, _val_meta = collect_greedy_dataset(
-        args, args.val_episodes, args.seed + 1, "val"
+        args,
+        args.val_episodes,
+        args.seed + 1,
+        "val",
+        codebook_feature_noise_std=args.codebook_feature_noise_std,
     )
     model, obs_mean, obs_std, history = train_classifier(args, train_x, train_y, val_x, val_y)
     val_preds, val_acc = validation_predictions(model, val_x, val_y, obs_mean, obs_std, args)
@@ -762,21 +905,32 @@ def main():
     eval_seeds = make_episode_seeds(args.seed + 2, args.eval_episodes)
     episode_rows = []
     step_rows = []
-    for policy_name in [POLICY_IMITATION, POLICY_FEATURE_ARGMAX, POLICY_GREEDY]:
-        print(f"Evaluating {policy_name}...")
-        policy_episode_rows, policy_step_rows = evaluate_policy(
-            args,
-            policy_name,
-            eval_seeds,
-            model=model,
-            obs_mean=obs_mean,
-            obs_std=obs_std,
-        )
-        episode_rows.extend(policy_episode_rows)
-        step_rows.extend(policy_step_rows)
+    summary_rows = []
+    slot_rows = []
+    for eval_noise_std in args.eval_noise_std_values:
+        print("=" * 96)
+        print(f"Evaluating feature noise std={eval_noise_std:g}")
+        print("=" * 96)
+        noise_episode_rows = []
+        noise_step_rows = []
+        for policy_name in [POLICY_IMITATION, POLICY_FEATURE_ARGMAX, POLICY_GREEDY]:
+            print(f"Evaluating {policy_name}...")
+            policy_episode_rows, policy_step_rows = evaluate_policy(
+                args,
+                policy_name,
+                eval_seeds,
+                model=model,
+                obs_mean=obs_mean,
+                obs_std=obs_std,
+                codebook_feature_noise_std=eval_noise_std,
+            )
+            noise_episode_rows.extend(policy_episode_rows)
+            noise_step_rows.extend(policy_step_rows)
+        episode_rows.extend(noise_episode_rows)
+        step_rows.extend(noise_step_rows)
+        summary_rows.extend(summarize_eval(noise_episode_rows, noise_step_rows))
+        slot_rows.extend(compute_slot_stats(noise_episode_rows, noise_step_rows, args))
 
-    summary_rows = summarize_eval(episode_rows, step_rows)
-    slot_rows = compute_slot_stats(episode_rows, step_rows, args)
     print_eval_summary(summary_rows)
 
     write_csv(
@@ -784,6 +938,7 @@ def main():
         summary_rows,
         [
             "policy",
+            "noise_std",
             "episodes",
             "steps",
             "success_mean",
@@ -805,6 +960,7 @@ def main():
         episode_rows,
         [
             "policy",
+            "noise_std",
             "episode_idx",
             "episode_seed",
             "success_nodes",
@@ -821,6 +977,7 @@ def main():
         slot_rows,
         [
             "policy",
+            "noise_std",
             "slot",
             "episode_count",
             "active_episode_count",
@@ -835,6 +992,7 @@ def main():
         step_rows,
         [
             "policy",
+            "noise_std",
             "episode_idx",
             "episode_seed",
             "slot",
@@ -852,8 +1010,11 @@ def main():
 
     if not args.no_plots:
         plot_confusion(f"{output_prefix}_confusion.png", val_y, val_preds, args)
-        plot_latency(f"{output_prefix}_latency.png", episode_rows, args)
-        plot_slot_curves(f"{output_prefix}_slot_curves.png", slot_rows, args)
+        if len(args.eval_noise_std_values) == 1:
+            plot_latency(f"{output_prefix}_latency.png", episode_rows, args)
+            plot_slot_curves(f"{output_prefix}_slot_curves.png", slot_rows, args)
+        else:
+            plot_eval_noise_sweep(f"{output_prefix}_eval_noise_sweep.png", summary_rows)
 
 
 if __name__ == "__main__":

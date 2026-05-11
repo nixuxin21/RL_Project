@@ -66,6 +66,12 @@ def action_to_alpha(action):
     return float(0.05 + (float(action[1]) + 1.0) * 0.05)
 
 
+def format_float_for_suffix(value):
+    """把浮点参数转换成适合文件名的短字符串。"""
+    text = f"{value:g}"
+    return text.replace("-", "m").replace(".", "p")
+
+
 def parse_args():
     """
     解析主策略对比的命令行参数。
@@ -90,6 +96,15 @@ def parse_args():
     parser.add_argument("--num-codebook-states", type=int, default=16)
     parser.add_argument("--g-th", type=float, default=0.001)
     parser.add_argument("--alpha-th", type=float, default=0.05)
+    parser.add_argument(
+        "--codebook-feature-noise-std",
+        type=float,
+        default=0.0,
+        help=(
+            "Gaussian noise std added to normalized codebook quality features. "
+            "Default 0 keeps the exact-feature baseline."
+        ),
+    )
     parser.add_argument("--fixed-irs-index", type=int, default=7)
     parser.add_argument("--model-dir", default="./rl_models")
     parser.add_argument("--model-name", default="sac_final_model_v3.zip")
@@ -143,12 +158,16 @@ def validate_args(args):
         raise ValueError("--num-irs-elements must be positive")
     if args.num_codebook_states <= 0:
         raise ValueError("--num-codebook-states must be positive")
+    if args.codebook_feature_noise_std < 0:
+        raise ValueError("--codebook-feature-noise-std must be non-negative")
 
 
 def make_output_suffix(args):
     """根据关键实验参数生成默认输出文件名后缀。"""
     seed_label = "unseeded" if args.seed < 0 else f"seed{args.seed}"
     parts = [f"ep{args.episodes}", f"runs{args.num_seeds}", seed_label, "featargmax", "powertie"]
+    if args.codebook_feature_noise_std > 0:
+        parts.append(f"featnoise{format_float_for_suffix(args.codebook_feature_noise_std)}")
     if args.skip_sac:
         parts.append("nosac")
     if args.include_codebook_aware_sac:
@@ -200,6 +219,7 @@ def make_feature_env(args):
         include_codebook_features=True,
         codebook_feature_g_th=args.g_th,
         codebook_feature_alpha_th=args.alpha_th,
+        codebook_feature_noise_std=args.codebook_feature_noise_std,
     )
 
 
@@ -543,6 +563,9 @@ def evaluate_codebook_aware_sac_policy(
             include_codebook_features=include_codebook_features,
             codebook_feature_g_th=args.g_th,
             codebook_feature_alpha_th=args.alpha_th,
+            codebook_feature_noise_std=(
+                args.codebook_feature_noise_std if include_codebook_features else 0.0
+            ),
         )
         return FixedTransmissionActionWrapper(env, g_th=args.g_th, alpha_th=args.alpha_th)
 
@@ -1264,6 +1287,7 @@ def summarize(results, args):
         energy_mean, energy_ci95 = metric_mean_ci(result, "total_energy")
         row = {
             "policy": result["name"],
+            "codebook_feature_noise_std": args.codebook_feature_noise_std,
             "success_mean": success_mean,
             "success_ci95": success_ci95,
             "success_std": float(np.std(success)),
@@ -1291,6 +1315,7 @@ def summarize(results, args):
     with open(args.csv_output, "w", newline="", encoding="utf-8") as csvfile:
         fieldnames = [
             "policy",
+            "codebook_feature_noise_std",
             "success_mean",
             "success_ci95",
             "success_std",
@@ -1393,6 +1418,7 @@ def main():
         f"num_seeds={len(run_seeds)}, base_seed={args.seed}"
     )
     print(f"Fixed baseline parameters: g_th={args.g_th}, alpha_th={args.alpha_th}, fixed IRS index={fixed_index}")
+    print(f"Codebook feature noise std: {args.codebook_feature_noise_std}")
     print("=" * 96)
 
     seed_result_sets = []

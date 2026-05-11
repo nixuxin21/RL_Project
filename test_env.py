@@ -32,6 +32,7 @@ class MSAirCompEnv(gym.Env):
         include_codebook_features=False,
         codebook_feature_g_th=0.001,
         codebook_feature_alpha_th=0.05,
+        codebook_feature_noise_std=0.0,
     ):
         """
         初始化环境的物理参数、观测空间、动作空间和内部状态。
@@ -45,10 +46,14 @@ class MSAirCompEnv(gym.Env):
             include_codebook_features: 是否在观测后追加 C 维码本质量特征。
             codebook_feature_g_th: 计算码本质量特征时使用的固定信道增益门限。
             codebook_feature_alpha_th: 计算码本质量特征时使用的固定 AirComp 目标振幅。
+            codebook_feature_noise_std: 对 C 维码本质量特征加入的高斯噪声标准差；
+                噪声作用在归一化后的 `[0, 1]` 特征尺度上，默认 0 表示精确特征。
         """
         super().__init__()
         if irs_phase_mode not in {"codebook", "random", "none"}:
             raise ValueError("irs_phase_mode must be one of: 'codebook', 'random', 'none'")
+        if codebook_feature_noise_std < 0:
+            raise ValueError("codebook_feature_noise_std must be non-negative")
         
         # ==========================================
         # 1. 物理系统与通信参数设定
@@ -61,6 +66,7 @@ class MSAirCompEnv(gym.Env):
         self.include_codebook_features = include_codebook_features
         self.codebook_feature_g_th = codebook_feature_g_th
         self.codebook_feature_alpha_th = codebook_feature_alpha_th
+        self.codebook_feature_noise_std = codebook_feature_noise_std
         self.noise_var = 1e-9          # 空间背景噪声方差 (极小的值，代表低噪声环境)
         self.P_max = 1.0               # 每个节点的最大硬件发射功率 (1 瓦特，硬性约束)
         
@@ -190,6 +196,7 @@ class MSAirCompEnv(gym.Env):
         """
         生成 C 维码本质量特征：每个码本在当前剩余节点集合上预计能调度的节点比例。
         使用固定的 codebook_feature_g_th/alpha_th，使特征与 IRS selector 训练目标一致。
+        若配置了 codebook_feature_noise_std，则在归一化比例上加入高斯观测噪声并裁剪到 [0, 1]。
         """
         if not self.include_codebook_features:
             return np.empty(0, dtype=np.float32)
@@ -202,7 +209,15 @@ class MSAirCompEnv(gym.Env):
             ]
             for c_idx in range(self.C)
         ]
-        return (np.asarray(counts, dtype=np.float32) / self.K).astype(np.float32)
+        features = (np.asarray(counts, dtype=np.float32) / self.K).astype(np.float32)
+        if self.codebook_feature_noise_std > 0.0:
+            noise = self.np_random.normal(
+                loc=0.0,
+                scale=self.codebook_feature_noise_std,
+                size=self.C,
+            ).astype(np.float32)
+            features = np.clip(features + noise, 0.0, 1.0).astype(np.float32)
+        return features
 
     def _generate_dft_codebook(self):
         """

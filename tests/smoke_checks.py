@@ -21,6 +21,28 @@ from evaluate_policy_comparison import (
     feature_argmax_power_tie_index,
     make_episode_seeds,
 )
+from evaluate_partial_probing_sweep import (
+    POLICY_FIXED_GRID,
+    POLICY_HYBRID,
+    POLICY_LOCAL,
+    POLICY_RANDOM,
+    POLICY_ROTATING_GRID,
+    grid_indices,
+    local_indices,
+    select_probe_indices,
+    stable_probe_rng,
+)
+from evaluate_channel_estimation_error_sweep import (
+    estimated_preview_candidates,
+    make_error_rng,
+)
+from evaluate_limited_csi_ms_aircomp import (
+    adaptive_risk_weight,
+    estimated_preview_candidates as limited_estimated_preview_candidates,
+    execute_limited_csi_slot,
+    risk_aware_candidate,
+    true_preview_candidates,
+)
 from test_env import MSAirCompEnv
 
 
@@ -106,6 +128,66 @@ def assert_codebook_features_match_preview(args):
     assert np.allclose(features, expected)
 
 
+def assert_noisy_codebook_features_are_seeded_and_clipped(args):
+    exact_env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+        include_codebook_features=True,
+        codebook_feature_g_th=args.g_th,
+        codebook_feature_alpha_th=args.alpha_th,
+    )
+    noisy_env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+        include_codebook_features=True,
+        codebook_feature_g_th=args.g_th,
+        codebook_feature_alpha_th=args.alpha_th,
+        codebook_feature_noise_std=0.25,
+    )
+    noisy_env_again = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+        include_codebook_features=True,
+        codebook_feature_g_th=args.g_th,
+        codebook_feature_alpha_th=args.alpha_th,
+        codebook_feature_noise_std=0.25,
+    )
+
+    exact_obs, _info = exact_env.reset(seed=args.seed)
+    noisy_obs, _info = noisy_env.reset(seed=args.seed)
+    noisy_obs_again, _info = noisy_env_again.reset(seed=args.seed)
+
+    exact_features = exact_obs[7 : 7 + args.num_codebook_states]
+    noisy_features = noisy_obs[7 : 7 + args.num_codebook_states]
+    noisy_features_again = noisy_obs_again[7 : 7 + args.num_codebook_states]
+
+    assert np.all(noisy_features >= 0.0)
+    assert np.all(noisy_features <= 1.0)
+    assert np.allclose(noisy_features, noisy_features_again)
+    assert not np.allclose(noisy_features, exact_features)
+
+
+def assert_negative_feature_noise_is_rejected(args):
+    try:
+        MSAirCompEnv(
+            num_nodes=args.num_nodes,
+            num_slots=args.num_slots,
+            num_irs_elements=args.num_irs_elements,
+            num_codebook_states=args.num_codebook_states,
+            include_codebook_features=True,
+            codebook_feature_noise_std=-0.1,
+        )
+    except ValueError:
+        return
+    raise AssertionError("negative codebook feature noise std should raise ValueError")
+
+
 def assert_power_tie_matches_greedy(args):
     env = MSAirCompEnv(
         num_nodes=args.num_nodes,
@@ -141,12 +223,190 @@ def assert_episode_seed_generation_is_stable(args):
     assert len(first) == args.episodes
 
 
+def assert_partial_probe_selectors_respect_budget(args):
+    policies = [
+        POLICY_RANDOM,
+        POLICY_FIXED_GRID,
+        POLICY_ROTATING_GRID,
+        POLICY_LOCAL,
+        POLICY_HYBRID,
+    ]
+    for budget in (1, 2, 4, 8, args.num_codebook_states):
+        for policy_name in policies:
+            rng = stable_probe_rng(args.seed, policy_name, budget)
+            indices = select_probe_indices(
+                policy_name,
+                args,
+                budget,
+                slot_idx=3,
+                state={"previous_index": 7},
+                rng=rng,
+            )
+            assert len(indices) == budget
+            assert len(set(indices)) == budget
+            assert all(0 <= index < args.num_codebook_states for index in indices)
+
+    assert grid_indices(args.num_codebook_states, args.num_codebook_states) == list(
+        range(args.num_codebook_states)
+    )
+    assert local_indices(7, 1, args.num_codebook_states) == [7]
+    assert local_indices(7, 3, args.num_codebook_states) == [7, 6, 8]
+
+
+def assert_estimated_preview_zero_error_matches_exact(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    indices = [0, 3, 7, 15]
+    estimated = estimated_preview_candidates(
+        env,
+        args,
+        indices,
+        error_std=0.0,
+        rng=make_error_rng(args.seed, 0.0),
+    )
+    exact = [
+        env.preview_codebook_index(index, args.g_th, args.alpha_th)
+        for index in indices
+    ]
+
+    for estimated_candidate, exact_candidate in zip(estimated, exact):
+        assert estimated_candidate["irs_index"] == exact_candidate["irs_index"]
+        assert estimated_candidate["tx_this_slot"] == exact_candidate["tx_this_slot"]
+        assert np.isclose(estimated_candidate["power_avg"], exact_candidate["power_avg"])
+        assert np.isclose(
+            estimated_candidate["mean_gain_remaining"],
+            exact_candidate["mean_gain_remaining"],
+        )
+
+
+def assert_limited_csi_zero_error_matches_true(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    indices = [0, 4, 7, 15]
+    exact = true_preview_candidates(env, args, indices)
+    estimated = limited_estimated_preview_candidates(
+        env,
+        args,
+        indices=indices,
+        error_std=0.0,
+        rng=np.random.default_rng(args.seed),
+    )
+
+    for exact_candidate, estimated_candidate in zip(exact, estimated):
+        assert exact_candidate["irs_index"] == estimated_candidate["irs_index"]
+        assert exact_candidate["tx_this_slot"] == estimated_candidate["tx_this_slot"]
+        assert np.array_equal(exact_candidate["valid_mask"], estimated_candidate["valid_mask"])
+        assert np.allclose(exact_candidate["required_power"], estimated_candidate["required_power"])
+
+
+def assert_limited_csi_execution_only_counts_invited_nodes(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    true_candidate = max(
+        true_preview_candidates(env, args, range(args.num_codebook_states)),
+        key=lambda candidate: candidate["tx_this_slot"],
+    )
+    assert true_candidate["tx_this_slot"] > 0
+
+    decision_candidate = dict(true_candidate)
+    decision_candidate["valid_mask"] = np.zeros(args.num_nodes, dtype=bool)
+    info, done = execute_limited_csi_slot(env, args, decision_candidate, true_candidate)
+
+    assert not done
+    assert info["tx_this_slot"] == 0
+    assert info["scheduled_this_slot"] == 0
+    assert info["missed_opportunity_this_slot"] == true_candidate["tx_this_slot"]
+    assert int(np.sum(env.transmitted_flags)) == 0
+    assert env.current_slot == 1
+
+
+def assert_risk_aware_candidate_filters_low_reliability(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    base_candidate = max(
+        true_preview_candidates(env, args, range(args.num_codebook_states)),
+        key=lambda candidate: candidate["tx_this_slot"],
+    )
+    assert base_candidate["tx_this_slot"] > 0
+
+    candidate = dict(base_candidate)
+    reliability = np.zeros(args.num_nodes, dtype=float)
+    valid_indices = np.flatnonzero(base_candidate["valid_mask"])
+    reliability[valid_indices] = np.linspace(0.45, 0.95, num=len(valid_indices))
+    candidate["success_reliability"] = reliability
+
+    adjusted = risk_aware_candidate(
+        candidate,
+        args,
+        slot_idx=0,
+        risk_weight=0.5,
+        risk_power_weight=0.1,
+        risk_invite_threshold=0.75,
+    )
+
+    assert adjusted["tx_this_slot"] < base_candidate["tx_this_slot"]
+    assert np.all(adjusted["valid_mask"] <= base_candidate["valid_mask"])
+    assert np.all(candidate["success_reliability"][adjusted["valid_mask"]] >= 0.75)
+
+
+def assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+
+    low_error = adaptive_risk_weight(env, args, error_std=0.05, slot_idx=0, base_weight=0.5)
+    high_error = adaptive_risk_weight(env, args, error_std=0.3, slot_idx=0, base_weight=0.5)
+    late_slot = adaptive_risk_weight(env, args, error_std=0.3, slot_idx=args.num_slots - 1, base_weight=0.5)
+
+    assert high_error > low_error
+    assert late_slot < high_error
+
+    env.transmitted_flags[:] = False
+    behind = adaptive_risk_weight(env, args, error_std=0.3, slot_idx=args.num_slots - 2, base_weight=0.5)
+    env.transmitted_flags[: args.num_nodes - 2] = True
+    ahead = adaptive_risk_weight(env, args, error_std=0.3, slot_idx=args.num_slots - 2, base_weight=0.5)
+
+    assert behind < ahead
+
+
 def main():
     args = make_args()
     assert_preview_has_no_side_effects(args)
     assert_codebook_features_match_preview(args)
+    assert_noisy_codebook_features_are_seeded_and_clipped(args)
+    assert_negative_feature_noise_is_rejected(args)
     assert_power_tie_matches_greedy(args)
     assert_episode_seed_generation_is_stable(args)
+    assert_partial_probe_selectors_respect_budget(args)
+    assert_estimated_preview_zero_error_matches_exact(args)
+    assert_limited_csi_zero_error_matches_true(args)
+    assert_limited_csi_execution_only_counts_invited_nodes(args)
+    assert_risk_aware_candidate_filters_low_reliability(args)
+    assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args)
     print("smoke checks passed")
 
 
