@@ -501,6 +501,54 @@ Interpretation:
 - `Estimated Rotating Grid B=8` 在高误差下仍接近 full estimated greedy，`error_std=0.3` 时 `99.02%` 完美覆盖率、`3.503` slots；它仍是强 partial-probing baseline。
 - 该误差模型没有改变“强规则优先”的主结论。若要让学习策略有价值，下一步需要更难的失配：执行阶段也使用估计动作后遭遇真实信道偏移、信道延迟/偏置、或者和能耗/MSE 约束耦合。
 
+## Bandit Feedback Stress 证据
+
+在 bandit feedback 场景中，策略不再读取完整 CSI、节点级可调度 mask 或完整 codebook features。每个时隙只能 probe 少量 IRS 码本，并且每次 probe 只返回 noisy aggregate feedback：可发送节点比例和平均功率。执行阶段仍使用真实信道，代表节点基于本地信道自选择是否参与 AirComp。
+
+新增 stress sweep 用更困难的物理场景和 node-equivalent utility 检验有限反馈策略：
+
+```text
+utility = success_mean - 0.1 * slots_mean - 0.005 * total_probe_calls_mean
+```
+
+pilot 命令：
+
+```bash
+./.venv/bin/python evaluate_bandit_feedback_stress_sweep.py \
+  --episodes 150 \
+  --num-seeds 2 \
+  --seed 2026 \
+  --scenarios default,short_slots,small_codebook,compound_hard \
+  --feedback-noise-std-values 0.2 \
+  --probe-budgets 1,2,4 \
+  --output-prefix results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2
+```
+
+推荐引用文件：
+
+```text
+results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2.csv
+results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2.png
+```
+
+关键结果：
+
+| Scenario | Best non-oracle | Utility | Success | Perfect % | Slots | Total probes | Oracle success |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| default | Rotating Feedback Probe B=1 | 49.439 | 49.973/50 | 97.33 | 5.090 | 5.09 | 50.000/50 |
+| short_slots | Rotating Feedback Probe B=1 | 49.111 | 49.563/50 | 65.33 | 4.303 | 4.30 | 50.000/50 |
+| small_codebook | Rotating Feedback Probe B=1 | 49.359 | 49.893/50 | 89.67 | 5.087 | 5.09 | 49.893/50 |
+| compound_hard | Rotating Feedback Probe B=1 | 78.714 | 79.210/80 | 46.33 | 4.720 | 4.72 | 79.710/80 |
+
+Interpretation:
+
+- 这个设定比 noisy features / limited CSI 更贴近“真实环境无法获得完整 CSI”的研究目标：策略只能使用 probe 得到的聚合反馈。
+- 默认环境仍偏容易，success mean 不能充分区分策略；但 `short_slots` 和 `compound_hard` 会显著拉低完美覆盖率，适合作为后续主实验压力场景。
+- `Rotating Feedback Probe B=1` 在所有 stress 场景下都是最佳非 oracle 策略，说明确定性码本扫频是一个非常强的有限反馈 baseline。
+- `Full Noisy Feedback` 即使 probe 全部码本也不等于 oracle，因为它只看 noisy aggregate feedback；在 `compound_hard` 下为 `78.220/80`、`25.00%` perfect，明显低于 oracle 的 `79.710/80`、`77.00%` perfect。
+- 朴素 `UCB/Thompson` 在短时隙和组合困难场景下退化明显，原因是每个 slot 的剩余节点集合不断改变，跨 slot 累积的 codebook mean 很容易变成 stale feedback。
+- 后续若做学习策略，应把目标定义为“学习 probe schedule / feedback-conditioned selection”，并且必须超过 `Rotating Feedback Probe B=1` 这个强规则基线。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -510,8 +558,9 @@ Interpretation:
 - Rayleigh fading 信道和 DFT IRS codebook。
 - 默认物理环境无显式 probing cost；probing cost tradeoff 是离线效用分析。
 - Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
+- Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -594,9 +643,10 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 优先级从高到低：
 
 1. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
-2. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
-3. More informative learned probing：若继续学习，需要加入 probe history、少量实时测量或不确定性/信息增益目标，而不是只用 7 维基础状态。
-4. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-5. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost 和 channel estimation 结果压缩成最终论文表格与图。
+2. Bandit-feedback learned probing：在 `short_slots` / `compound_hard` stress 场景下，学习 probe schedule 或 feedback-conditioned IRS 选择，目标是超过 `Rotating Feedback Probe B=1`。
+3. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
+4. More informative learned probing：若继续学习，需要加入 probe history、少量实时测量或不确定性/信息增益目标，而不是只用 7 维基础状态。
+5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
+6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation 和 bandit feedback stress 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff 和 channel estimation error sweep 已经完成。下一步若继续保留学习方向，应优先转向多目标约束、更真实的执行阶段信道失配或更高信息量的主动 probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP 或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep 和 bandit feedback stress pilot 已经完成。下一步若继续保留学习方向，应优先转向 bandit-feedback learned probing、多目标约束、更真实的执行阶段信道失配或更高信息量的主动 probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP 或仅决策 preview 误差。

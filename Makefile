@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep action-diagnostics
+.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -19,6 +19,8 @@ py-compile:
 		experiments/archive/evaluate_probing_cost_tradeoff.py \
 		evaluate_channel_estimation_error_sweep.py \
 		evaluate_limited_csi_ms_aircomp.py \
+		evaluate_bandit_feedback_ms_aircomp.py \
+		evaluate_bandit_feedback_stress_sweep.py \
 		diagnose_policy_actions.py \
 		benchmark_policy_runtime.py \
 		tests/smoke_checks.py
@@ -51,6 +53,23 @@ smoke: test
 		--adaptive-risk-base-weights 0.5 \
 		--output-prefix /tmp/limited_csi_smoke \
 		--no-plots
+	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py \
+		--episodes 2 \
+		--num-seeds 1 \
+		--feedback-noise-std-values 0.1 \
+		--probe-budgets 2 \
+		--output-prefix /tmp/bandit_feedback_smoke \
+		--no-plots
+	$(PYTHON) evaluate_bandit_feedback_stress_sweep.py \
+		--episodes 1 \
+		--num-seeds 1 \
+		--scenarios default \
+		--feedback-noise-std-values 0.1 \
+		--probe-budgets 1 \
+		--baseline-policies no_irs,oracle \
+		--probe-policies rotating \
+		--output-prefix /tmp/bandit_feedback_stress_smoke \
+		--no-plots
 
 policy-comparison:
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -82,6 +101,12 @@ channel-estimation-sweep:
 
 limited-csi-sweep:
 	$(PYTHON) evaluate_limited_csi_ms_aircomp.py
+
+bandit-feedback-sweep:
+	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py
+
+bandit-feedback-stress:
+	$(PYTHON) evaluate_bandit_feedback_stress_sweep.py
 
 action-diagnostics:
 	$(PYTHON) diagnose_policy_actions.py --episodes 1000

@@ -18,6 +18,8 @@
 - `evaluate_partial_probing_sweep.py`: 在每时隙只能 preview 少量 IRS 码本的设定下，比较随机 probing、固定网格、轮换网格、局部邻域和混合 probing。
 - `evaluate_channel_estimation_error_sweep.py`: 在决策 preview 使用带误差的等效信道、执行仍使用真实信道的设定下，扫描 IRS 选择规则对信道估计误差的鲁棒性。
 - `evaluate_limited_csi_ms_aircomp.py`: 有限 CSI 评估框架，将策略基于估计/partial probing 的节点邀请集合与真实信道执行成功集合分离。
+- `evaluate_bandit_feedback_ms_aircomp.py`: 更严格的有限观测评估框架，策略不能读取每个码本的完整 CSI 或节点级可调度 mask，只能通过少量 IRS probe 得到 noisy aggregate feedback，再在线选择码本。
+- `evaluate_bandit_feedback_stress_sweep.py`: 在 bandit feedback 框架上扫描更困难的物理场景，并加入 slot/probe cost 的 node-equivalent utility。
 - `benchmark_policy_runtime.py`: 运行时间 benchmark，统计 Feature Argmax、Feature Argmax PowerTie、Greedy、SAC 和 Codebook-Aware SAC 的决策耗时、环境 step 耗时和 preview 次数。
 - `experiments/archive/`: 早期探索实验归档，包括 noisy feature sweep、learned probing selector 和 probing cost tradeoff；这些脚本仍可通过 Makefile 运行，但不是当前主线。
 - `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep 和动作诊断命令入口。
@@ -358,6 +360,44 @@ results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_
 
 默认比较 `No IRS`、`Fixed IRS`、`Exact Greedy Full CSI`、`Estimated Greedy Full Preview`、`Estimated Random Probe`、`Estimated Rotating Grid`、`Robust Rotating Grid`、`Risk-Aware Rotating Grid` 和 `Adaptive Risk-Aware Rotating Grid`。`Risk-Aware` 策略会根据估计信道距离可行阈值的距离生成节点成功可靠度，优先选择期望成功数高、边界风险低、平均功率低的 IRS 候选；默认 `risk-invite-threshold=0.5` 主要体现风险感知 IRS 选择，调高该门限则会更保守地过滤边界节点。`Adaptive Risk-Aware` 会在 CSI error 较高时提高风险权重，并在接近 deadline 或剩余节点 backlog 较高时降低风险权重。新增指标包括 `scheduled_nodes_mean`、`failed_nodes_mean`、`execution_failure_rate`、`missed_opportunity_rate`、`decision_preview_calls_per_slot_mean`、`effective_risk_weight_mean` 和 `oracle_tx_gap_mean`。
 
+## Bandit Feedback MS-AirComp
+
+该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
+
+```bash
+./.venv/bin/python evaluate_bandit_feedback_ms_aircomp.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --probe-budgets 1,2,4,8 \
+  --feedback-noise-std-values 0,0.05,0.1,0.2,0.3
+```
+
+默认比较 `No IRS`、`Fixed IRS`、`Random IRS`、`Oracle Full Preview`、`Full Noisy Feedback`、`Random Feedback Probe`、`Rotating Feedback Probe`、`UCB Feedback Probe` 和 `Thompson Feedback Probe`。`Oracle Full Preview` 只作为离线上界；`Full Noisy Feedback` 表示探测全部码本但只看 noisy aggregate feedback；`UCB/Thompson` 是在线 bandit probing 基线。主要指标包括 `probe_calls_per_slot_mean`、`oracle_match_rate`、`oracle_tx_gap_mean`、`observed_tx_fraction_mean`、成功节点数、完美覆盖率、时隙数和能耗。
+
+为了避免默认环境过容易，还可以运行 stress sweep。该脚本扫描短时隙、小码本、小 IRS 和组合困难场景，并报告：
+
+```text
+utility = success_mean - slot_cost * slots_mean - probe_cost * total_probe_calls_mean
+```
+
+推荐先跑中等规模 pilot：
+
+```bash
+./.venv/bin/python evaluate_bandit_feedback_stress_sweep.py \
+  --episodes 200 \
+  --num-seeds 3 \
+  --scenarios default,short_slots,small_codebook,compound_hard \
+  --feedback-noise-std-values 0.2 \
+  --probe-budgets 1,2,4
+```
+
+默认输出：
+
+```text
+results/bandit_feedback/bandit_feedback_stress_*.csv
+results/bandit_feedback/bandit_feedback_stress_*.png
+```
+
 ## 运行时间 Benchmark
 
 统计规则策略和学习策略的平均决策耗时、P50/P95、环境 step 耗时、episode wall time 和 preview 次数：
@@ -395,6 +435,8 @@ make learned-probing
 make probing-cost-tradeoff
 make channel-estimation-sweep
 make limited-csi-sweep
+make bandit-feedback-sweep
+make bandit-feedback-stress
 make action-diagnostics
 ```
 
@@ -409,6 +451,8 @@ make action-diagnostics
 - Rayleigh fading 信道、DFT IRS codebook。
 - 默认物理环境没有显式 probing cost；probing cost tradeoff 是基于 summary 的离线效用分析。
 - Channel estimation sweep 中只有决策 preview 使用估计信道，实际执行仍使用真实信道。
+- Bandit feedback sweep 中策略只能看 noisy aggregate probe feedback；full oracle 指标仅用于离线诊断。
+- Bandit feedback stress sweep 使用额外的 node-equivalent utility 来比较低延迟和低 probing 开销，并不改变底层物理执行模型。
 
 Noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff 和 channel estimation error sweep 都已经完成：feature 噪声会显著拉低完美覆盖率并拉长时延，直接训练 noisy Greedy-index imitation 仍没有超过 Feature Argmax；partial probing 下，简单的 Rotating Grid Probe 已经是很强的新基线；低维状态 learned probing 也没有超过 Rotating Grid；显式 preview cost 下 Rotating Grid 通常比 full Greedy 更优；等效信道估计误差会降低 oracle match 并拉长时延，但在当前误差模型下 Estimated Greedy/Rotating Grid 仍维持接近满覆盖。下一阶段更应转向多目标约束、执行阶段信道失配或更真实的估计误差模型。
 

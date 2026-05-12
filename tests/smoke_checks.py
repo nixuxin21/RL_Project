@@ -43,6 +43,15 @@ from evaluate_limited_csi_ms_aircomp import (
     risk_aware_candidate,
     true_preview_candidates,
 )
+from evaluate_bandit_feedback_ms_aircomp import (
+    POLICY_RANDOM_PROBE as POLICY_BANDIT_RANDOM_PROBE,
+    POLICY_ROTATING_GRID as POLICY_BANDIT_ROTATING_GRID,
+    POLICY_THOMPSON_PROBE,
+    POLICY_UCB_PROBE,
+    initialize_feedback_state,
+    observe_probe_feedback,
+    select_feedback_probe_indices,
+)
 from test_env import MSAirCompEnv
 
 
@@ -56,6 +65,12 @@ def make_args():
         alpha_th=0.05,
         episodes=8,
         seed=2026,
+        feedback_power_weight=0.05,
+        power_feedback_noise_std=0.0,
+        bandit_lr=0.6,
+        bandit_prior=0.0,
+        ucb_coeff=0.25,
+        thompson_std=0.2,
     )
 
 
@@ -393,6 +408,68 @@ def assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args):
     assert behind < ahead
 
 
+def assert_bandit_feedback_observes_only_aggregate_metrics(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    candidate = env.preview_codebook_index(3, args.g_th, args.alpha_th)
+
+    exact_feedback = observe_probe_feedback(
+        candidate,
+        args,
+        feedback_noise_std=0.0,
+        rng=np.random.default_rng(args.seed),
+    )
+    expected_fraction = candidate["tx_this_slot"] / args.num_nodes
+    assert np.isclose(exact_feedback["observed_tx_fraction"], expected_fraction)
+    assert "valid_mask" not in exact_feedback
+    assert "required_power" not in exact_feedback
+
+    noisy_first = observe_probe_feedback(
+        candidate,
+        args,
+        feedback_noise_std=0.2,
+        rng=np.random.default_rng(args.seed),
+    )
+    noisy_second = observe_probe_feedback(
+        candidate,
+        args,
+        feedback_noise_std=0.2,
+        rng=np.random.default_rng(args.seed),
+    )
+    assert noisy_first == noisy_second
+    assert 0.0 <= noisy_first["observed_tx_fraction"] <= 1.0
+
+
+def assert_bandit_probe_selectors_respect_budget(args):
+    state = initialize_feedback_state(args)
+    state["counts"][:4] = np.array([1.0, 2.0, 3.0, 4.0])
+    state["means"][:4] = np.array([0.1, 0.2, 0.3, 0.4])
+    policies = [
+        POLICY_BANDIT_RANDOM_PROBE,
+        POLICY_BANDIT_ROTATING_GRID,
+        POLICY_UCB_PROBE,
+        POLICY_THOMPSON_PROBE,
+    ]
+    for budget in (1, 2, 4, 8, args.num_codebook_states):
+        for policy_name in policies:
+            indices = select_feedback_probe_indices(
+                policy_name,
+                args,
+                budget,
+                slot_idx=2,
+                state=state,
+                rng=np.random.default_rng(args.seed),
+            )
+            assert len(indices) == budget
+            assert len(set(indices)) == budget
+            assert all(0 <= index < args.num_codebook_states for index in indices)
+
+
 def main():
     args = make_args()
     assert_preview_has_no_side_effects(args)
@@ -407,6 +484,8 @@ def main():
     assert_limited_csi_execution_only_counts_invited_nodes(args)
     assert_risk_aware_candidate_filters_low_reliability(args)
     assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args)
+    assert_bandit_feedback_observes_only_aggregate_metrics(args)
+    assert_bandit_probe_selectors_respect_budget(args)
     print("smoke checks passed")
 
 
