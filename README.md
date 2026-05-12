@@ -10,6 +10,7 @@
 - `test_env.py`: 自定义环境 `MSAirCompEnv`，包含信道生成、IRS DFT 码本、动作解码、调度判定、奖励函数和评估用 preview API。
 - `train_agent.py`: 训练完整 SAC，动作是 `[g_th, alpha_th, irs_codebook]`。
 - `train_codebook_aware_agent.py`: 训练 IRS-only SAC selector，固定 `g_th/alpha_th`，只学习 IRS 码本选择，可使用 16 维 codebook quality features。
+- `train_bandit_feedback_selector.py`: 训练 feedback-conditioned IRS probing selector；训练可使用离线 oracle 标签，评估时只能看基础状态、历史 noisy aggregate feedback 和自身 probing 历史。
 - `evaluate_agent.py`: 单回合详细评估完整 SAC。
 - `evaluate_batch.py`: 多回合 Monte Carlo 评估完整 SAC。
 - `evaluate_random_irs_baseline.py`: 随机 IRS 相位 baseline。
@@ -398,6 +399,36 @@ results/bandit_feedback/bandit_feedback_stress_*.csv
 results/bandit_feedback/bandit_feedback_stress_*.png
 ```
 
+## Learned Feedback Probing
+
+在 bandit feedback stress 结果上继续推进学习策略。该脚本训练一个 MLP selector，输入仅包含基础 7 维状态、每个码本的历史 aggregate feedback 均值/次数/recency、上一 probe 的反馈和上一 IRS index。训练阶段可以用 full oracle preview 生成监督标签；评估阶段仍严格限制为 noisy aggregate probe feedback：
+
+```bash
+./.venv/bin/python train_bandit_feedback_selector.py \
+  --scenario short_slots \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --num-eval-seeds 5 \
+  --feedback-noise-std-values 0.2 \
+  --probe-budgets 1,2,4
+```
+
+也可以切到组合困难场景：
+
+```bash
+./.venv/bin/python train_bandit_feedback_selector.py \
+  --scenario compound_hard \
+  --train-episodes 5000 \
+  --val-episodes 1000 \
+  --eval-episodes 1000 \
+  --num-eval-seeds 5 \
+  --feedback-noise-std-values 0.5 \
+  --probe-budgets 1,2,4
+```
+
+默认会和 `Rotating Feedback Probe`、`UCB Feedback Probe`、`Thompson Feedback Probe`、`Full Noisy Feedback` 和 `Oracle Full Preview` 对比。当前判断标准是：学习策略必须在 `short_slots` 或 `compound_hard` 下超过 `Rotating Feedback Probe B=1`，否则只能作为负结果。
+
 ## 运行时间 Benchmark
 
 统计规则策略和学习策略的平均决策耗时、P50/P95、环境 step 耗时、episode wall time 和 preview 次数：
@@ -432,6 +463,7 @@ make parameter-sweep
 make noisy-feature-sweep
 make partial-probing-sweep
 make learned-probing
+make learned-feedback-probing
 make probing-cost-tradeoff
 make channel-estimation-sweep
 make limited-csi-sweep

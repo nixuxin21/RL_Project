@@ -566,6 +566,87 @@ Interpretation:
 - 朴素 `UCB/Thompson` 在短时隙和组合困难场景下退化明显，原因是每个 slot 的剩余节点集合不断改变，跨 slot 累积的 codebook mean 很容易变成 stale feedback。
 - 后续若做学习策略，应把目标定义为“学习 probe schedule / feedback-conditioned selection”，并且必须超过 `Rotating Feedback Probe B=1` 这个强规则基线。
 
+## Learned Feedback Probing 证据
+
+在 bandit feedback stress 的基础上，新增 `train_bandit_feedback_selector.py` 训练一个 feedback-conditioned MLP selector。训练阶段允许用离线 full-oracle preview 生成监督标签；评估阶段严格限制为有限反馈观测，只能使用：
+
+- 环境基础 7 维 observation。
+- 每个 IRS 码本的历史 noisy aggregate feedback，包括 probe 次数、EWMA score、传输比例、功率和 recency。
+- 上一次选择的 IRS one-hot 与上一次 aggregate feedback。
+
+它在决策时不读取完整 CSI、不读取 node-level mask，也不读取完整 codebook quality feature。这个实验用于回答：在真实有限 CSI / noisy probe feedback 设定下，学习型 probe selector 是否能超过简单 rotating probe 规则。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python train_bandit_feedback_selector.py \
+  --scenario short_slots \
+  --train-episodes 3000 \
+  --val-episodes 500 \
+  --eval-episodes 300 \
+  --num-eval-seeds 3 \
+  --epochs 20 \
+  --batch-size 256 \
+  --feedback-noise-std-values 0.2 \
+  --probe-budgets 1,2,4 \
+  --output-prefix results/bandit_feedback/learned_feedback_probe_short_slots_pilot_train3000_eval300_runs3_noise0p2
+
+./.venv/bin/python train_bandit_feedback_selector.py \
+  --scenario compound_hard \
+  --train-episodes 3000 \
+  --val-episodes 500 \
+  --eval-episodes 300 \
+  --num-eval-seeds 3 \
+  --epochs 20 \
+  --batch-size 256 \
+  --feedback-noise-std-values 0.5 \
+  --probe-budgets 1,2,4 \
+  --output-prefix results/bandit_feedback/learned_feedback_probe_compound_hard_pilot_train3000_eval300_runs3_noise0p5
+```
+
+推荐引用文件：
+
+```text
+results/bandit_feedback/learned_feedback_probe_short_slots_pilot_train3000_eval300_runs3_noise0p2.csv
+results/bandit_feedback/learned_feedback_probe_short_slots_pilot_train3000_eval300_runs3_noise0p2.png
+results/bandit_feedback/learned_feedback_probe_short_slots_pilot_train3000_eval300_runs3_noise0p2_val_topk.csv
+results/bandit_feedback/learned_feedback_probe_compound_hard_pilot_train3000_eval300_runs3_noise0p5.csv
+results/bandit_feedback/learned_feedback_probe_compound_hard_pilot_train3000_eval300_runs3_noise0p5.png
+results/bandit_feedback/learned_feedback_probe_compound_hard_pilot_train3000_eval300_runs3_noise0p5_val_topk.csv
+```
+
+关键结果：
+
+| Scenario | Noise | Policy | B | Utility | Success | Perfect % | Slots | Probes | Oracle tx gap |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| short_slots | 0.2 | Oracle Full Preview | 16 | 49.540 | 49.997/50 | 99.67 | 2.539 | 40.62 | 0.000 |
+| short_slots | 0.2 | Rotating Feedback Probe | 1 | 49.076 | 49.533/50 | 64.33 | 4.359 | 4.36 | 1.909 |
+| short_slots | 0.2 | Learned Feedback Probe | 1 | 48.922 | 49.374/50 | 55.33 | 4.312 | 4.31 | 1.876 |
+| short_slots | 0.2 | Learned Feedback Probe | 2 | 48.595 | 49.083/50 | 41.89 | 4.438 | 8.88 | 1.942 |
+| short_slots | 0.2 | Learned Feedback Probe | 4 | 48.496 | 49.037/50 | 41.78 | 4.506 | 18.02 | 1.939 |
+| short_slots | 0.2 | UCB Feedback Probe | 4 | 48.377 | 48.932/50 | 38.11 | 4.626 | 18.50 | 2.293 |
+| compound_hard | 0.5 | Oracle Full Preview | 8 | 79.149 | 79.683/80 | 73.78 | 3.816 | 30.52 | 0.000 |
+| compound_hard | 0.5 | Rotating Feedback Probe | 1 | 78.677 | 79.168/80 | 44.67 | 4.678 | 4.68 | 1.806 |
+| compound_hard | 0.5 | Random IRS | 0 | 77.499 | 77.982/80 | 20.22 | 4.831 | 0.00 | 2.588 |
+| compound_hard | 0.5 | Learned Feedback Probe | 1 | 77.304 | 77.812/80 | 16.78 | 4.841 | 4.84 | 2.261 |
+| compound_hard | 0.5 | Learned Feedback Probe | 4 | 77.101 | 77.684/80 | 16.44 | 4.862 | 19.45 | 2.666 |
+| compound_hard | 0.5 | UCB Feedback Probe | 4 | 76.588 | 77.174/80 | 14.00 | 4.883 | 19.53 | 3.273 |
+
+验证集 top-k 诊断：
+
+| Scenario | B=1 top-k hit | B=2 top-k hit | B=4 top-k hit |
+| --- | ---: | ---: | ---: |
+| short_slots | 20.96% | 34.70% | 54.07% |
+| compound_hard | 25.46% | 43.49% | 68.03% |
+
+Interpretation:
+
+- 这是一个有价值的负结果：`Learned Feedback Probe` 在两个 stress 场景下都没有超过 `Rotating Feedback Probe B=1`，因此目前不能作为主算法。
+- 学习策略不是完全无效。它在 `short_slots` 下明显好于朴素 `UCB/Thompson`，说明 feedback-conditioned history 确实包含可学习信号。
+- 失败的直接原因是 one-shot supervised MLP 的 top-k 命中率太低。即使放宽到 `B=4`，验证集命中率也只有 `54.07%` 和 `68.03%`；执行阶段再叠加 noisy aggregate feedback，更多 probe 反而可能把坏候选引入选择集合。
+- `Rotating Feedback Probe B=1` 强的原因是它天然避免 stale history 过拟合：剩余节点集合每个 slot 都在变，固定历史均值或离线监督标签很容易失效。
+- 后续若继续学习方向，应转向 sequence model、policy-gradient / contextual bandit、imitate rotating + learned deviation，或 DAgger-like on-policy 数据收集；不应继续只增加一个离线 one-shot regressor。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -576,8 +657,9 @@ Interpretation:
 - 默认物理环境无显式 probing cost；probing cost tradeoff 是离线效用分析。
 - Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
+- Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 

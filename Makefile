@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -8,6 +8,7 @@ py-compile:
 		train_agent.py \
 		train_codebook_aware_agent.py \
 		train_greedy_imitation_selector.py \
+		train_bandit_feedback_selector.py \
 		experiments/archive/train_learned_probing_selector.py \
 		evaluate_agent.py \
 		evaluate_batch.py \
@@ -70,6 +71,20 @@ smoke: test
 		--probe-policies rotating \
 		--output-prefix /tmp/bandit_feedback_stress_smoke \
 		--no-plots
+	$(PYTHON) train_bandit_feedback_selector.py \
+		--scenario short_slots \
+		--train-episodes 2 \
+		--val-episodes 1 \
+		--eval-episodes 1 \
+		--num-eval-seeds 1 \
+		--epochs 1 \
+		--batch-size 4 \
+		--feedback-noise-std-values 0.1 \
+		--probe-budgets 1 \
+		--baseline-policies no_irs,oracle \
+		--probe-policies rotating \
+		--output-prefix /tmp/learned_feedback_probe_smoke \
+		--no-plots
 
 policy-comparison:
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -92,6 +107,9 @@ partial-probing-sweep:
 
 learned-probing:
 	$(PYTHON) experiments/archive/train_learned_probing_selector.py
+
+learned-feedback-probing:
+	$(PYTHON) train_bandit_feedback_selector.py
 
 probing-cost-tradeoff:
 	$(PYTHON) experiments/archive/evaluate_probing_cost_tradeoff.py
