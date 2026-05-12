@@ -21,9 +21,10 @@
 - `evaluate_limited_csi_ms_aircomp.py`: 有限 CSI 评估框架，将策略基于估计/partial probing 的节点邀请集合与真实信道执行成功集合分离。
 - `evaluate_bandit_feedback_ms_aircomp.py`: 更严格的有限观测评估框架，策略不能读取每个码本的完整 CSI 或节点级可调度 mask，只能通过少量 IRS probe 得到 noisy aggregate feedback，再在线选择码本。
 - `evaluate_bandit_feedback_stress_sweep.py`: 在 bandit feedback 框架上扫描更困难的物理场景，并加入 slot/probe cost 的 node-equivalent utility。
+- `evaluate_adaptive_feedback_probing.py`: 评估非学习版 Adaptive Rotating Backup；默认先执行 `Rotating B=1`，仅当单次 noisy feedback 低于剩余 deadline 所需速度时额外 probe 一个 backup 码本。
 - `benchmark_policy_runtime.py`: 运行时间 benchmark，统计 Feature Argmax、Feature Argmax PowerTie、Greedy、SAC 和 Codebook-Aware SAC 的决策耗时、环境 step 耗时和 preview 次数。
 - `experiments/archive/`: 早期探索实验归档，包括 noisy feature sweep、learned probing selector 和 probing cost tradeoff；这些脚本仍可通过 Makefile 运行，但不是当前主线。
-- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep 和动作诊断命令入口。
+- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned/adaptive probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep 和动作诊断命令入口。
 - `tests/smoke_checks.py`: 默认场景的轻量正确性测试，覆盖 preview 无副作用、codebook features 一致性、PowerTie 与 Greedy tie-break 一致性、limited CSI 零误差一致性和“未邀请节点不自动成功”。
 - `results/`: 已生成实验结果，默认按本地生成物处理；需要发布的关键 CSV/图可手动添加。
 - `rl_models/`: 模型 checkpoint 和 VecNormalize 统计文件。
@@ -429,6 +430,36 @@ results/bandit_feedback/bandit_feedback_stress_*.png
 
 默认会和 `Rotating Feedback Probe`、`UCB Feedback Probe`、`Thompson Feedback Probe`、`Full Noisy Feedback` 和 `Oracle Full Preview` 对比。当前判断标准是：学习策略必须在 `short_slots` 或 `compound_hard` 下超过 `Rotating Feedback Probe B=1`，否则只能作为负结果。
 
+## Adaptive Feedback Probing
+
+非学习版主动 probing 诊断。该脚本把 `Rotating Feedback Probe B=1` 作为默认行为，只有当当前 noisy aggregate feedback 低于剩余节点/剩余时隙所要求的完成速度时，才额外 probe 一个 backup codebook。backup 可选 `next`、`least_recent`、`best_history` 或 `hybrid`：
+
+```bash
+./.venv/bin/python evaluate_adaptive_feedback_probing.py \
+  --scenarios short_slots \
+  --episodes 300 \
+  --num-seeds 3 \
+  --feedback-noise-std-values 0.2 \
+  --gate-ratios 0.7,0.9,1.1 \
+  --backup-strategies next,least_recent,best_history,hybrid \
+  --probe-budgets 1,2
+```
+
+组合困难场景：
+
+```bash
+./.venv/bin/python evaluate_adaptive_feedback_probing.py \
+  --scenarios compound_hard \
+  --episodes 300 \
+  --num-seeds 3 \
+  --feedback-noise-std-values 0.5 \
+  --gate-ratios 0.7,0.9,1.1 \
+  --backup-strategies next,least_recent,best_history,hybrid \
+  --probe-budgets 1,2
+```
+
+当前 pilot 结论仍是负结果：adaptive backup 可以超过 `Rotating B=2` 等更高成本 noisy-feedback 策略，但没有超过 `Rotating B=1`。单次 noisy feedback 很容易产生假低反馈，从而过度触发 backup probe。
+
 ## 运行时间 Benchmark
 
 统计规则策略和学习策略的平均决策耗时、P50/P95、环境 step 耗时、episode wall time 和 preview 次数：
@@ -464,6 +495,7 @@ make noisy-feature-sweep
 make partial-probing-sweep
 make learned-probing
 make learned-feedback-probing
+make adaptive-feedback-probing
 make probing-cost-tradeoff
 make channel-estimation-sweep
 make limited-csi-sweep
@@ -485,8 +517,9 @@ make action-diagnostics
 - Channel estimation sweep 中只有决策 preview 使用估计信道，实际执行仍使用真实信道。
 - Bandit feedback sweep 中策略只能看 noisy aggregate probe feedback；full oracle 指标仅用于离线诊断。
 - Bandit feedback stress sweep 使用额外的 node-equivalent utility 来比较低延迟和低 probing 开销，并不改变底层物理执行模型。
+- Learned/adaptive feedback probing 都不能访问完整 CSI 或 node-level mask；oracle 只用于训练标签或离线诊断。
 
-Noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff 和 channel estimation error sweep 都已经完成：feature 噪声会显著拉低完美覆盖率并拉长时延，直接训练 noisy Greedy-index imitation 仍没有超过 Feature Argmax；partial probing 下，简单的 Rotating Grid Probe 已经是很强的新基线；低维状态 learned probing 也没有超过 Rotating Grid；显式 preview cost 下 Rotating Grid 通常比 full Greedy 更优；等效信道估计误差会降低 oracle match 并拉长时延，但在当前误差模型下 Estimated Greedy/Rotating Grid 仍维持接近满覆盖。下一阶段更应转向多目标约束、执行阶段信道失配或更真实的估计误差模型。
+Noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 都已经完成：feature 噪声会显著拉低完美覆盖率并拉长时延，直接训练 noisy Greedy-index imitation 仍没有超过 Feature Argmax；partial probing 下，简单的 Rotating Grid Probe 已经是很强的新基线；低维状态 learned probing 也没有超过 Rotating Grid；显式 preview cost 下 Rotating Grid 通常比 full Greedy 更优；等效信道估计误差会降低 oracle match 并拉长时延，但在当前误差模型下 Estimated Greedy/Rotating Grid 仍维持接近满覆盖；bandit feedback 下 `Rotating B=1` 很强，离线 MLP 和单次 noisy feedback hard gate 都没有超过它。下一阶段更应转向多目标约束、执行阶段信道失配，或带置信/重复确认的 on-policy feedback probing。
 
 ## 当前基线结果
 

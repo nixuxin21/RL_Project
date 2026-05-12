@@ -647,6 +647,82 @@ Interpretation:
 - `Rotating Feedback Probe B=1` 强的原因是它天然避免 stale history 过拟合：剩余节点集合每个 slot 都在变，固定历史均值或离线监督标签很容易失效。
 - 后续若继续学习方向，应转向 sequence model、policy-gradient / contextual bandit、imitate rotating + learned deviation，或 DAgger-like on-policy 数据收集；不应继续只增加一个离线 one-shot regressor。
 
+## Adaptive Feedback Probing 证据
+
+在 learned feedback probing 负结果之后，新增 `evaluate_adaptive_feedback_probing.py` 做非学习版主动 probing 诊断。它不从零替代 `Rotating Feedback Probe B=1`，而是把 rotating 作为默认主 probe：
+
+```text
+先 probe 当前 rotating codebook。
+如果 noisy aggregate feedback 低于 gate_ratio * remaining_nodes / remaining_slots，
+则额外 probe 一个 backup codebook。
+最后在已 probe 的候选中选择 noisy feedback 更好的码本执行。
+```
+
+backup 策略包括：
+
+- `next`: probe 下一个 codebook。
+- `least_recent`: probe 最久没有被 probe 的 codebook。
+- `best_history`: probe 历史 aggregate score 最高的 codebook。
+- `hybrid`: 优先补未 probe 码本，全部见过后再选历史最高分。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python evaluate_adaptive_feedback_probing.py \
+  --scenarios short_slots \
+  --episodes 300 \
+  --num-seeds 3 \
+  --feedback-noise-std-values 0.2 \
+  --gate-ratios 0.7,0.9,1.1 \
+  --backup-strategies next,least_recent,best_history,hybrid \
+  --probe-budgets 1,2 \
+  --output-prefix results/bandit_feedback/adaptive_feedback_probe_short_slots_pilot_ep300_runs3_noise0p2
+
+./.venv/bin/python evaluate_adaptive_feedback_probing.py \
+  --scenarios compound_hard \
+  --episodes 300 \
+  --num-seeds 3 \
+  --feedback-noise-std-values 0.5 \
+  --gate-ratios 0.7,0.9,1.1 \
+  --backup-strategies next,least_recent,best_history,hybrid \
+  --probe-budgets 1,2 \
+  --output-prefix results/bandit_feedback/adaptive_feedback_probe_compound_hard_pilot_ep300_runs3_noise0p5
+```
+
+推荐引用文件：
+
+```text
+results/bandit_feedback/adaptive_feedback_probe_short_slots_pilot_ep300_runs3_noise0p2.csv
+results/bandit_feedback/adaptive_feedback_probe_short_slots_pilot_ep300_runs3_noise0p2.png
+results/bandit_feedback/adaptive_feedback_probe_compound_hard_pilot_ep300_runs3_noise0p5.csv
+results/bandit_feedback/adaptive_feedback_probe_compound_hard_pilot_ep300_runs3_noise0p5.png
+results/bandit_feedback/adaptive_feedback_probe_short_slots_conservative_ep300_runs3_noise0p2.csv
+results/bandit_feedback/adaptive_feedback_probe_compound_hard_conservative_ep300_runs3_noise0p5.csv
+```
+
+关键结果：
+
+| Scenario | Noise | Policy | Utility | Success | Perfect % | Slots | Probes | Trigger % | Oracle tx gap |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| short_slots | 0.2 | Oracle Full Preview | 49.540 | 49.997/50 | 99.67 | 2.539 | 40.62 | 0.00 | 0.000 |
+| short_slots | 0.2 | Rotating Feedback Probe B=1 | 49.076 | 49.533/50 | 64.33 | 4.359 | 4.36 | 0.00 | 1.909 |
+| short_slots | 0.2 | Rotating Feedback Probe B=2 | 48.996 | 49.476/50 | 59.89 | 4.361 | 8.72 | 0.00 | 1.841 |
+| short_slots | 0.2 | Best Adaptive: hybrid r=1.1 | 48.809 | 49.288/50 | 50.33 | 4.488 | 6.09 | 35.78 | 2.022 |
+| short_slots | 0.2 | Conservative best: hybrid r=0.3 | 48.815 | 49.292/50 | 50.78 | 4.481 | 5.90 | 31.69 | 2.002 |
+| compound_hard | 0.5 | Oracle Full Preview | 79.149 | 79.683/80 | 73.78 | 3.816 | 30.52 | 0.00 | 0.000 |
+| compound_hard | 0.5 | Rotating Feedback Probe B=1 | 78.677 | 79.168/80 | 44.67 | 4.678 | 4.68 | 0.00 | 1.806 |
+| compound_hard | 0.5 | Best Adaptive: next r=0.7 | 78.142 | 78.652/80 | 31.56 | 4.770 | 6.70 | 40.56 | 2.171 |
+| compound_hard | 0.5 | Conservative best: least_recent r=0.1 | 78.130 | 78.640/80 | 31.89 | 4.772 | 6.55 | 37.22 | 2.120 |
+| compound_hard | 0.5 | Rotating Feedback Probe B=2 | 77.870 | 78.391/80 | 23.67 | 4.737 | 9.47 | 0.00 | 1.961 |
+
+Interpretation:
+
+- 这也是一个负结果：非学习版 adaptive backup 没有超过 `Rotating Feedback Probe B=1`。
+- Adaptive 在 `compound_hard` 中超过了 `Rotating B=2`，说明“条件式少量额外 probe”比固定每槽多 probe 更合理；但它仍不如单 probe rotating。
+- `best_history` 明显退化，进一步证明跨 slot 历史均值在剩余节点集合变化后容易 stale。
+- 即使把 gate 降到 `0.1/0.3/0.5`，触发率仍有约 `30%-39%`。原因是 high-noise aggregate feedback 被裁剪到 `[0,1]` 后会频繁出现假低反馈，单次低反馈不足以可靠判断当前 rotating 失败。
+- 后续不能直接用单次 noisy feedback 做硬阈值 gate；若继续主动 probing，应改成带不确定性校正的 gate、重复/确认式 probe，或学习一个 on-policy gate 来权衡“额外 probe 成本 vs 可能补救收益”。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -658,8 +734,9 @@ Interpretation:
 - Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
+- Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -741,11 +818,11 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
-2. Bandit-feedback learned probing：在 `short_slots` / `compound_hard` stress 场景下，学习 probe schedule 或 feedback-conditioned IRS 选择，目标是超过 `Rotating Feedback Probe B=1`。
-3. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
-4. More informative learned probing：若继续学习，需要加入 probe history、少量实时测量或不确定性/信息增益目标，而不是只用 7 维基础状态。
+1. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
+2. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
+3. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
+4. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
 5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation 和 bandit feedback stress 结果压缩成最终论文表格与图。
+6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep 和 bandit feedback stress pilot 已经完成。下一步若继续保留学习方向，应优先转向 bandit-feedback learned probing、多目标约束、更真实的执行阶段信道失配或更高信息量的主动 probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP 或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向执行阶段信道失配、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate，或仅决策 preview 误差。
