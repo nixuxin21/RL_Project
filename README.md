@@ -19,12 +19,13 @@
 - `evaluate_partial_probing_sweep.py`: 在每时隙只能 preview 少量 IRS 码本的设定下，比较随机 probing、固定网格、轮换网格、局部邻域和混合 probing。
 - `evaluate_channel_estimation_error_sweep.py`: 在决策 preview 使用带误差的等效信道、执行仍使用真实信道的设定下，扫描 IRS 选择规则对信道估计误差的鲁棒性。
 - `evaluate_limited_csi_ms_aircomp.py`: 有限 CSI 评估框架，将策略基于估计/partial probing 的节点邀请集合与真实信道执行成功集合分离。
+- `evaluate_execution_channel_mismatch.py`: 执行阶段信道失配评估框架，策略先基于 stale/estimated CSI 邀请节点，实际 AirComp slot 再用漂移后的执行信道验证成功。
 - `evaluate_bandit_feedback_ms_aircomp.py`: 更严格的有限观测评估框架，策略不能读取每个码本的完整 CSI 或节点级可调度 mask，只能通过少量 IRS probe 得到 noisy aggregate feedback，再在线选择码本。
 - `evaluate_bandit_feedback_stress_sweep.py`: 在 bandit feedback 框架上扫描更困难的物理场景，并加入 slot/probe cost 的 node-equivalent utility。
 - `evaluate_adaptive_feedback_probing.py`: 评估非学习版 Adaptive Rotating Backup；默认先执行 `Rotating B=1`，仅当单次 noisy feedback 低于剩余 deadline 所需速度时额外 probe 一个 backup 码本。
 - `benchmark_policy_runtime.py`: 运行时间 benchmark，统计 Feature Argmax、Feature Argmax PowerTie、Greedy、SAC 和 Codebook-Aware SAC 的决策耗时、环境 step 耗时和 preview 次数。
 - `experiments/archive/`: 早期探索实验归档，包括 noisy feature sweep、learned probing selector 和 probing cost tradeoff；这些脚本仍可通过 Makefile 运行，但不是当前主线。
-- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned/adaptive probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep 和动作诊断命令入口。
+- `Makefile`: 常用 smoke test、主对比、runtime、参数扫描、noisy feature sweep、partial probing sweep、learned/adaptive probing、probing cost tradeoff、channel estimation sweep、limited CSI sweep、execution mismatch sweep 和动作诊断命令入口。
 - `tests/smoke_checks.py`: 默认场景的轻量正确性测试，覆盖 preview 无副作用、codebook features 一致性、PowerTie 与 Greedy tie-break 一致性、limited CSI 零误差一致性和“未邀请节点不自动成功”。
 - `results/`: 已生成实验结果，默认按本地生成物处理；需要发布的关键 CSV/图可手动添加。
 - `rl_models/`: 模型 checkpoint 和 VecNormalize 统计文件。
@@ -362,6 +363,33 @@ results/channel_estimation/channel_estimation_error_sweep_ep1000_runs5_seed2026_
 
 默认比较 `No IRS`、`Fixed IRS`、`Exact Greedy Full CSI`、`Estimated Greedy Full Preview`、`Estimated Random Probe`、`Estimated Rotating Grid`、`Robust Rotating Grid`、`Risk-Aware Rotating Grid` 和 `Adaptive Risk-Aware Rotating Grid`。`Risk-Aware` 策略会根据估计信道距离可行阈值的距离生成节点成功可靠度，优先选择期望成功数高、边界风险低、平均功率低的 IRS 候选；默认 `risk-invite-threshold=0.5` 主要体现风险感知 IRS 选择，调高该门限则会更保守地过滤边界节点。`Adaptive Risk-Aware` 会在 CSI error 较高时提高风险权重，并在接近 deadline 或剩余节点 backlog 较高时降低风险权重。新增指标包括 `scheduled_nodes_mean`、`failed_nodes_mean`、`execution_failure_rate`、`missed_opportunity_rate`、`decision_preview_calls_per_slot_mean`、`effective_risk_weight_mean` 和 `oracle_tx_gap_mean`。
 
+## Execution Channel Mismatch
+
+该实验把“有限 CSI”推进到更真实的执行阶段失配：策略决策时只能看到 stale/estimated CSI，并据此选择 IRS 和邀请节点；真正执行 AirComp slot 时，等效信道会再发生一次 policy-independent drift。只有“被邀请且在执行信道下仍满足门限”的节点才算成功。`Execution Oracle Full CSI` 只作为离线上界，表示如果调度器能提前知道执行信道可达到的最好结果。
+
+短时隙 pilot：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0,0.1,0.2,0.3,0.5 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating \
+  --output-prefix results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5
+```
+
+默认输出：
+
+```text
+results/execution_mismatch/execution_mismatch_*.csv
+results/execution_mismatch/execution_mismatch_*_decerr*.png
+```
+
+当前 pilot 结论：执行阶段失配主要表现为失败邀请、missed opportunities 和 oracle gap 增大，而不是 success mean 立刻崩溃。`execerr=0.5` 时，`Exact Greedy Full CSI` 仍有 `49.972/50` 成功节点，但失败邀请均值升到 `5.39`、oracle gap 升到 `2.403`；`Estimated Rotating Grid B=1` 降到 `49.012/50`、完美覆盖率 `38.56%`、平均 `4.771` slots。该结果说明“只在决策 preview 加估计误差”低估了真实系统风险，后续鲁棒策略应直接建模执行漂移统计量。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -499,6 +527,7 @@ make adaptive-feedback-probing
 make probing-cost-tradeoff
 make channel-estimation-sweep
 make limited-csi-sweep
+make execution-mismatch-sweep
 make bandit-feedback-sweep
 make bandit-feedback-stress
 make action-diagnostics
@@ -515,6 +544,7 @@ make action-diagnostics
 - Rayleigh fading 信道、DFT IRS codebook。
 - 默认物理环境没有显式 probing cost；probing cost tradeoff 是基于 summary 的离线效用分析。
 - Channel estimation sweep 中只有决策 preview 使用估计信道，实际执行仍使用真实信道。
+- Execution channel mismatch sweep 中决策 CSI 和执行信道被显式分开，execution oracle 只作为离线上界。
 - Bandit feedback sweep 中策略只能看 noisy aggregate probe feedback；full oracle 指标仅用于离线诊断。
 - Bandit feedback stress sweep 使用额外的 node-equivalent utility 来比较低延迟和低 probing 开销，并不改变底层物理执行模型。
 - Learned/adaptive feedback probing 都不能访问完整 CSI 或 node-level mask；oracle 只用于训练标签或离线诊断。
@@ -595,6 +625,15 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 - `Estimated Rotating Grid B=4` 在 `error_std=0.3` 下为 `49.9874/50`、`98.78%`、`3.8162` slots；`B=8` 为 `49.9900/50`、`99.02%`、`3.5034` slots。
 - `Estimated Count Argmax` 对误差更敏感，`error_std=0.3` 时降到 `49.8812/50`、`88.24%` 完美覆盖率、`4.5880` slots。
 - 当前等效信道误差模型还没有让学习策略自然变得必要；它主要确认 full/partial probing 规则有较强鲁棒性。下一步若继续做鲁棒性，应加入执行阶段信道失配、延迟/偏置估计或多目标约束。
+
+## 当前 Execution Mismatch 结论
+
+当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`。主要结论：
+
+- 当执行误差从 `0` 增加到 `0.5` 时，`Execution Oracle Full CSI` 仍可达到 `50/50`，说明物理上仍有可调度机会；问题在于决策 CSI 与执行信道不一致。
+- `Exact Greedy Full CSI` 在 `execerr=0.5` 下仍有 `49.972/50` 成功节点，但平均失败邀请升到 `5.39`、missed opportunities 升到 `3.87`、oracle gap 升到 `2.403`，比只做决策 preview 误差更能暴露执行风险。
+- 有限 preview 更敏感：`Estimated Rotating Grid B=1` 在 `execerr=0.5` 下为 `49.012/50`、`38.56%` 完美覆盖率、`4.771` slots；`B=4` 为 `49.849/50`、`86.22%`、`3.934` slots。
+- 当前 risk-aware 规则只把决策估计误差作为风险来源；当 `decision_error_std=0` 且只有执行漂移时，它基本退化为 rotating。下一步应让策略显式使用执行漂移统计量，或改成预测“邀请后失败风险”的鲁棒调度规则。
 
 ## 当前参数扫描结论
 

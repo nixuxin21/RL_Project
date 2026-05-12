@@ -8,7 +8,7 @@
 
 能耗改进实验也已经完成：在 Feature Argmax 的 max-count 并列候选内加入功率 tie-break 后，`Feature Argmax PowerTie IRS` 在所有扫描配置下复现 Greedy IRS 的覆盖率、时延和能耗，同时每个决策时隙只额外 preview 少量并列候选。
 
-后续 noisy feature、partial probing、probing cost 和 channel estimation error 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；但在当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖，尚未给学习策略创造明确优势。
+后续 noisy feature、partial probing、probing cost、channel estimation error、bandit feedback 和 execution mismatch 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖；把信道误差推进到执行阶段后，失败邀请、missed opportunities 和 oracle gap 开始明显增加，但现有简单 risk-aware 规则还没有自然超过 rotating baseline。
 
 这意味着当前问题形态下，继续单纯训练 SAC 的收益不大。`Codebook-Aware SAC` 落后不是因为缺少有效特征，而是因为 RL 训练没有学到一个非常简单、稳定、可解释的规则：
 
@@ -723,6 +723,68 @@ Interpretation:
 - 即使把 gate 降到 `0.1/0.3/0.5`，触发率仍有约 `30%-39%`。原因是 high-noise aggregate feedback 被裁剪到 `[0,1]` 后会频繁出现假低反馈，单次低反馈不足以可靠判断当前 rotating 失败。
 - 后续不能直接用单次 noisy feedback 做硬阈值 gate；若继续主动 probing，应改成带不确定性校正的 gate、重复/确认式 probe，或学习一个 on-policy gate 来权衡“额外 probe 成本 vs 可能补救收益”。
 
+## Execution Channel Mismatch 证据
+
+前面的 `Channel Estimation Error` 实验只在决策 preview 阶段加入估计误差，真正执行时仍用同一个真实信道验证成功。这低估了真实系统中的一个关键风险：调度器基于 stale/estimated CSI 邀请节点，但数据 slot 执行时信道已经漂移。
+
+新增 `evaluate_execution_channel_mismatch.py` 把两者显式分开：
+
+- decision channel: 策略可见的 stale/estimated CSI，用于选择 IRS 和邀请节点。
+- execution channel: 对同一 IRS 码本再施加 policy-independent drift 后的信道，用于验证被邀请节点是否真的成功。
+- `Execution Oracle Full CSI`: 只作为离线上界，表示如果调度器提前知道执行信道能达到的最好结果。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0,0.1,0.2,0.3,0.5 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating \
+  --robust-gain-margins 1.25 \
+  --robust-power-margins 0.9 \
+  --risk-weights 0.5 \
+  --risk-power-weights 0.1 \
+  --risk-invite-thresholds 0.5 \
+  --adaptive-risk-base-weights 0.5 \
+  --output-prefix results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5
+```
+
+推荐引用文件：
+
+```text
+results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv
+results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5_decerr0.png
+```
+
+关键结果：
+
+| Exec error | Policy | Success | Perfect % | Slots | Failed invites | Missed opp. | Preview / Slot | Oracle tx gap |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0 | Execution Oracle Full CSI | 49.997/50 | 99.67 | 2.539 | 0.00 | 0.00 | 16.00 | 0.000 |
+| 0.0 | Exact Greedy Full CSI | 49.997/50 | 99.67 | 2.539 | 0.00 | 0.00 | 16.00 | 0.000 |
+| 0.0 | Estimated Rotating Grid B=1 | 49.533/50 | 64.33 | 4.359 | 0.00 | 0.00 | 1.00 | 1.909 |
+| 0.0 | Estimated Rotating Grid B=4 | 49.986/50 | 98.56 | 3.144 | 0.00 | 0.00 | 4.00 | 0.714 |
+| 0.2 | Execution Oracle Full CSI | 50.000/50 | 100.00 | 2.294 | 0.00 | 0.00 | 16.00 | 0.000 |
+| 0.2 | Exact Greedy Full CSI | 49.989/50 | 98.89 | 3.070 | 2.82 | 1.55 | 16.00 | 1.168 |
+| 0.2 | Estimated Rotating Grid B=1 | 49.216/50 | 46.22 | 4.660 | 3.03 | 3.92 | 1.00 | 2.848 |
+| 0.2 | Estimated Rotating Grid B=4 | 49.919/50 | 92.67 | 3.657 | 2.87 | 2.22 | 4.00 | 1.700 |
+| 0.5 | Execution Oracle Full CSI | 50.000/50 | 100.00 | 2.009 | 0.00 | 0.00 | 16.00 | 0.000 |
+| 0.5 | Exact Greedy Full CSI | 49.972/50 | 97.56 | 3.362 | 5.39 | 3.87 | 16.00 | 2.403 |
+| 0.5 | Estimated Rotating Grid B=1 | 49.012/50 | 38.56 | 4.771 | 5.57 | 10.24 | 1.00 | 3.975 |
+| 0.5 | Estimated Rotating Grid B=4 | 49.849/50 | 86.22 | 3.934 | 5.43 | 5.69 | 4.00 | 2.841 |
+
+Interpretation:
+
+- 执行阶段失配比单纯 decision-preview 估计误差更贴近本项目原始研究希望：有限 CSI 下通过 IRS 改善 multi-slot AirComp，但调度器不能假设执行时仍掌握完整真实 CSI。
+- `Execution Oracle Full CSI` 在高执行误差下仍可满覆盖，说明信道漂移不是让问题物理不可行，而是让 stale decision 产生失败邀请和错过机会。
+- `Exact Greedy Full CSI` 的 success mean 看起来仍高，但 `execerr=0.5` 时失败邀请达到 `5.39`、oracle gap 达到 `2.403`；因此后续不能只看成功节点均值，必须同时报告失败邀请、missed opportunities、slot gap 和 energy。
+- 有限 preview 的 `B=1` 明显更敏感，`execerr=0.5` 时完美覆盖率只有 `38.56%`；`B=4` 能恢复一部分性能，但仍比 execution oracle 慢约 `1.9` 个 slot。
+- 当前 `Risk-Aware Rotating Grid` 和 `Adaptive Risk-Aware Rotating Grid` 仍只把 decision CSI error 当成风险来源。这个 pilot 中 `decision_error_std=0`、只有 execution drift，所以它们基本退化为 rotating。下一步真正有研究价值的是：让策略使用执行漂移统计量来估计“邀请后失败风险”，而不是只对 noisy decision preview 做保守化。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -732,11 +794,12 @@ Interpretation:
 - Rayleigh fading 信道和 DFT IRS codebook。
 - 默认物理环境无显式 probing cost；probing cost tradeoff 是离线效用分析。
 - Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
+- Execution channel mismatch 实验把决策 CSI 和执行信道分开；execution oracle 只作为离线上界，不代表可部署策略。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 - Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -818,11 +881,12 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. 更真实的信道失配：把估计误差推进到执行阶段，或加入延迟、偏置、相关误差，而不是只在决策 preview 中加独立噪声。
-2. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
-3. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
-4. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
-5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
+1. 更真实的信道失配扩展：在已有独立 execution drift 基础上，加入 CSI delay、时间相关漂移、偏置估计和空间相关误差，而不是只做独立复高斯扰动。
+2. 执行失配感知鲁棒调度：让 policy 使用执行漂移统计量估计“邀请后失败风险”，比较 conservative invitation、risk-aware tie-break、机会成本和 missed-opportunity tradeoff。
+3. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
+4. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
+5. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
+6. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
+7. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向执行阶段信道失配、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate，或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向执行失配感知鲁棒调度、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate，或仅决策 preview 误差。

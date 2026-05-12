@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -20,6 +20,7 @@ py-compile:
 		experiments/archive/evaluate_probing_cost_tradeoff.py \
 		evaluate_channel_estimation_error_sweep.py \
 		evaluate_limited_csi_ms_aircomp.py \
+		evaluate_execution_channel_mismatch.py \
 		evaluate_bandit_feedback_ms_aircomp.py \
 		evaluate_bandit_feedback_stress_sweep.py \
 		evaluate_adaptive_feedback_probing.py \
@@ -54,6 +55,15 @@ smoke: test
 		--risk-invite-thresholds 0.5 \
 		--adaptive-risk-base-weights 0.5 \
 		--output-prefix /tmp/limited_csi_smoke \
+		--no-plots
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 1 \
+		--num-seeds 1 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0.1 \
+		--probe-budgets 1 \
+		--policies no_irs,execution_oracle,exact_greedy,rotating \
+		--output-prefix /tmp/execution_mismatch_smoke \
 		--no-plots
 	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py \
 		--episodes 2 \
@@ -135,6 +145,9 @@ channel-estimation-sweep:
 
 limited-csi-sweep:
 	$(PYTHON) evaluate_limited_csi_ms_aircomp.py
+
+execution-mismatch-sweep:
+	$(PYTHON) evaluate_execution_channel_mismatch.py
 
 bandit-feedback-sweep:
 	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py
