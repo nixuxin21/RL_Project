@@ -840,6 +840,65 @@ Interpretation:
 - 把阈值轻微提高到 `0.55` 会减少失败邀请，但会错过更多真实可执行节点；在 `execerr=0.5, B=4` 下，failed 从 `5.43` 降到 `4.64`，但 missed opportunities 从 `5.69` 升到 `9.66`，oracle gap 从 `2.841` 升到 `3.738`。
 - 后续鲁棒调度不能只做 static conservative invitation；需要显式建模机会成本，例如 deadline-aware threshold、按剩余 backlog 调整的 expected utility、或把 false reject 与 false accept 的代价同时纳入目标。
 
+### Opportunity-Cost Execution-Risk pilot
+
+为检验“机会成本感知”是否能修复 static threshold 的 false reject 问题，新增 `Opportunity-Cost Execution-Risk Rotating Grid`：
+
+- IRS 候选集合仍来自 rotating probe，不使用 realized execution channel。
+- 每个估计可行节点根据执行漂移方差得到 reliability。
+- 邀请决策比较 expected utility：邀请收益为可靠成功进度，失败项为 false accept cost；不邀请损失为 missed opportunity cost。
+- 当前 slot 的 urgency 由剩余 deadline 和 backlog 共同决定，用于放大临近 deadline 或剩余节点较多时的 false reject 代价。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0.2,0.5 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,rotating,execution_risk_rotating,opportunity_execution_risk_rotating \
+  --risk-weights 0.1 \
+  --risk-power-weights 0.1 \
+  --risk-invite-thresholds 0.55 \
+  --opportunity-failure-costs 0.5,1,2 \
+  --opportunity-missed-costs 1,2 \
+  --opportunity-deadline-gains 0.5 \
+  --opportunity-backlog-gains 0.5 \
+  --output-prefix results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2
+```
+
+推荐引用文件：
+
+```text
+results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv
+results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2_decerr0.png
+```
+
+关键结果：
+
+| Exec error | Policy | Success | Perfect % | Slots | Failed invites | Missed opp. | Oracle tx gap |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.2 | Estimated Rotating Grid B=1 | 49.216/50 | 46.22 | 4.660 | 3.03 | 3.92 | 2.848 |
+| 0.2 | Opportunity-Cost B=1 fc=0.5 mc=1 | 49.216/50 | 46.22 | 4.660 | 3.03 | 3.92 | 2.848 |
+| 0.2 | Estimated Rotating Grid B=4 | 49.919/50 | 92.67 | 3.657 | 2.87 | 2.22 | 1.700 |
+| 0.2 | Opportunity-Cost B=4 fc=0.5 mc=1 | 49.898/50 | 90.67 | 3.746 | 2.50 | 2.43 | 1.799 |
+| 0.2 | Opportunity-Cost B=4 fc=2 mc=1 | 49.727/50 | 76.67 | 4.210 | 1.87 | 3.58 | 2.325 |
+| 0.5 | Estimated Rotating Grid B=1 | 49.012/50 | 38.56 | 4.771 | 5.57 | 10.24 | 3.975 |
+| 0.5 | Opportunity-Cost B=1 fc=0.5 mc=1 | 49.012/50 | 38.56 | 4.771 | 5.57 | 10.24 | 3.975 |
+| 0.5 | Estimated Rotating Grid B=4 | 49.849/50 | 86.22 | 3.934 | 5.43 | 5.69 | 2.841 |
+| 0.5 | Opportunity-Cost B=4 fc=0.5 mc=1 | 49.823/50 | 84.22 | 4.023 | 5.07 | 6.37 | 2.949 |
+| 0.5 | Opportunity-Cost B=4 fc=2 mc=1 | 48.988/50 | 39.56 | 4.762 | 4.12 | 12.38 | 4.404 |
+
+Interpretation:
+
+- 这是第二个负/中性结果：动态机会成本邀请过滤避免了 static threshold 的部分过度拒绝，但没有超过普通 rotating。
+- 低失败代价时，机会成本规则基本退化为 rotating，因此不会修复 execution mismatch。
+- 高失败代价时，failed invites 会下降，但代价是 success、perfect rate、slot 和 oracle gap 同时变差；这说明 false reject 仍然过贵。
+- 当前证据表明，单纯在 rotating 候选内部做 reliability-based invitation filter 不足以产生研究增益。下一步更应考虑更真实的信道时间相关性、多目标约束、重复确认/置信反馈，或让策略改变 probe/IRS 选择本身，而不是只过滤已选 IRS 下的节点。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -854,7 +913,7 @@ Interpretation:
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 - Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation 仍没有超过 rotating。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation 和 opportunity-cost invitation filter 都没有超过 rotating。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -937,11 +996,10 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 优先级从高到低：
 
 1. 更真实的信道失配扩展：在已有独立 execution drift 基础上，加入 CSI delay、时间相关漂移、偏置估计和空间相关误差，而不是只做独立复高斯扰动。
-2. 机会成本感知的执行失配鲁棒调度：当前 static execution-risk threshold 已是负结果，下一步应把 false reject 的 missed opportunity 和 false accept 的 failed invite 同时纳入 expected utility，并让阈值随 deadline/backlog 动态变化。
-3. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
-4. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
-5. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
-6. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-7. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
+2. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
+3. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
+4. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
+5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
+6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向机会成本感知的执行失配鲁棒调度、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate、static conservative invitation，或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向更真实的信道时间相关失配、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter，或仅决策 preview 误差。

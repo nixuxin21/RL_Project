@@ -409,6 +409,29 @@ results/execution_mismatch/execution_mismatch_*_decerr*.png
 
 当前结果是负的：`rt=0.55` 能减少失败邀请，但会显著增加 missed opportunities 和 oracle gap。例如 `execerr=0.5, B=4` 下，普通 rotating 为 `49.849/50`、`5.43` failed、`5.69` missed、gap `2.841`；`Execution-Risk B=4 rw=0.1 rt=0.55` 为 `49.762/50`、`4.64` failed、`9.66` missed、gap `3.738`。这说明固定保守邀请阈值不是足够好的鲁棒调度方法。
 
+随后新增 `opportunity_execution_risk_rotating`，把邀请决策改成 expected utility：false accept 对应失败邀请代价，false reject 对应 missed opportunity 代价，并用 deadline/backlog 生成当前 slot 的 urgency：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0.2,0.5 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,rotating,execution_risk_rotating,opportunity_execution_risk_rotating \
+  --risk-weights 0.1 \
+  --risk-power-weights 0.1 \
+  --risk-invite-thresholds 0.55 \
+  --opportunity-failure-costs 0.5,1,2 \
+  --opportunity-missed-costs 1,2 \
+  --opportunity-deadline-gains 0.5 \
+  --opportunity-backlog-gains 0.5 \
+  --output-prefix results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2
+```
+
+结果仍是中性到负面：低失败代价配置基本退化为普通 rotating；高失败代价能减少 failed invites，但会牺牲 success、perfect rate 和 oracle gap。例如 `execerr=0.5, B=4` 下，最好成功率的 opportunity 配置为 `49.823/50`、`5.07` failed、`6.37` missed、gap `2.949`，仍弱于 rotating 的 `49.849/50`、`5.43` failed、`5.69` missed、gap `2.841`。这说明“只用可靠度加动态机会成本过滤邀请”仍不足以超过 rotating baseline，下一步应转向更真实的信道失配、多目标约束或带置信/重复确认的 feedback probing。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -647,12 +670,13 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 
 ## 当前 Execution Mismatch 结论
 
-当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`。主要结论：
+当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`、`results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55.csv` 和 `results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv`。主要结论：
 
 - 当执行误差从 `0` 增加到 `0.5` 时，`Execution Oracle Full CSI` 仍可达到 `50/50`，说明物理上仍有可调度机会；问题在于决策 CSI 与执行信道不一致。
 - `Exact Greedy Full CSI` 在 `execerr=0.5` 下仍有 `49.972/50` 成功节点，但平均失败邀请升到 `5.39`、missed opportunities 升到 `3.87`、oracle gap 升到 `2.403`，比只做决策 preview 误差更能暴露执行风险。
 - 有限 preview 更敏感：`Estimated Rotating Grid B=1` 在 `execerr=0.5` 下为 `49.012/50`、`38.56%` 完美覆盖率、`4.771` slots；`B=4` 为 `49.849/50`、`86.22%`、`3.934` slots。
-- 新增 execution-risk-aware 规则显式使用执行漂移统计量，但固定保守阈值没有超过 rotating：`execerr=0.5, B=4` 下，`Execution-Risk rw=0.1 rt=0.55` 虽把 failed 从 `5.43` 降到 `4.64`，但 missed opportunities 从 `5.69` 升到 `9.66`，oracle gap 从 `2.841` 升到 `3.738`。下一步应做机会成本感知的动态阈值或多目标调度，而不是静态 conservative invitation。
+- 新增 execution-risk-aware 规则显式使用执行漂移统计量，但固定保守阈值没有超过 rotating：`execerr=0.5, B=4` 下，`Execution-Risk rw=0.1 rt=0.55` 虽把 failed 从 `5.43` 降到 `4.64`，但 missed opportunities 从 `5.69` 升到 `9.66`，oracle gap 从 `2.841` 升到 `3.738`。
+- 机会成本版本进一步把 false reject / false accept 代价和 deadline/backlog urgency 纳入邀请决策，但仍没有超过 rotating：`execerr=0.5, B=4` 下，最好成功率配置为 `49.823/50`、`5.07` failed、`6.37` missed、gap `2.949`，弱于 rotating 的 `49.849/50`、gap `2.841`。这说明仅靠 invitation filter 不够，下一步应转向更真实的信道失配、多目标约束或带置信/重复确认的 feedback probing。
 
 ## 当前参数扫描结论
 

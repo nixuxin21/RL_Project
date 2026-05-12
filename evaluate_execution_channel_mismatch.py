@@ -34,6 +34,7 @@ from evaluate_policy_comparison import (
 POLICY_EXECUTION_ORACLE = "Execution Oracle Full CSI"
 POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID = "Execution-Risk Rotating Grid"
 POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
+POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
 
 POLICY_CHOICES = {
     "no_irs": limited.POLICY_NO_IRS,
@@ -47,6 +48,7 @@ POLICY_CHOICES = {
     "adaptive_risk_rotating": limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
     "execution_risk_rotating": POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
     "adaptive_execution_risk_rotating": POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
 
@@ -85,6 +87,10 @@ CSV_FIELDS = [
     "risk_power_weight",
     "risk_invite_threshold",
     "adaptive_risk_base_weight",
+    "opportunity_failure_cost",
+    "opportunity_missed_cost",
+    "opportunity_deadline_gain",
+    "opportunity_backlog_gain",
     "success_mean",
     "success_ci95",
     "success_rate_mean",
@@ -125,7 +131,7 @@ def parse_args():
     parser.add_argument("--execution-error-std-values", default="0,0.05,0.1,0.2,0.3")
     parser.add_argument(
         "--policies",
-        default="no_irs,fixed,execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating,execution_risk_rotating,adaptive_execution_risk_rotating",
+        default="no_irs,fixed,execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating,execution_risk_rotating,adaptive_execution_risk_rotating,opportunity_execution_risk_rotating",
     )
     parser.add_argument("--robust-gain-margins", default="1.25")
     parser.add_argument("--robust-power-margins", default="0.9")
@@ -137,6 +143,10 @@ def parse_args():
     parser.add_argument("--adaptive-risk-error-gain", type=float, default=1.0)
     parser.add_argument("--adaptive-risk-deadline-relief", type=float, default=0.6)
     parser.add_argument("--adaptive-risk-backlog-relief", type=float, default=0.8)
+    parser.add_argument("--opportunity-failure-costs", default="1.0")
+    parser.add_argument("--opportunity-missed-costs", default="1.0")
+    parser.add_argument("--opportunity-deadline-gains", default="0.5")
+    parser.add_argument("--opportunity-backlog-gains", default="0.5")
     parser.add_argument("--num-nodes", type=int, default=50)
     parser.add_argument("--num-slots", type=int, default=10)
     parser.add_argument("--num-irs-elements", type=int, default=64)
@@ -187,6 +197,10 @@ def validate_args(args):
     args.risk_power_weights = limited.parse_float_list(args.risk_power_weights)
     args.risk_invite_thresholds = limited.parse_float_list(args.risk_invite_thresholds)
     args.adaptive_risk_base_weights = limited.parse_float_list(args.adaptive_risk_base_weights)
+    args.opportunity_failure_costs = limited.parse_float_list(args.opportunity_failure_costs)
+    args.opportunity_missed_costs = limited.parse_float_list(args.opportunity_missed_costs)
+    args.opportunity_deadline_gains = limited.parse_float_list(args.opportunity_deadline_gains)
+    args.opportunity_backlog_gains = limited.parse_float_list(args.opportunity_backlog_gains)
     for name in (
         "robust_gain_margins",
         "robust_power_margins",
@@ -194,6 +208,10 @@ def validate_args(args):
         "risk_power_weights",
         "risk_invite_thresholds",
         "adaptive_risk_base_weights",
+        "opportunity_failure_costs",
+        "opportunity_missed_costs",
+        "opportunity_deadline_gains",
+        "opportunity_backlog_gains",
     ):
         if not getattr(args, name):
             raise ValueError(f"--{name.replace('_', '-')} must not be empty")
@@ -207,6 +225,14 @@ def validate_args(args):
         raise ValueError("--risk-invite-thresholds must be in [0, 1]")
     if any(value < 0.0 for value in args.adaptive_risk_base_weights):
         raise ValueError("--adaptive-risk-base-weights must be non-negative")
+    if any(value < 0.0 for value in args.opportunity_failure_costs):
+        raise ValueError("--opportunity-failure-costs must be non-negative")
+    if any(value < 0.0 for value in args.opportunity_missed_costs):
+        raise ValueError("--opportunity-missed-costs must be non-negative")
+    if any(value < 0.0 for value in args.opportunity_deadline_gains):
+        raise ValueError("--opportunity-deadline-gains must be non-negative")
+    if any(value < 0.0 for value in args.opportunity_backlog_gains):
+        raise ValueError("--opportunity-backlog-gains must be non-negative")
 
     args.fixed_irs_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
 
@@ -349,24 +375,16 @@ def candidate_with_execution_reliability(
     return adjusted
 
 
-def choose_execution_risk_decision(
+def execution_risk_candidate_set(
     env,
     args,
-    policy_name,
     budget,
     slot_idx,
     decision_error_std,
     execution_error_std,
     episode_seed,
-    risk_weight=0.5,
-    risk_power_weight=0.1,
-    risk_invite_threshold=0.5,
-    adaptive_risk_error_ref=0.3,
-    adaptive_risk_error_gain=1.0,
-    adaptive_risk_deadline_relief=0.6,
-    adaptive_risk_backlog_relief=0.8,
 ):
-    """Choose rotating-grid candidates using execution-drift risk statistics."""
+    """Return rotating-grid candidates re-scored with execution-drift reliability."""
     budget = min(int(budget), args.num_codebook_states)
     random_rng = limited.stable_rng(
         episode_seed,
@@ -406,6 +424,167 @@ def choose_execution_risk_decision(
         )
         for candidate in candidates
     ]
+    return candidates, len(indices)
+
+
+def execution_urgency(env, args, slot_idx, deadline_gain=0.5, backlog_gain=0.5):
+    """Return a multiplier that raises missed-opportunity cost near deadline/backlog."""
+    if args.num_slots <= 1:
+        deadline_pressure = 1.0
+    else:
+        deadline_pressure = float(slot_idx) / float(max(args.num_slots - 1, 1))
+    remaining_count = int(np.sum(~env.transmitted_flags))
+    remaining_ratio = float(remaining_count) / float(max(args.num_nodes, 1))
+    slots_left = max(int(args.num_slots) - int(slot_idx), 1)
+    schedule_ratio = float(slots_left) / float(max(args.num_slots, 1))
+    backlog_pressure = max(0.0, remaining_ratio - schedule_ratio) / max(schedule_ratio, 1e-12)
+    backlog_pressure = min(backlog_pressure, 2.0)
+    return 1.0 + float(deadline_gain) * deadline_pressure + float(backlog_gain) * backlog_pressure
+
+
+def opportunity_cost_candidate(
+    env,
+    candidate,
+    args,
+    slot_idx,
+    failure_cost=1.0,
+    missed_cost=1.0,
+    power_weight=0.1,
+    deadline_gain=0.5,
+    backlog_gain=0.5,
+):
+    """Build an execution-risk candidate using false-accept and false-reject costs."""
+    adjusted = dict(candidate)
+    estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
+    reliability = np.asarray(candidate["success_reliability"], dtype=float)
+    required_power = np.asarray(candidate["required_power"], dtype=float)
+    urgency = execution_urgency(
+        env,
+        args,
+        slot_idx,
+        deadline_gain=deadline_gain,
+        backlog_gain=backlog_gain,
+    )
+    success_value = urgency
+    false_reject_cost = float(missed_cost) * urgency
+    false_accept_cost = float(failure_cost)
+    normalized_power = required_power / max(float(env.P_max), 1e-12)
+    invite_utility = (
+        reliability * success_value
+        - (1.0 - reliability) * false_accept_cost
+        - float(power_weight) * normalized_power
+    )
+    skip_utility = -false_reject_cost * reliability
+    invite_mask = estimated_valid_mask & (invite_utility >= skip_utility)
+
+    scheduled_power = required_power[invite_mask]
+    tx_count = int(np.sum(invite_mask))
+    power_avg = float(np.mean(scheduled_power)) if tx_count > 0 else 0.0
+    expected_success = float(np.sum(reliability[invite_mask]))
+    failure_mass = float(np.sum(1.0 - reliability[invite_mask]))
+    rejected_mask = estimated_valid_mask & (~invite_mask)
+    missed_mass = float(np.sum(reliability[rejected_mask]))
+    policy_value = float(
+        np.sum(invite_utility[invite_mask])
+        + np.sum(skip_utility[rejected_mask])
+    )
+
+    adjusted["estimated_valid_mask"] = estimated_valid_mask
+    adjusted["valid_mask"] = invite_mask
+    adjusted["tx_this_slot"] = tx_count
+    adjusted["power_avg"] = power_avg
+    adjusted["expected_success"] = expected_success
+    adjusted["risk_mass"] = failure_mass
+    adjusted["missed_reliability_mass"] = missed_mass
+    adjusted["opportunity_score"] = policy_value
+    adjusted["opportunity_urgency"] = urgency
+    adjusted["opportunity_false_accept_cost"] = false_accept_cost
+    adjusted["opportunity_false_reject_cost"] = false_reject_cost
+    adjusted["effective_risk_weight"] = false_accept_cost
+    adjusted["risk_rejected_count"] = int(np.sum(rejected_mask))
+    return adjusted
+
+
+def opportunity_cost_candidate_key(candidate):
+    """Rank opportunity-cost candidates by expected utility and reliable progress."""
+    return (
+        float(candidate["opportunity_score"]),
+        float(candidate["expected_success"]),
+        int(candidate["tx_this_slot"]),
+        -float(candidate["risk_mass"]),
+        -float(candidate["power_avg"]) if int(candidate["tx_this_slot"]) > 0 else 0.0,
+        float(candidate["mean_gain_remaining"]),
+    )
+
+
+def choose_opportunity_execution_risk_decision(
+    env,
+    args,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    failure_cost=1.0,
+    missed_cost=1.0,
+    power_weight=0.1,
+    deadline_gain=0.5,
+    backlog_gain=0.5,
+):
+    """Choose rotating-grid candidates by expected utility under execution drift."""
+    candidates, preview_calls = execution_risk_candidate_set(
+        env,
+        args,
+        budget,
+        slot_idx,
+        decision_error_std,
+        execution_error_std,
+        episode_seed,
+    )
+    adjusted = [
+        opportunity_cost_candidate(
+            env,
+            candidate,
+            args,
+            slot_idx,
+            failure_cost=failure_cost,
+            missed_cost=missed_cost,
+            power_weight=power_weight,
+            deadline_gain=deadline_gain,
+            backlog_gain=backlog_gain,
+        )
+        for candidate in candidates
+    ]
+    return max(adjusted, key=opportunity_cost_candidate_key), preview_calls, preview_calls
+
+
+def choose_execution_risk_decision(
+    env,
+    args,
+    policy_name,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    risk_weight=0.5,
+    risk_power_weight=0.1,
+    risk_invite_threshold=0.5,
+    adaptive_risk_error_ref=0.3,
+    adaptive_risk_error_gain=1.0,
+    adaptive_risk_deadline_relief=0.6,
+    adaptive_risk_backlog_relief=0.8,
+):
+    """Choose rotating-grid candidates using execution-drift risk statistics."""
+    candidates, preview_calls = execution_risk_candidate_set(
+        env,
+        args,
+        budget,
+        slot_idx,
+        decision_error_std,
+        execution_error_std,
+        episode_seed,
+    )
     effective_risk = float(risk_weight)
     if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
         effective_risk = limited.adaptive_risk_weight(
@@ -428,8 +607,8 @@ def choose_execution_risk_decision(
             risk_power_weight=risk_power_weight,
             risk_invite_threshold=risk_invite_threshold,
         ),
-        len(indices),
-        len(indices),
+        preview_calls,
+        preview_calls,
     )
 
 
@@ -479,6 +658,10 @@ def policy_label(
     power_margin=1.0,
     risk_weight=0.0,
     risk_invite_threshold=0.0,
+    opportunity_failure_cost=0.0,
+    opportunity_missed_cost=0.0,
+    opportunity_deadline_gain=0.0,
+    opportunity_backlog_gain=0.0,
 ):
     """Return a compact display label."""
     if policy_name in {
@@ -489,6 +672,7 @@ def policy_label(
         limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
         POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
         POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
@@ -502,6 +686,11 @@ def policy_label(
         POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
     }:
         label += f" rw={risk_weight:g} rt={risk_invite_threshold:g}"
+    if policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
+        label += (
+            f" fc={opportunity_failure_cost:g} mc={opportunity_missed_cost:g}"
+            f" dg={opportunity_deadline_gain:g} bg={opportunity_backlog_gain:g}"
+        )
     return label
 
 
@@ -518,6 +707,10 @@ def evaluate_policy(
     risk_power_weight=0.0,
     risk_invite_threshold=0.0,
     adaptive_risk_base_weight=0.0,
+    opportunity_failure_cost=0.0,
+    opportunity_missed_cost=0.0,
+    opportunity_deadline_gain=0.0,
+    opportunity_backlog_gain=0.0,
 ):
     """Evaluate one policy/config under decision and execution mismatch."""
     env = limited.make_env(args)
@@ -534,6 +727,10 @@ def evaluate_policy(
         }
         else adaptive_risk_base_weight,
         risk_invite_threshold=risk_invite_threshold,
+        opportunity_failure_cost=opportunity_failure_cost,
+        opportunity_missed_cost=opportunity_missed_cost,
+        opportunity_deadline_gain=opportunity_deadline_gain,
+        opportunity_backlog_gain=opportunity_backlog_gain,
     )
     success_nodes = []
     avg_power = []
@@ -605,6 +802,21 @@ def evaluate_policy(
                         adaptive_risk_error_gain=args.adaptive_risk_error_gain,
                         adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
                         adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
+                    )
+                elif policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
+                    decision, preview_calls, _candidate_count = choose_opportunity_execution_risk_decision(
+                        env,
+                        args,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        execution_error_std,
+                        episode_seed,
+                        failure_cost=opportunity_failure_cost,
+                        missed_cost=opportunity_missed_cost,
+                        power_weight=risk_power_weight,
+                        deadline_gain=opportunity_deadline_gain,
+                        backlog_gain=opportunity_backlog_gain,
                     )
                 else:
                     decision, preview_calls, _candidate_count = choose_decision(
@@ -685,6 +897,10 @@ def evaluate_policy(
         "risk_power_weight": float(risk_power_weight),
         "risk_invite_threshold": float(risk_invite_threshold),
         "adaptive_risk_base_weight": float(adaptive_risk_base_weight),
+        "opportunity_failure_cost": float(opportunity_failure_cost),
+        "opportunity_missed_cost": float(opportunity_missed_cost),
+        "opportunity_deadline_gain": float(opportunity_deadline_gain),
+        "opportunity_backlog_gain": float(opportunity_backlog_gain),
         "success_nodes": np.asarray(success_nodes, dtype=float),
         "avg_power": np.asarray(avg_power, dtype=float),
         "episode_reward": np.asarray(rewards, dtype=float),
@@ -736,6 +952,10 @@ def aggregate_seed_results(seed_result_sets):
             "risk_power_weight": parts[0]["risk_power_weight"],
             "risk_invite_threshold": parts[0]["risk_invite_threshold"],
             "adaptive_risk_base_weight": parts[0]["adaptive_risk_base_weight"],
+            "opportunity_failure_cost": parts[0]["opportunity_failure_cost"],
+            "opportunity_missed_cost": parts[0]["opportunity_missed_cost"],
+            "opportunity_deadline_gain": parts[0]["opportunity_deadline_gain"],
+            "opportunity_backlog_gain": parts[0]["opportunity_backlog_gain"],
         }
         for key in NUMERIC_RESULT_KEYS:
             aggregated[key] = np.concatenate([part[key] for part in parts])
@@ -784,6 +1004,10 @@ def summarize_results(args, results):
                 "risk_power_weight": float(result["risk_power_weight"]),
                 "risk_invite_threshold": float(result["risk_invite_threshold"]),
                 "adaptive_risk_base_weight": float(result["adaptive_risk_base_weight"]),
+                "opportunity_failure_cost": float(result["opportunity_failure_cost"]),
+                "opportunity_missed_cost": float(result["opportunity_missed_cost"]),
+                "opportunity_deadline_gain": float(result["opportunity_deadline_gain"]),
+                "opportunity_backlog_gain": float(result["opportunity_backlog_gain"]),
                 "success_mean": success_mean,
                 "success_ci95": success_ci95,
                 "success_rate_mean": success_mean / args.num_nodes,
@@ -969,6 +1193,24 @@ def policy_configs(args):
                                     "risk_invite_threshold": risk_invite_threshold,
                                 }
                             )
+        elif policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                for opportunity_failure_cost in args.opportunity_failure_costs:
+                    for opportunity_missed_cost in args.opportunity_missed_costs:
+                        for opportunity_deadline_gain in args.opportunity_deadline_gains:
+                            for opportunity_backlog_gain in args.opportunity_backlog_gains:
+                                for risk_power_weight in args.risk_power_weights:
+                                    configs.append(
+                                        {
+                                            "policy_name": policy_name,
+                                            "budget": budget,
+                                            "risk_power_weight": risk_power_weight,
+                                            "opportunity_failure_cost": opportunity_failure_cost,
+                                            "opportunity_missed_cost": opportunity_missed_cost,
+                                            "opportunity_deadline_gain": opportunity_deadline_gain,
+                                            "opportunity_backlog_gain": opportunity_backlog_gain,
+                                        }
+                                    )
         else:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
