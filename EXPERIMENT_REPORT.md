@@ -511,41 +511,58 @@ Interpretation:
 utility = success_mean - 0.1 * slots_mean - 0.005 * total_probe_calls_mean
 ```
 
-pilot 命令：
+正式命令：
 
 ```bash
 ./.venv/bin/python evaluate_bandit_feedback_stress_sweep.py \
-  --episodes 150 \
-  --num-seeds 2 \
+  --episodes 1000 \
+  --num-seeds 5 \
   --seed 2026 \
-  --scenarios default,short_slots,small_codebook,compound_hard \
-  --feedback-noise-std-values 0.2 \
+  --scenarios short_slots,compound_hard \
+  --feedback-noise-std-values 0,0.1,0.2,0.3,0.5 \
   --probe-budgets 1,2,4 \
-  --output-prefix results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2
+  --output-prefix results/bandit_feedback/bandit_feedback_stress_formal_ep1000_runs5_seed2026
 ```
 
 推荐引用文件：
 
 ```text
-results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2.csv
-results/bandit_feedback/bandit_feedback_stress_pilot_ep150_runs2_seed2026_noise0p2.png
+results/bandit_feedback/bandit_feedback_stress_formal_ep1000_runs5_seed2026.csv
+results/bandit_feedback/bandit_feedback_stress_formal_ep1000_runs5_seed2026.png
 ```
 
 关键结果：
 
-| Scenario | Best non-oracle | Utility | Success | Perfect % | Slots | Total probes | Oracle success |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| default | Rotating Feedback Probe B=1 | 49.439 | 49.973/50 | 97.33 | 5.090 | 5.09 | 50.000/50 |
-| short_slots | Rotating Feedback Probe B=1 | 49.111 | 49.563/50 | 65.33 | 4.303 | 4.30 | 50.000/50 |
-| small_codebook | Rotating Feedback Probe B=1 | 49.359 | 49.893/50 | 89.67 | 5.087 | 5.09 | 49.893/50 |
-| compound_hard | Rotating Feedback Probe B=1 | 78.714 | 79.210/80 | 46.33 | 4.720 | 4.72 | 79.710/80 |
+| Scenario | Noise | Best non-oracle | Utility | Success | Perfect % | Slots | Total probes | Oracle success |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| short_slots | 0.0 | Rotating Feedback Probe B=4 | 49.383 | 49.798/50 | 81.00 | 3.456 | 13.82 | 49.995/50 |
+| short_slots | 0.1 | Rotating Feedback Probe B=1 | 49.096 | 49.550/50 | 64.66 | 4.327 | 4.33 | 49.995/50 |
+| short_slots | 0.2 | Rotating Feedback Probe B=1 | 49.096 | 49.550/50 | 64.66 | 4.327 | 4.33 | 49.995/50 |
+| short_slots | 0.3 | Rotating Feedback Probe B=1 | 49.096 | 49.550/50 | 64.66 | 4.327 | 4.33 | 49.995/50 |
+| short_slots | 0.5 | Rotating Feedback Probe B=1 | 49.096 | 49.550/50 | 64.66 | 4.327 | 4.33 | 49.995/50 |
+| compound_hard | 0.0 | Rotating Feedback Probe B=1 | 78.706 | 79.194/80 | 47.04 | 4.645 | 4.65 | 79.697/80 |
+| compound_hard | 0.1 | Rotating Feedback Probe B=1 | 78.706 | 79.194/80 | 47.04 | 4.645 | 4.65 | 79.697/80 |
+| compound_hard | 0.2 | Rotating Feedback Probe B=1 | 78.706 | 79.194/80 | 47.04 | 4.645 | 4.65 | 79.697/80 |
+| compound_hard | 0.3 | Rotating Feedback Probe B=1 | 78.706 | 79.194/80 | 47.04 | 4.645 | 4.65 | 79.697/80 |
+| compound_hard | 0.5 | Rotating Feedback Probe B=1 | 78.706 | 79.194/80 | 47.04 | 4.645 | 4.65 | 79.697/80 |
+
+高噪声负例：
+
+| Scenario | Noise | Policy | Success | Perfect % | Slots | Total probes | Oracle tx gap |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| short_slots | 0.5 | Full Noisy Feedback B=16 | 49.244/50 | 50.70 | 4.466 | 71.45 | 2.261 |
+| short_slots | 0.5 | UCB Feedback Probe B=1 | 44.710/50 | 5.66 | 4.967 | 4.97 | 5.737 |
+| short_slots | 0.5 | Thompson Feedback Probe B=1 | 47.089/50 | 15.02 | 4.898 | 4.90 | 4.324 |
+| compound_hard | 0.5 | Full Noisy Feedback B=8 | 78.063/80 | 22.04 | 4.805 | 38.44 | 2.617 |
+| compound_hard | 0.5 | UCB Feedback Probe B=1 | 71.183/80 | 1.64 | 4.993 | 4.99 | 7.814 |
+| compound_hard | 0.5 | Thompson Feedback Probe B=1 | 73.848/80 | 3.74 | 4.978 | 4.98 | 6.276 |
 
 Interpretation:
 
 - 这个设定比 noisy features / limited CSI 更贴近“真实环境无法获得完整 CSI”的研究目标：策略只能使用 probe 得到的聚合反馈。
-- 默认环境仍偏容易，success mean 不能充分区分策略；但 `short_slots` 和 `compound_hard` 会显著拉低完美覆盖率，适合作为后续主实验压力场景。
-- `Rotating Feedback Probe B=1` 在所有 stress 场景下都是最佳非 oracle 策略，说明确定性码本扫频是一个非常强的有限反馈 baseline。
-- `Full Noisy Feedback` 即使 probe 全部码本也不等于 oracle，因为它只看 noisy aggregate feedback；在 `compound_hard` 下为 `78.220/80`、`25.00%` perfect，明显低于 oracle 的 `79.710/80`、`77.00%` perfect。
+- 默认环境仍偏容易，success mean 不能充分区分策略；正式 sweep 因此聚焦 `short_slots` 和 `compound_hard` 两个压力场景。
+- `Rotating Feedback Probe B=1` 在有反馈噪声时是最稳的非 oracle 策略；只有 `short_slots, noise=0` 下，`B=4` 因无噪声且可多 probe 而取得更高 utility。
+- `Full Noisy Feedback` 即使 probe 全部码本也不等于 oracle，因为它只看 noisy aggregate feedback；在 `compound_hard, noise=0.5` 下为 `78.063/80`、`22.04%` perfect，明显低于 oracle 的 `79.697/80`。
 - 朴素 `UCB/Thompson` 在短时隙和组合困难场景下退化明显，原因是每个 slot 的剩余节点集合不断改变，跨 slot 累积的 codebook mean 很容易变成 stale feedback。
 - 后续若做学习策略，应把目标定义为“学习 probe schedule / feedback-conditioned selection”，并且必须超过 `Rotating Feedback Probe B=1` 这个强规则基线。
 
