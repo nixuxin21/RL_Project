@@ -35,6 +35,11 @@ POLICY_EXECUTION_ORACLE = "Execution Oracle Full CSI"
 POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID = "Execution-Risk Rotating Grid"
 POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
 POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
+POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
+
+MISMATCH_INDEPENDENT = "independent"
+MISMATCH_TEMPORAL_AR1 = "temporal_ar1"
+MISMATCH_CHOICES = {MISMATCH_INDEPENDENT, MISMATCH_TEMPORAL_AR1}
 
 POLICY_CHOICES = {
     "no_irs": limited.POLICY_NO_IRS,
@@ -49,6 +54,7 @@ POLICY_CHOICES = {
     "execution_risk_rotating": POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
     "adaptive_execution_risk_rotating": POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
     "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
+    "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
 
@@ -71,6 +77,9 @@ NUMERIC_RESULT_KEYS = (
 CSV_FIELDS = [
     "decision_error_std",
     "execution_error_std",
+    "mismatch_model",
+    "channel_rho",
+    "csi_delay_slots",
     "probe_budget",
     "policy",
     "episodes",
@@ -127,6 +136,9 @@ def parse_args():
     parser.add_argument("--num-seeds", type=int, default=3)
     parser.add_argument("--seed-stride", type=int, default=1000)
     parser.add_argument("--probe-budgets", default="1,2,4")
+    parser.add_argument("--mismatch-models", default="independent")
+    parser.add_argument("--channel-rho-values", default="0.9")
+    parser.add_argument("--csi-delay-slots", default="1")
     parser.add_argument("--decision-error-std-values", default="0.0")
     parser.add_argument("--execution-error-std-values", default="0,0.05,0.1,0.2,0.3")
     parser.add_argument(
@@ -178,6 +190,23 @@ def validate_args(args):
     )
     if not args.probe_budgets or any(value <= 0 for value in args.probe_budgets):
         raise ValueError("--probe-budgets must contain positive integers")
+
+    args.mismatch_models = parse_csv_items(args.mismatch_models)
+    unknown_models = [name for name in args.mismatch_models if name not in MISMATCH_CHOICES]
+    if not args.mismatch_models:
+        raise ValueError("--mismatch-models must not be empty")
+    if unknown_models:
+        raise ValueError(f"Unknown mismatch models: {unknown_models}")
+    args.channel_rho_values = limited.parse_float_list(args.channel_rho_values)
+    args.csi_delay_slots = limited.parse_int_list(args.csi_delay_slots)
+    if not args.channel_rho_values:
+        raise ValueError("--channel-rho-values must not be empty")
+    if not args.csi_delay_slots:
+        raise ValueError("--csi-delay-slots must not be empty")
+    if any(value < 0.0 or value > 1.0 for value in args.channel_rho_values):
+        raise ValueError("--channel-rho-values must be in [0, 1]")
+    if any(value < 0 for value in args.csi_delay_slots):
+        raise ValueError("--csi-delay-slots must be non-negative")
 
     args.decision_error_std_values = limited.parse_float_list(args.decision_error_std_values)
     args.execution_error_std_values = limited.parse_float_list(args.execution_error_std_values)
@@ -245,10 +274,14 @@ def resolve_output_prefix(args):
 
     seed_label = "unseeded" if args.seed < 0 else f"seed{args.seed}"
     budget_label = "-".join(format_float_for_suffix(value) for value in args.probe_budgets)
+    model_label = "-".join(args.mismatch_models)
+    rho_label = "-".join(format_float_for_suffix(value) for value in args.channel_rho_values)
+    delay_label = "-".join(str(value) for value in args.csi_delay_slots)
     decision_label = "-".join(format_float_for_suffix(value) for value in args.decision_error_std_values)
     execution_label = "-".join(format_float_for_suffix(value) for value in args.execution_error_std_values)
     suffix = (
         f"ep{args.episodes}_runs{args.num_seeds}_{seed_label}_b{budget_label}_"
+        f"model{model_label}_rho{rho_label}_delay{delay_label}_"
         f"decerr{decision_label}_execerr{execution_label}"
     )
     output_prefix = os.path.join("results", "execution_mismatch", f"execution_mismatch_{suffix}")
@@ -280,6 +313,88 @@ def drift_channels(h_total, execution_error_std, rng):
     rms = np.sqrt(np.mean(np.abs(clean) ** 2, axis=1, keepdims=True))
     noise = (rng.normal(size=clean.shape) + 1j * rng.normal(size=clean.shape)) / np.sqrt(2.0)
     return clean + float(execution_error_std) * np.maximum(rms, 1e-12) * noise
+
+
+def capture_channel_state(env):
+    """Copy the current physical channels from the environment."""
+    return {
+        "h_d": np.asarray(env.h_d, dtype=np.complex128).copy(),
+        "h_r": np.asarray(env.h_r, dtype=np.complex128).copy(),
+        "h_bs_r": np.asarray(env.h_bs_r, dtype=np.complex128).copy(),
+    }
+
+
+def apply_channel_state(env, state):
+    """Apply a copied physical-channel state to the environment."""
+    env.h_d = np.asarray(state["h_d"], dtype=np.complex128).copy()
+    env.h_r = np.asarray(state["h_r"], dtype=np.complex128).copy()
+    env.h_bs_r = np.asarray(state["h_bs_r"], dtype=np.complex128).copy()
+    env.avg_large_scale = float(np.mean(np.abs(env.h_d) ** 2))
+
+
+def temporal_rng(episode_seed, channel_rho):
+    """Create a policy-independent RNG for temporal channel evolution."""
+    if episode_seed is None:
+        return np.random.default_rng()
+    rho_tag = int(round(float(channel_rho) * 1_000_000))
+    seed = (int(episode_seed) + 0xA511E9B3 + rho_tag * 0x9E3779B1) % (2**32)
+    return np.random.default_rng(seed)
+
+
+def complex_normal(rng, shape, scale=1.0):
+    """Return circular complex Gaussian samples with the requested scale."""
+    return float(scale) * (rng.normal(size=shape) + 1j * rng.normal(size=shape)) / np.sqrt(2.0)
+
+
+def build_temporal_channel_states(env, args, episode_seed, channel_rho):
+    """Generate one AR(1) physical-channel state per slot."""
+    rho = float(channel_rho)
+    innovation_weight = np.sqrt(max(0.0, 1.0 - rho**2))
+    rng = temporal_rng(episode_seed, rho)
+    states = [capture_channel_state(env)]
+    for _slot_idx in range(1, int(args.num_slots)):
+        prev = states[-1]
+        states.append(
+            {
+                "h_d": rho * prev["h_d"]
+                + innovation_weight * complex_normal(rng, prev["h_d"].shape, scale=0.1),
+                "h_r": rho * prev["h_r"]
+                + innovation_weight * complex_normal(rng, prev["h_r"].shape),
+                "h_bs_r": rho * prev["h_bs_r"]
+                + innovation_weight * complex_normal(rng, prev["h_bs_r"].shape),
+            }
+        )
+    return states
+
+
+def delayed_channel_state(states, slot_idx, csi_delay_slots):
+    """Return the stale CSI state visible to the decision policy."""
+    delayed_idx = max(0, int(slot_idx) - int(csi_delay_slots))
+    delayed_idx = min(delayed_idx, len(states) - 1)
+    return states[delayed_idx]
+
+
+def ar1_predict_channel_state(delayed_state, channel_rho, csi_delay_slots):
+    """Predict the current channel mean from delayed AR(1) CSI."""
+    delay = max(int(csi_delay_slots), 0)
+    rho = float(channel_rho)
+    direct_factor = rho**delay
+    return {
+        "h_d": direct_factor * delayed_state["h_d"],
+        "h_r": direct_factor * delayed_state["h_r"],
+        "h_bs_r": direct_factor * delayed_state["h_bs_r"],
+    }
+
+
+def temporal_uncertainty_std(channel_rho, csi_delay_slots, use_ar1_prediction=False):
+    """Return relative CSI uncertainty induced by temporal delay."""
+    delay = max(int(csi_delay_slots), 0)
+    if delay == 0:
+        return 0.0
+    rho_delay = float(channel_rho) ** delay
+    if use_ar1_prediction:
+        return float(np.sqrt(max(0.0, 1.0 - rho_delay**2)))
+    return float(np.sqrt(max(0.0, 2.0 * (1.0 - rho_delay))))
 
 
 def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_idx=0, no_irs=False):
@@ -631,10 +746,13 @@ def choose_decision(
     adaptive_risk_backlog_relief=0.8,
 ):
     """Choose a limited-CSI decision from the stale/estimated decision channel."""
+    choice_policy_name = policy_name
+    if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+        choice_policy_name = limited.POLICY_ROTATING_GRID
     return limited.choose_policy_candidate(
         env,
         args,
-        policy_name,
+        choice_policy_name,
         budget,
         slot_idx,
         decision_error_std,
@@ -673,6 +791,7 @@ def policy_label(
         POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
         POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
         POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
+        POLICY_AR1_PREDICT_ROTATING_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
@@ -699,6 +818,9 @@ def evaluate_policy(
     args,
     decision_error_std,
     execution_error_std,
+    mismatch_model,
+    channel_rho,
+    csi_delay_slots,
     policy_name,
     budget=0,
     gain_margin=1.0,
@@ -747,11 +869,16 @@ def evaluate_policy(
     effective_risk_weights = []
 
     print(
-        f"Running {display_name} decerr={decision_error_std:g} execerr={execution_error_std:g}..."
+        f"Running {display_name} model={mismatch_model} rho={channel_rho:g} "
+        f"delay={int(csi_delay_slots)} decerr={decision_error_std:g} "
+        f"execerr={execution_error_std:g}..."
     )
     for ep, episode_seed in enumerate(episode_seeds, start=1):
         env.reset(seed=episode_seed)
         env._last_seed = episode_seed  # local metadata for policy-independent execution drift
+        temporal_states = None
+        if mismatch_model == MISMATCH_TEMPORAL_AR1:
+            temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
         episode_power = []
         episode_reward = 0.0
         episode_energy = 0.0
@@ -767,6 +894,30 @@ def evaluate_policy(
         episode_slots = args.num_slots
 
         for slot_idx in range(args.num_slots):
+            if temporal_states is not None:
+                execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
+                stale_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+                if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+                    decision_state = ar1_predict_channel_state(stale_state, channel_rho, csi_delay_slots)
+                    temporal_error_std = temporal_uncertainty_std(
+                        channel_rho,
+                        csi_delay_slots,
+                        use_ar1_prediction=True,
+                    )
+                else:
+                    decision_state = stale_state
+                    temporal_error_std = temporal_uncertainty_std(
+                        channel_rho,
+                        csi_delay_slots,
+                        use_ar1_prediction=False,
+                    )
+                apply_channel_state(env, execution_state)
+            else:
+                decision_state = None
+                execution_state = None
+                temporal_error_std = 0.0
+            risk_execution_error_std = float(np.hypot(float(execution_error_std), temporal_error_std))
+
             execution_oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
             if policy_name == POLICY_EXECUTION_ORACLE:
                 decision, preview_calls, _candidate_count = choose_execution_oracle(
@@ -782,6 +933,8 @@ def evaluate_policy(
                     effective_risk = adaptive_risk_base_weight
                 if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
                     effective_risk = adaptive_risk_base_weight
+                if decision_state is not None:
+                    apply_channel_state(env, decision_state)
                 if policy_name in {
                     POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
                     POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
@@ -793,7 +946,7 @@ def evaluate_policy(
                         budget,
                         slot_idx,
                         decision_error_std,
-                        execution_error_std,
+                        risk_execution_error_std,
                         episode_seed,
                         risk_weight=effective_risk,
                         risk_power_weight=risk_power_weight,
@@ -810,7 +963,7 @@ def evaluate_policy(
                         budget,
                         slot_idx,
                         decision_error_std,
-                        execution_error_std,
+                        risk_execution_error_std,
                         episode_seed,
                         failure_cost=opportunity_failure_cost,
                         missed_cost=opportunity_missed_cost,
@@ -837,6 +990,8 @@ def evaluate_policy(
                         adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
                         adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
                     )
+                if execution_state is not None:
+                    apply_channel_state(env, execution_state)
                 true_selected = execution_candidate_for_decision(
                     env,
                     args,
@@ -890,6 +1045,9 @@ def evaluate_policy(
         "policy": policy_name,
         "decision_error_std": float(decision_error_std),
         "execution_error_std": float(execution_error_std),
+        "mismatch_model": mismatch_model,
+        "channel_rho": float(channel_rho),
+        "csi_delay_slots": int(csi_delay_slots),
         "probe_budget": int(budget),
         "gain_margin": float(gain_margin),
         "power_margin": float(power_margin),
@@ -945,6 +1103,9 @@ def aggregate_seed_results(seed_result_sets):
             "name": parts[0]["name"],
             "decision_error_std": parts[0]["decision_error_std"],
             "execution_error_std": parts[0]["execution_error_std"],
+            "mismatch_model": parts[0]["mismatch_model"],
+            "channel_rho": parts[0]["channel_rho"],
+            "csi_delay_slots": parts[0]["csi_delay_slots"],
             "probe_budget": parts[0]["probe_budget"],
             "gain_margin": parts[0]["gain_margin"],
             "power_margin": parts[0]["power_margin"],
@@ -988,6 +1149,9 @@ def summarize_results(args, results):
             {
                 "decision_error_std": float(result["decision_error_std"]),
                 "execution_error_std": float(result["execution_error_std"]),
+                "mismatch_model": result["mismatch_model"],
+                "channel_rho": float(result["channel_rho"]),
+                "csi_delay_slots": int(result["csi_delay_slots"]),
                 "probe_budget": int(result["probe_budget"]),
                 "policy": result["name"],
                 "episodes": len(result["success_nodes"]),
@@ -1045,16 +1209,19 @@ def write_csv(path, rows):
 
 def print_summary(rows):
     """Print a compact execution mismatch summary."""
-    print("=" * 158)
+    print("=" * 184)
     print("Execution Channel Mismatch Summary")
-    print("=" * 158)
+    print("=" * 184)
     print(
-        f"{'DecErr':>6} {'ExecErr':>7} {'Policy':<44} {'Success':>9} {'Perfect%':>9} "
+        f"{'Model':>12} {'Rho':>5} {'Delay':>5} {'DecErr':>6} {'ExecErr':>7} "
+        f"{'Policy':<44} {'Success':>9} {'Perfect%':>9} "
         f"{'Slots':>7} {'Fail':>8} {'MissOpp':>8} {'Preview':>8} {'Gap':>7}"
     )
     for row in rows:
         print(
-            f"{row['decision_error_std']:>6.3f} {row['execution_error_std']:>7.3f} "
+            f"{row['mismatch_model']:>12} {row['channel_rho']:>5.2f} "
+            f"{row['csi_delay_slots']:>5} {row['decision_error_std']:>6.3f} "
+            f"{row['execution_error_std']:>7.3f} "
             f"{row['policy']:<44} {row['success_mean']:>9.3f} "
             f"{row['perfect_rate']:>8.2f}% {row['slots_mean']:>7.3f} "
             f"{row['failed_nodes_mean']:>8.2f} {row['missed_opportunities_mean']:>8.2f} "
@@ -1070,9 +1237,27 @@ def plot_results(rows, args, output_prefix):
         if row["policy"] not in policies:
             policies.append(row["policy"])
 
-    decision_values = sorted({row["decision_error_std"] for row in rows})
-    for decision_error_std in decision_values:
-        subset = [row for row in rows if row["decision_error_std"] == decision_error_std]
+    scenario_keys = sorted(
+        {
+            (
+                row["mismatch_model"],
+                row["channel_rho"],
+                row["csi_delay_slots"],
+                row["decision_error_std"],
+            )
+            for row in rows
+        },
+        key=lambda item: (item[0], item[1], item[2], item[3]),
+    )
+    for mismatch_model, channel_rho, csi_delay_slots, decision_error_std in scenario_keys:
+        subset = [
+            row
+            for row in rows
+            if row["mismatch_model"] == mismatch_model
+            and row["channel_rho"] == channel_rho
+            and row["csi_delay_slots"] == csi_delay_slots
+            and row["decision_error_std"] == decision_error_std
+        ]
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
         cmap = plt.get_cmap("tab20")
         colors = {policy: cmap(idx % 20) for idx, policy in enumerate(policies)}
@@ -1109,7 +1294,11 @@ def plot_results(rows, args, output_prefix):
                 color=colors[policy],
             )
 
-        axes[0].set_title(f"Success, decision error={decision_error_std:g}")
+        scenario_title = (
+            f"{mismatch_model}, rho={channel_rho:g}, delay={int(csi_delay_slots)}, "
+            f"decision error={decision_error_std:g}"
+        )
+        axes[0].set_title(f"Success, {scenario_title}")
         axes[0].set_ylabel("Successful Nodes")
         axes[0].set_ylim(0.0, args.num_nodes + 1)
         axes[1].set_title("Failed Invited Nodes")
@@ -1121,8 +1310,12 @@ def plot_results(rows, args, output_prefix):
             ax.grid(True, linestyle="--", alpha=0.35)
             ax.legend(fontsize=7)
         fig.tight_layout()
-        suffix = format_float_for_suffix(decision_error_std)
-        path = f"{output_prefix}_decerr{suffix}.png"
+        decision_suffix = format_float_for_suffix(decision_error_std)
+        rho_suffix = format_float_for_suffix(channel_rho)
+        path = (
+            f"{output_prefix}_{mismatch_model}_rho{rho_suffix}_"
+            f"delay{int(csi_delay_slots)}_decerr{decision_suffix}.png"
+        )
         fig.savefig(path, dpi=300)
         plt.close(fig)
         print(f"Saved: {path}")
@@ -1211,10 +1404,24 @@ def policy_configs(args):
                                             "opportunity_backlog_gain": opportunity_backlog_gain,
                                         }
                                     )
+        elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
         else:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
     return configs
+
+
+def mismatch_scenarios(args):
+    """Yield concrete mismatch-model parameter tuples."""
+    for mismatch_model in args.mismatch_models:
+        if mismatch_model == MISMATCH_INDEPENDENT:
+            yield mismatch_model, 0.0, 0
+            continue
+        for channel_rho in args.channel_rho_values:
+            for csi_delay_slots in args.csi_delay_slots:
+                yield mismatch_model, float(channel_rho), int(csi_delay_slots)
 
 
 def main():
@@ -1230,35 +1437,41 @@ def main():
     print(
         f"Execution channel mismatch: episodes={args.episodes}, num_seeds={args.num_seeds}, "
         f"decision_errors={args.decision_error_std_values}, execution_errors={args.execution_error_std_values}, "
-        f"budgets={args.probe_budgets}"
+        f"models={args.mismatch_models}, rhos={args.channel_rho_values}, "
+        f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}"
     )
     print(f"Output prefix: {output_prefix}")
     print("=" * 96)
 
     all_rows = []
-    for decision_error_std in args.decision_error_std_values:
-        for execution_error_std in args.execution_error_std_values:
-            print("=" * 96)
-            print(
-                f"Decision error std={decision_error_std:g}, "
-                f"execution error std={execution_error_std:g}"
-            )
-            print("=" * 96)
-            seed_result_sets = []
-            for run_idx, episode_seeds in enumerate(episode_seed_sets, start=1):
-                print(f"Run seed [{run_idx}/{len(run_seeds)}]: {run_seeds[run_idx - 1]}")
-                seed_results = [
-                    evaluate_policy(
-                        episode_seeds,
-                        args,
-                        decision_error_std,
-                        execution_error_std,
-                        **config,
-                    )
-                    for config in configs
-                ]
-                seed_result_sets.append(seed_results)
-            all_rows.extend(summarize_results(args, aggregate_seed_results(seed_result_sets)))
+    for mismatch_model, channel_rho, csi_delay_slots in mismatch_scenarios(args):
+        for decision_error_std in args.decision_error_std_values:
+            for execution_error_std in args.execution_error_std_values:
+                print("=" * 96)
+                print(
+                    f"Mismatch={mismatch_model}, rho={channel_rho:g}, "
+                    f"delay={int(csi_delay_slots)}, decision error std={decision_error_std:g}, "
+                    f"execution error std={execution_error_std:g}"
+                )
+                print("=" * 96)
+                seed_result_sets = []
+                for run_idx, episode_seeds in enumerate(episode_seed_sets, start=1):
+                    print(f"Run seed [{run_idx}/{len(run_seeds)}]: {run_seeds[run_idx - 1]}")
+                    seed_results = [
+                        evaluate_policy(
+                            episode_seeds,
+                            args,
+                            decision_error_std,
+                            execution_error_std,
+                            mismatch_model,
+                            channel_rho,
+                            csi_delay_slots,
+                            **config,
+                        )
+                        for config in configs
+                    ]
+                    seed_result_sets.append(seed_results)
+                all_rows.extend(summarize_results(args, aggregate_seed_results(seed_result_sets)))
 
     print_summary(all_rows)
     write_csv(f"{output_prefix}.csv", all_rows)

@@ -65,6 +65,19 @@ smoke: test
 		--policies no_irs,execution_oracle,exact_greedy,rotating,execution_risk_rotating,opportunity_execution_risk_rotating \
 		--output-prefix /tmp/execution_mismatch_smoke \
 		--no-plots
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 1 \
+		--num-seeds 1 \
+		--num-slots 3 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.9 \
+		--csi-delay-slots 1 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--probe-budgets 1 \
+		--policies execution_oracle,rotating,ar1_predict_rotating \
+		--output-prefix /tmp/temporal_ar1_smoke \
+		--no-plots
 	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py \
 		--episodes 2 \
 		--num-seeds 1 \

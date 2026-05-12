@@ -899,6 +899,64 @@ Interpretation:
 - 高失败代价时，failed invites 会下降，但代价是 success、perfect rate、slot 和 oracle gap 同时变差；这说明 false reject 仍然过贵。
 - 当前证据表明，单纯在 rotating 候选内部做 reliability-based invitation filter 不足以产生研究增益。下一步更应考虑更真实的信道时间相关性、多目标约束、重复确认/置信反馈，或让策略改变 probe/IRS 选择本身，而不是只过滤已选 IRS 下的节点。
 
+### Temporal AR(1) CSI delay pilot
+
+为把 execution mismatch 从独立扰动推进到更真实的 stale CSI，新增 `temporal_ar1` mismatch model：
+
+- 每个 episode 先生成一条 AR(1) 物理信道序列。
+- 调度器在 slot `t` 只能看到 `t-delay` 的 delayed CSI。
+- 执行 AirComp 时使用 slot `t` 的当前信道。
+- `Execution Oracle Full CSI` 仍只作为离线上界。
+- 新增 `AR1-Predict Rotating Grid`：用 `rho^delay` 缩放 delayed physical channels 作为当前信道均值预测，再做 rotating。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --mismatch-models temporal_ar1 \
+  --channel-rho-values 0.7,0.9,0.98 \
+  --csi-delay-slots 1,2,3 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,exact_greedy,rotating,ar1_predict_rotating \
+  --output-prefix results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3 \
+  --no-plots
+```
+
+推荐引用文件：
+
+```text
+results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3.csv
+```
+
+关键结果：
+
+| Rho | Delay | Policy | Success | Perfect % | Slots | Failed invites | Missed opp. | Oracle tx gap |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.7 | 1 | Execution Oracle | 50.000/50 | 100.00 | 2.132 | 0.00 | 0.00 | 0.000 |
+| 0.7 | 1 | Exact Greedy stale CSI | 49.989/50 | 98.89 | 3.139 | 1.38 | 0.51 | 0.533 |
+| 0.7 | 1 | Rotating B=1 stale CSI | 49.560/50 | 64.33 | 4.451 | 2.38 | 4.23 | 2.525 |
+| 0.7 | 1 | Rotating B=4 stale CSI | 49.941/50 | 94.22 | 3.673 | 1.87 | 1.35 | 1.267 |
+| 0.7 | 3 | Rotating B=4 stale CSI | 49.910/50 | 91.44 | 3.901 | 1.89 | 1.72 | 1.299 |
+| 0.7 | 3 | AR1-Predict B=4 | 13.298/50 | 0.00 | 5.000 | 0.87 | 160.50 | 35.724 |
+| 0.9 | 3 | Rotating B=1 stale CSI | 49.032/50 | 39.56 | 4.739 | 2.46 | 4.43 | 2.642 |
+| 0.9 | 3 | Rotating B=4 stale CSI | 49.817/50 | 84.11 | 3.924 | 1.89 | 1.25 | 1.215 |
+| 0.9 | 3 | AR1-Predict B=4 | 46.480/50 | 2.78 | 4.992 | 2.14 | 21.71 | 6.194 |
+| 0.98 | 3 | Rotating B=4 stale CSI | 49.871/50 | 88.56 | 3.651 | 1.04 | 0.60 | 0.967 |
+| 0.98 | 3 | AR1-Predict B=4 | 49.774/50 | 81.00 | 4.027 | 1.04 | 2.15 | 1.460 |
+
+Interpretation:
+
+- Temporal CSI delay 是更贴近真实有限 CSI 的 mismatch setting：执行信道不是独立噪声，而是当前信道相对 stale CSI 的时间演化。
+- `Execution Oracle` 在所有 rho/delay 下仍为 `50/50`，说明问题不是物理不可行，而是 stale/limited CSI 下调度信息不足。
+- Full stale greedy 仍接近 oracle，说明只要能 full-preview 所有码本，即使用 delayed CSI 也很强；真正有研究价值的瓶颈仍在 partial probing。
+- `Rotating B=4` 仍是强基线。即使 `rho=0.7, delay=3`，仍有 `49.910/50` 和 `91.44%` perfect rate；学习策略必须先超过这个基线。
+- 朴素 AR1 mean prediction 是负结果。它减少了部分失败邀请，但因为按均值缩放信道幅度，产生大量 missed opportunities；后续如果做预测，应预测可调度概率、置信下界或分位数，而不是直接用复信道均值当作可执行信道。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -909,11 +967,12 @@ Interpretation:
 - 默认物理环境无显式 probing cost；probing cost tradeoff 是离线效用分析。
 - Channel estimation error 实验只让决策 preview 使用估计信道，实际执行仍使用真实信道。
 - Execution channel mismatch 实验把决策 CSI 和执行信道分开；execution oracle 只作为离线上界，不代表可部署策略。
+- Temporal AR(1) mismatch 假设信道一阶时间相关，且当前 pilot 只测试了已知 `rho` 的均值预测；尚未测试学习式可靠度预测或分位数预测。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 - Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation 和 opportunity-cost invitation filter 都没有超过 rotating。若继续引入更复杂学习、多目标约束或更真实的信道失配，学习策略必须超过这些新规则基线才有研究价值。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation、opportunity-cost invitation filter 和 AR1 mean prediction 都没有超过 rotating。Temporal AR(1) delay 进一步确认：更真实的 stale CSI setting 可以保留，但学习策略必须超过 `Rotating B=4` 这个强基线才有研究价值。
 
 ## 对当前论文叙事的影响
 
@@ -995,11 +1054,11 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. 更真实的信道失配扩展：在已有独立 execution drift 基础上，加入 CSI delay、时间相关漂移、偏置估计和空间相关误差，而不是只做独立复高斯扰动。
+1. Temporal reliability / quantile prediction：在 `temporal_ar1` 下预测“当前 slot 可调度概率/置信下界”，而不是直接使用 AR1 复信道均值；目标是减少 AR1 mean prediction 的 false reject，同时超过 stale `Rotating B=4`。
 2. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
 3. On-policy feedback probing：若继续有限 CSI 学习方向，应学习 gate / backup 的 on-policy 决策，或使用重复确认、置信区间、信息增益，而不是单次 noisy feedback 的硬阈值。
 4. Sequence / DAgger-like probing：以 `Rotating B=1` 为行为先验，学习何时偏离 rotating；训练数据需要来自策略自身 rollouts，而不是只用离线 oracle 标签。
 5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
+6. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、temporal AR(1) mismatch、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向更真实的信道时间相关失配、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter，或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、temporal AR(1) mismatch pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先转向 temporal reliability / quantile prediction、多目标约束，或带置信/重复确认的 on-policy feedback probing，而不是 plain noisy Greedy-index imitation、当前低维 MLP、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter、AR1 mean prediction，或仅决策 preview 误差。

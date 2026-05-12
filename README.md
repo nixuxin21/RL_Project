@@ -432,6 +432,26 @@ results/execution_mismatch/execution_mismatch_*_decerr*.png
 
 结果仍是中性到负面：低失败代价配置基本退化为普通 rotating；高失败代价能减少 failed invites，但会牺牲 success、perfect rate 和 oracle gap。例如 `execerr=0.5, B=4` 下，最好成功率的 opportunity 配置为 `49.823/50`、`5.07` failed、`6.37` missed、gap `2.949`，仍弱于 rotating 的 `49.849/50`、`5.43` failed、`5.69` missed、gap `2.841`。这说明“只用可靠度加动态机会成本过滤邀请”仍不足以超过 rotating baseline，下一步应转向更真实的信道失配、多目标约束或带置信/重复确认的 feedback probing。
 
+脚本还支持时间相关 CSI delay：`temporal_ar1` 先生成 AR(1) 物理信道序列，调度器只能看到 delay slots 之前的 stale CSI，执行则使用当前信道。`ar1_predict_rotating` 是一个简单均值预测 baseline：用 `rho^delay` 缩放 delayed physical channels 后再做 rotating。
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --mismatch-models temporal_ar1 \
+  --channel-rho-values 0.7,0.9,0.98 \
+  --csi-delay-slots 1,2,3 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,exact_greedy,rotating,ar1_predict_rotating \
+  --output-prefix results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3 \
+  --no-plots
+```
+
+当前 temporal pilot 说明：时间相关 stale CSI 能形成更真实的鲁棒性评估，但普通 rotating 仍是很强基线。`rho=0.9, delay=3` 下，`Execution Oracle` 为 `50/50`，full stale greedy 为 `49.936/50`，`Rotating B=1` 为 `49.032/50`、gap `2.642`，`Rotating B=4` 为 `49.817/50`、gap `1.215`。朴素 `AR1-Predict B=4` 只有 `46.480/50`、gap `6.194`，说明直接按均值缩放信道会过度保守；后续若做预测，需要预测可调度概率/分位数，而不是只用复信道均值。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -670,13 +690,14 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 
 ## 当前 Execution Mismatch 结论
 
-当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`、`results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55.csv` 和 `results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv`。主要结论：
+当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`、`results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55.csv`、`results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv` 和 `results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3.csv`。主要结论：
 
 - 当执行误差从 `0` 增加到 `0.5` 时，`Execution Oracle Full CSI` 仍可达到 `50/50`，说明物理上仍有可调度机会；问题在于决策 CSI 与执行信道不一致。
 - `Exact Greedy Full CSI` 在 `execerr=0.5` 下仍有 `49.972/50` 成功节点，但平均失败邀请升到 `5.39`、missed opportunities 升到 `3.87`、oracle gap 升到 `2.403`，比只做决策 preview 误差更能暴露执行风险。
 - 有限 preview 更敏感：`Estimated Rotating Grid B=1` 在 `execerr=0.5` 下为 `49.012/50`、`38.56%` 完美覆盖率、`4.771` slots；`B=4` 为 `49.849/50`、`86.22%`、`3.934` slots。
 - 新增 execution-risk-aware 规则显式使用执行漂移统计量，但固定保守阈值没有超过 rotating：`execerr=0.5, B=4` 下，`Execution-Risk rw=0.1 rt=0.55` 虽把 failed 从 `5.43` 降到 `4.64`，但 missed opportunities 从 `5.69` 升到 `9.66`，oracle gap 从 `2.841` 升到 `3.738`。
 - 机会成本版本进一步把 false reject / false accept 代价和 deadline/backlog urgency 纳入邀请决策，但仍没有超过 rotating：`execerr=0.5, B=4` 下，最好成功率配置为 `49.823/50`、`5.07` failed、`6.37` missed、gap `2.949`，弱于 rotating 的 `49.849/50`、gap `2.841`。这说明仅靠 invitation filter 不够，下一步应转向更真实的信道失配、多目标约束或带置信/重复确认的 feedback probing。
+- 新增 temporal AR(1) CSI delay 后，execution oracle 仍满覆盖，full stale greedy 也接近 oracle；有限 preview 的主要差距体现在 slots、perfect rate 和 oracle gap。`rho=0.9, delay=3` 下，`Rotating B=1` 为 `49.032/50`、gap `2.642`，`B=4` 为 `49.817/50`、gap `1.215`。朴素 AR1 mean prediction 不如 stale rotating，说明下一步应学习可靠度/分位数或多目标策略，而不是直接预测复信道均值。
 
 ## 当前参数扫描结论
 
