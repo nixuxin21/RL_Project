@@ -32,6 +32,8 @@ from evaluate_policy_comparison import (
 
 
 POLICY_EXECUTION_ORACLE = "Execution Oracle Full CSI"
+POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID = "Execution-Risk Rotating Grid"
+POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
 
 POLICY_CHOICES = {
     "no_irs": limited.POLICY_NO_IRS,
@@ -43,6 +45,8 @@ POLICY_CHOICES = {
     "robust_rotating": limited.POLICY_ROBUST_ROTATING_GRID,
     "risk_rotating": limited.POLICY_RISK_AWARE_ROTATING_GRID,
     "adaptive_risk_rotating": limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
+    "execution_risk_rotating": POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    "adaptive_execution_risk_rotating": POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
 
@@ -121,7 +125,7 @@ def parse_args():
     parser.add_argument("--execution-error-std-values", default="0,0.05,0.1,0.2,0.3")
     parser.add_argument(
         "--policies",
-        default="no_irs,fixed,execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating",
+        default="no_irs,fixed,execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating,execution_risk_rotating,adaptive_execution_risk_rotating",
     )
     parser.add_argument("--robust-gain-margins", default="1.25")
     parser.add_argument("--robust-power-margins", default="0.9")
@@ -307,6 +311,128 @@ def choose_execution_oracle(env, args, execution_error_std, slot_idx):
     return oracle, args.num_codebook_states, args.num_codebook_states
 
 
+def execution_risk_error_std(decision_error_std, execution_error_std):
+    """Combine independent decision-estimation and execution-drift uncertainty."""
+    return float(np.hypot(float(decision_error_std), float(execution_error_std)))
+
+
+def candidate_with_execution_reliability(
+    env,
+    args,
+    candidate,
+    decision_error_std,
+    execution_error_std,
+):
+    """
+    Re-score a decision candidate with execution-drift reliability.
+
+    Limited-CSI risk-aware candidates normally derive reliability only from
+    noisy decision CSI. In execution-mismatch experiments, a stale decision can
+    be exact while the execution slot still drifts. This helper exposes that
+    drift as a posterior reliability term without revealing the realized
+    execution channel.
+    """
+    adjusted = dict(candidate)
+    h_gain = np.asarray(candidate["h_gain"], dtype=float)
+    h_proxy = np.sqrt(np.maximum(h_gain, 0.0))
+    combined_std = execution_risk_error_std(decision_error_std, execution_error_std)
+    rms = float(np.sqrt(np.mean(h_gain))) if h_gain.size else 0.0
+    error_scale = combined_std * max(rms, 1e-12)
+    adjusted["success_reliability"] = limited.estimate_success_reliability(
+        env,
+        args,
+        h_proxy,
+        error_scale,
+    )
+    adjusted["execution_risk_error_std"] = combined_std
+    adjusted["execution_risk_error_scale"] = error_scale
+    return adjusted
+
+
+def choose_execution_risk_decision(
+    env,
+    args,
+    policy_name,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    risk_weight=0.5,
+    risk_power_weight=0.1,
+    risk_invite_threshold=0.5,
+    adaptive_risk_error_ref=0.3,
+    adaptive_risk_error_gain=1.0,
+    adaptive_risk_deadline_relief=0.6,
+    adaptive_risk_backlog_relief=0.8,
+):
+    """Choose rotating-grid candidates using execution-drift risk statistics."""
+    budget = min(int(budget), args.num_codebook_states)
+    random_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        budget,
+        salt=2 + slot_idx,
+    )
+    error_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        budget,
+        salt=3 + slot_idx,
+    )
+    indices = limited.select_indices(
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        args,
+        budget,
+        slot_idx,
+        random_rng,
+    )
+    candidates = limited.estimated_preview_candidates(
+        env,
+        args,
+        indices=indices,
+        error_std=decision_error_std,
+        rng=error_rng,
+    )
+    candidates = [
+        candidate_with_execution_reliability(
+            env,
+            args,
+            candidate,
+            decision_error_std,
+            execution_error_std,
+        )
+        for candidate in candidates
+    ]
+    effective_risk = float(risk_weight)
+    if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
+        effective_risk = limited.adaptive_risk_weight(
+            env,
+            args,
+            execution_risk_error_std(decision_error_std, execution_error_std),
+            slot_idx,
+            base_weight=risk_weight,
+            error_ref=adaptive_risk_error_ref,
+            error_gain=adaptive_risk_error_gain,
+            deadline_relief=adaptive_risk_deadline_relief,
+            backlog_relief=adaptive_risk_backlog_relief,
+        )
+    return (
+        limited.best_risk_aware_candidate(
+            candidates,
+            args,
+            slot_idx,
+            risk_weight=effective_risk,
+            risk_power_weight=risk_power_weight,
+            risk_invite_threshold=risk_invite_threshold,
+        ),
+        len(indices),
+        len(indices),
+    )
+
+
 def choose_decision(
     env,
     args,
@@ -346,7 +472,14 @@ def choose_decision(
     )
 
 
-def policy_label(policy_name, budget=0, gain_margin=1.0, power_margin=1.0, risk_weight=0.0):
+def policy_label(
+    policy_name,
+    budget=0,
+    gain_margin=1.0,
+    power_margin=1.0,
+    risk_weight=0.0,
+    risk_invite_threshold=0.0,
+):
     """Return a compact display label."""
     if policy_name in {
         limited.POLICY_RANDOM_PROBE,
@@ -354,14 +487,21 @@ def policy_label(policy_name, budget=0, gain_margin=1.0, power_margin=1.0, risk_
         limited.POLICY_ROBUST_ROTATING_GRID,
         limited.POLICY_RISK_AWARE_ROTATING_GRID,
         limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
+        POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
         label = policy_name
     if policy_name == limited.POLICY_ROBUST_ROTATING_GRID:
         label += f" gm={gain_margin:g} pm={power_margin:g}"
-    if policy_name in {limited.POLICY_RISK_AWARE_ROTATING_GRID, limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID}:
-        label += f" rw={risk_weight:g}"
+    if policy_name in {
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
+        POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    }:
+        label += f" rw={risk_weight:g} rt={risk_invite_threshold:g}"
     return label
 
 
@@ -386,7 +526,14 @@ def evaluate_policy(
         budget=budget,
         gain_margin=gain_margin,
         power_margin=power_margin,
-        risk_weight=risk_weight if policy_name != limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID else adaptive_risk_base_weight,
+        risk_weight=risk_weight
+        if policy_name
+        not in {
+            limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
+            POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        }
+        else adaptive_risk_base_weight,
+        risk_invite_threshold=risk_invite_threshold,
     )
     success_nodes = []
     avg_power = []
@@ -436,24 +583,48 @@ def evaluate_policy(
                 effective_risk = risk_weight
                 if policy_name == limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID:
                     effective_risk = adaptive_risk_base_weight
-                decision, preview_calls, _candidate_count = choose_decision(
-                    env,
-                    args,
-                    policy_name,
-                    budget,
-                    slot_idx,
-                    decision_error_std,
-                    episode_seed,
-                    gain_margin=gain_margin,
-                    power_margin=power_margin,
-                    risk_weight=effective_risk,
-                    risk_power_weight=risk_power_weight,
-                    risk_invite_threshold=risk_invite_threshold,
-                    adaptive_risk_error_ref=args.adaptive_risk_error_ref,
-                    adaptive_risk_error_gain=args.adaptive_risk_error_gain,
-                    adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
-                    adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
-                )
+                if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
+                    effective_risk = adaptive_risk_base_weight
+                if policy_name in {
+                    POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+                    POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+                }:
+                    decision, preview_calls, _candidate_count = choose_execution_risk_decision(
+                        env,
+                        args,
+                        policy_name,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        execution_error_std,
+                        episode_seed,
+                        risk_weight=effective_risk,
+                        risk_power_weight=risk_power_weight,
+                        risk_invite_threshold=risk_invite_threshold,
+                        adaptive_risk_error_ref=args.adaptive_risk_error_ref,
+                        adaptive_risk_error_gain=args.adaptive_risk_error_gain,
+                        adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
+                        adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
+                    )
+                else:
+                    decision, preview_calls, _candidate_count = choose_decision(
+                        env,
+                        args,
+                        policy_name,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        episode_seed,
+                        gain_margin=gain_margin,
+                        power_margin=power_margin,
+                        risk_weight=effective_risk,
+                        risk_power_weight=risk_power_weight,
+                        risk_invite_threshold=risk_invite_threshold,
+                        adaptive_risk_error_ref=args.adaptive_risk_error_ref,
+                        adaptive_risk_error_gain=args.adaptive_risk_error_gain,
+                        adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
+                        adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
+                    )
                 true_selected = execution_candidate_for_decision(
                     env,
                     args,
@@ -763,7 +934,10 @@ def policy_configs(args):
                                 "power_margin": power_margin,
                             }
                         )
-        elif policy_name == limited.POLICY_RISK_AWARE_ROTATING_GRID:
+        elif policy_name in {
+            limited.POLICY_RISK_AWARE_ROTATING_GRID,
+            POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        }:
             for budget in args.probe_budgets:
                 for risk_weight in args.risk_weights:
                     for risk_power_weight in args.risk_power_weights:
@@ -777,7 +951,10 @@ def policy_configs(args):
                                     "risk_invite_threshold": risk_invite_threshold,
                                 }
                             )
-        elif policy_name == limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID:
+        elif policy_name in {
+            limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
+            POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+        }:
             for budget in args.probe_budgets:
                 for adaptive_risk_base_weight in args.adaptive_risk_base_weights:
                     for risk_power_weight in args.risk_power_weights:

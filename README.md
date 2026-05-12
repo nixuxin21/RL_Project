@@ -390,6 +390,25 @@ results/execution_mismatch/execution_mismatch_*_decerr*.png
 
 当前 pilot 结论：执行阶段失配主要表现为失败邀请、missed opportunities 和 oracle gap 增大，而不是 success mean 立刻崩溃。`execerr=0.5` 时，`Exact Greedy Full CSI` 仍有 `49.972/50` 成功节点，但失败邀请均值升到 `5.39`、oracle gap 升到 `2.403`；`Estimated Rotating Grid B=1` 降到 `49.012/50`、完美覆盖率 `38.56%`、平均 `4.771` slots。该结果说明“只在决策 preview 加估计误差”低估了真实系统风险，后续鲁棒策略应直接建模执行漂移统计量。
 
+脚本也包含 `execution_risk_rotating` 和 `adaptive_execution_risk_rotating`，它们不读取真实执行信道，只把 `sqrt(decision_error_std^2 + execution_error_std^2)` 用作邀请可靠度估计：
+
+```bash
+./.venv/bin/python evaluate_execution_channel_mismatch.py \
+  --episodes 300 \
+  --num-seeds 3 \
+  --num-slots 5 \
+  --decision-error-std-values 0 \
+  --execution-error-std-values 0.2,0.5 \
+  --probe-budgets 1,4 \
+  --policies execution_oracle,rotating,execution_risk_rotating,adaptive_execution_risk_rotating \
+  --risk-weights 0.1,0.5 \
+  --risk-invite-thresholds 0.5,0.55 \
+  --adaptive-risk-base-weights 0.1,0.5 \
+  --output-prefix results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55
+```
+
+当前结果是负的：`rt=0.55` 能减少失败邀请，但会显著增加 missed opportunities 和 oracle gap。例如 `execerr=0.5, B=4` 下，普通 rotating 为 `49.849/50`、`5.43` failed、`5.69` missed、gap `2.841`；`Execution-Risk B=4 rw=0.1 rt=0.55` 为 `49.762/50`、`4.64` failed、`9.66` missed、gap `3.738`。这说明固定保守邀请阈值不是足够好的鲁棒调度方法。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -633,7 +652,7 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 - 当执行误差从 `0` 增加到 `0.5` 时，`Execution Oracle Full CSI` 仍可达到 `50/50`，说明物理上仍有可调度机会；问题在于决策 CSI 与执行信道不一致。
 - `Exact Greedy Full CSI` 在 `execerr=0.5` 下仍有 `49.972/50` 成功节点，但平均失败邀请升到 `5.39`、missed opportunities 升到 `3.87`、oracle gap 升到 `2.403`，比只做决策 preview 误差更能暴露执行风险。
 - 有限 preview 更敏感：`Estimated Rotating Grid B=1` 在 `execerr=0.5` 下为 `49.012/50`、`38.56%` 完美覆盖率、`4.771` slots；`B=4` 为 `49.849/50`、`86.22%`、`3.934` slots。
-- 当前 risk-aware 规则只把决策估计误差作为风险来源；当 `decision_error_std=0` 且只有执行漂移时，它基本退化为 rotating。下一步应让策略显式使用执行漂移统计量，或改成预测“邀请后失败风险”的鲁棒调度规则。
+- 新增 execution-risk-aware 规则显式使用执行漂移统计量，但固定保守阈值没有超过 rotating：`execerr=0.5, B=4` 下，`Execution-Risk rw=0.1 rt=0.55` 虽把 failed 从 `5.43` 降到 `4.64`，但 missed opportunities 从 `5.69` 升到 `9.66`，oracle gap 从 `2.841` 升到 `3.738`。下一步应做机会成本感知的动态阈值或多目标调度，而不是静态 conservative invitation。
 
 ## 当前参数扫描结论
 

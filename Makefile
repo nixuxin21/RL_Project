@@ -62,7 +62,7 @@ smoke: test
 		--decision-error-std-values 0 \
 		--execution-error-std-values 0.1 \
 		--probe-budgets 1 \
-		--policies no_irs,execution_oracle,exact_greedy,rotating \
+		--policies no_irs,execution_oracle,exact_greedy,rotating,execution_risk_rotating \
 		--output-prefix /tmp/execution_mismatch_smoke \
 		--no-plots
 	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py \
