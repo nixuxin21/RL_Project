@@ -75,7 +75,10 @@ smoke: test
 		--decision-error-std-values 0 \
 		--execution-error-std-values 0 \
 		--probe-budgets 1 \
-		--policies execution_oracle,rotating,ar1_predict_rotating \
+		--policies execution_oracle,rotating,ar1_predict_rotating,temporal_reliability_rotating \
+		--risk-weights 0.5 \
+		--risk-power-weights 0.1 \
+		--temporal-reliability-z-values 1 \
 		--output-prefix /tmp/temporal_ar1_smoke \
 		--no-plots
 	$(PYTHON) evaluate_bandit_feedback_ms_aircomp.py \

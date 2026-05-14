@@ -36,6 +36,7 @@ POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID = "Execution-Risk Rotating Grid"
 POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
 POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
 POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
+POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
 
 MISMATCH_INDEPENDENT = "independent"
 MISMATCH_TEMPORAL_AR1 = "temporal_ar1"
@@ -55,6 +56,7 @@ POLICY_CHOICES = {
     "adaptive_execution_risk_rotating": POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
     "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
+    "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
 
@@ -100,6 +102,7 @@ CSV_FIELDS = [
     "opportunity_missed_cost",
     "opportunity_deadline_gain",
     "opportunity_backlog_gain",
+    "temporal_reliability_z",
     "success_mean",
     "success_ci95",
     "success_rate_mean",
@@ -159,6 +162,7 @@ def parse_args():
     parser.add_argument("--opportunity-missed-costs", default="1.0")
     parser.add_argument("--opportunity-deadline-gains", default="0.5")
     parser.add_argument("--opportunity-backlog-gains", default="0.5")
+    parser.add_argument("--temporal-reliability-z-values", default="1.0")
     parser.add_argument("--num-nodes", type=int, default=50)
     parser.add_argument("--num-slots", type=int, default=10)
     parser.add_argument("--num-irs-elements", type=int, default=64)
@@ -230,6 +234,7 @@ def validate_args(args):
     args.opportunity_missed_costs = limited.parse_float_list(args.opportunity_missed_costs)
     args.opportunity_deadline_gains = limited.parse_float_list(args.opportunity_deadline_gains)
     args.opportunity_backlog_gains = limited.parse_float_list(args.opportunity_backlog_gains)
+    args.temporal_reliability_z_values = limited.parse_float_list(args.temporal_reliability_z_values)
     for name in (
         "robust_gain_margins",
         "robust_power_margins",
@@ -241,6 +246,7 @@ def validate_args(args):
         "opportunity_missed_costs",
         "opportunity_deadline_gains",
         "opportunity_backlog_gains",
+        "temporal_reliability_z_values",
     ):
         if not getattr(args, name):
             raise ValueError(f"--{name.replace('_', '-')} must not be empty")
@@ -262,6 +268,8 @@ def validate_args(args):
         raise ValueError("--opportunity-deadline-gains must be non-negative")
     if any(value < 0.0 for value in args.opportunity_backlog_gains):
         raise ValueError("--opportunity-backlog-gains must be non-negative")
+    if any(value < 0.0 for value in args.temporal_reliability_z_values):
+        raise ValueError("--temporal-reliability-z-values must be non-negative")
 
     args.fixed_irs_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
 
@@ -395,6 +403,133 @@ def temporal_uncertainty_std(channel_rho, csi_delay_slots, use_ar1_prediction=Fa
     if use_ar1_prediction:
         return float(np.sqrt(max(0.0, 1.0 - rho_delay**2)))
     return float(np.sqrt(max(0.0, 2.0 * (1.0 - rho_delay))))
+
+
+def temporal_reliability_candidate(
+    env,
+    args,
+    candidate,
+    decision_error_std,
+    temporal_error_std,
+    risk_weight=0.5,
+    risk_power_weight=0.1,
+    quantile_z=1.0,
+):
+    """Score a stale-CSI candidate by expected current schedulability."""
+    adjusted = dict(candidate)
+    estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
+    h_gain = np.asarray(candidate["h_gain"], dtype=float)
+    h_abs = np.sqrt(np.maximum(h_gain, 0.0))
+    total_error_std = float(np.hypot(float(decision_error_std), float(temporal_error_std)))
+    rms = float(np.sqrt(np.mean(h_gain))) if h_gain.size else 0.0
+    error_scale = total_error_std * max(rms, 1e-12)
+    reliability = limited.estimate_success_reliability(env, args, h_abs, error_scale)
+
+    amp_lower = np.maximum(h_abs - float(quantile_z) * error_scale, 0.0)
+    lower_gain = amp_lower**2
+    lower_required_power = (float(args.alpha_th) ** 2) / (lower_gain + 1e-12)
+    remaining = ~env.transmitted_flags
+    quantile_valid_mask = (
+        remaining
+        & (lower_gain >= float(args.g_th))
+        & (lower_required_power <= float(env.P_max))
+    )
+    quantile_invited_mask = estimated_valid_mask & quantile_valid_mask
+
+    tx_count = int(np.sum(estimated_valid_mask))
+    scheduled_power = np.asarray(candidate["required_power"], dtype=float)[estimated_valid_mask]
+    power_avg = float(np.mean(scheduled_power)) if tx_count > 0 else 0.0
+    expected_success = float(np.sum(reliability[estimated_valid_mask]))
+    risk_mass = float(np.sum(1.0 - reliability[estimated_valid_mask]))
+    quantile_count = int(np.sum(quantile_invited_mask))
+    score = (
+        expected_success
+        - float(risk_weight) * risk_mass
+        - float(risk_power_weight) * power_avg
+    )
+
+    adjusted["success_reliability"] = reliability
+    adjusted["temporal_reliability_error_std"] = total_error_std
+    adjusted["temporal_reliability_error_scale"] = error_scale
+    adjusted["temporal_reliability_z"] = float(quantile_z)
+    adjusted["temporal_quantile_valid_count"] = quantile_count
+    adjusted["expected_success"] = expected_success
+    adjusted["risk_mass"] = risk_mass
+    adjusted["temporal_reliability_score"] = float(score)
+    adjusted["effective_risk_weight"] = float(risk_weight)
+    return adjusted
+
+
+def temporal_reliability_candidate_key(candidate):
+    """Rank temporal reliability candidates without hard false-reject filtering."""
+    return (
+        float(candidate["temporal_reliability_score"]),
+        int(candidate["temporal_quantile_valid_count"]),
+        float(candidate["expected_success"]),
+        int(candidate["tx_this_slot"]),
+        -float(candidate["risk_mass"]),
+        -float(candidate["power_avg"]) if int(candidate["tx_this_slot"]) > 0 else 0.0,
+        float(candidate["mean_gain_remaining"]),
+    )
+
+
+def choose_temporal_reliability_decision(
+    env,
+    args,
+    budget,
+    slot_idx,
+    decision_error_std,
+    temporal_error_std,
+    episode_seed,
+    risk_weight=0.5,
+    risk_power_weight=0.1,
+    quantile_z=1.0,
+):
+    """Choose rotating candidates using temporal schedulability reliability."""
+    budget = min(int(budget), args.num_codebook_states)
+    # Reuse a known stable_rng policy offset; temporal reliability keeps its own salts below.
+    random_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        budget,
+        salt=17 + slot_idx,
+    )
+    error_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        budget,
+        salt=19 + slot_idx,
+    )
+    indices = limited.select_indices(
+        limited.POLICY_ROTATING_GRID,
+        args,
+        budget,
+        slot_idx,
+        random_rng,
+    )
+    candidates = limited.estimated_preview_candidates(
+        env,
+        args,
+        indices=indices,
+        error_std=decision_error_std,
+        rng=error_rng,
+    )
+    adjusted = [
+        temporal_reliability_candidate(
+            env,
+            args,
+            candidate,
+            decision_error_std,
+            temporal_error_std,
+            risk_weight=risk_weight,
+            risk_power_weight=risk_power_weight,
+            quantile_z=quantile_z,
+        )
+        for candidate in candidates
+    ]
+    return max(adjusted, key=temporal_reliability_candidate_key), len(indices), len(indices)
 
 
 def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_idx=0, no_irs=False):
@@ -780,6 +915,7 @@ def policy_label(
     opportunity_missed_cost=0.0,
     opportunity_deadline_gain=0.0,
     opportunity_backlog_gain=0.0,
+    temporal_reliability_z=0.0,
 ):
     """Return a compact display label."""
     if policy_name in {
@@ -792,6 +928,7 @@ def policy_label(
         POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
         POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
         POLICY_AR1_PREDICT_ROTATING_GRID,
+        POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
@@ -810,6 +947,8 @@ def policy_label(
             f" fc={opportunity_failure_cost:g} mc={opportunity_missed_cost:g}"
             f" dg={opportunity_deadline_gain:g} bg={opportunity_backlog_gain:g}"
         )
+    if policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
+        label += f" rw={risk_weight:g} qz={temporal_reliability_z:g}"
     return label
 
 
@@ -833,6 +972,7 @@ def evaluate_policy(
     opportunity_missed_cost=0.0,
     opportunity_deadline_gain=0.0,
     opportunity_backlog_gain=0.0,
+    temporal_reliability_z=0.0,
 ):
     """Evaluate one policy/config under decision and execution mismatch."""
     env = limited.make_env(args)
@@ -853,6 +993,7 @@ def evaluate_policy(
         opportunity_missed_cost=opportunity_missed_cost,
         opportunity_deadline_gain=opportunity_deadline_gain,
         opportunity_backlog_gain=opportunity_backlog_gain,
+        temporal_reliability_z=temporal_reliability_z,
     )
     success_nodes = []
     avg_power = []
@@ -971,6 +1112,19 @@ def evaluate_policy(
                         deadline_gain=opportunity_deadline_gain,
                         backlog_gain=opportunity_backlog_gain,
                     )
+                elif policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
+                    decision, preview_calls, _candidate_count = choose_temporal_reliability_decision(
+                        env,
+                        args,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        risk_execution_error_std,
+                        episode_seed,
+                        risk_weight=effective_risk,
+                        risk_power_weight=risk_power_weight,
+                        quantile_z=temporal_reliability_z,
+                    )
                 else:
                     decision, preview_calls, _candidate_count = choose_decision(
                         env,
@@ -1059,6 +1213,7 @@ def evaluate_policy(
         "opportunity_missed_cost": float(opportunity_missed_cost),
         "opportunity_deadline_gain": float(opportunity_deadline_gain),
         "opportunity_backlog_gain": float(opportunity_backlog_gain),
+        "temporal_reliability_z": float(temporal_reliability_z),
         "success_nodes": np.asarray(success_nodes, dtype=float),
         "avg_power": np.asarray(avg_power, dtype=float),
         "episode_reward": np.asarray(rewards, dtype=float),
@@ -1117,6 +1272,7 @@ def aggregate_seed_results(seed_result_sets):
             "opportunity_missed_cost": parts[0]["opportunity_missed_cost"],
             "opportunity_deadline_gain": parts[0]["opportunity_deadline_gain"],
             "opportunity_backlog_gain": parts[0]["opportunity_backlog_gain"],
+            "temporal_reliability_z": parts[0]["temporal_reliability_z"],
         }
         for key in NUMERIC_RESULT_KEYS:
             aggregated[key] = np.concatenate([part[key] for part in parts])
@@ -1172,6 +1328,7 @@ def summarize_results(args, results):
                 "opportunity_missed_cost": float(result["opportunity_missed_cost"]),
                 "opportunity_deadline_gain": float(result["opportunity_deadline_gain"]),
                 "opportunity_backlog_gain": float(result["opportunity_backlog_gain"]),
+                "temporal_reliability_z": float(result["temporal_reliability_z"]),
                 "success_mean": success_mean,
                 "success_ci95": success_ci95,
                 "success_rate_mean": success_mean / args.num_nodes,
@@ -1407,6 +1564,20 @@ def policy_configs(args):
         elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                for risk_weight in args.risk_weights:
+                    for risk_power_weight in args.risk_power_weights:
+                        for temporal_reliability_z in args.temporal_reliability_z_values:
+                            configs.append(
+                                {
+                                    "policy_name": policy_name,
+                                    "budget": budget,
+                                    "risk_weight": risk_weight,
+                                    "risk_power_weight": risk_power_weight,
+                                    "temporal_reliability_z": temporal_reliability_z,
+                                }
+                            )
         else:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
