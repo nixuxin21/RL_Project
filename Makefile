@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test py-compile policy-comparison runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -9,6 +9,7 @@ py-compile:
 		train_codebook_aware_agent.py \
 		train_greedy_imitation_selector.py \
 		train_bandit_feedback_selector.py \
+		train_temporal_deviation_selector.py \
 		experiments/archive/train_learned_probing_selector.py \
 		evaluate_agent.py \
 		evaluate_batch.py \
@@ -112,6 +113,19 @@ smoke: test
 		--probe-policies rotating \
 		--output-prefix /tmp/learned_feedback_probe_smoke \
 		--no-plots
+	$(PYTHON) train_temporal_deviation_selector.py \
+		--train-episodes 2 \
+		--val-episodes 1 \
+		--eval-episodes 1 \
+		--num-eval-seeds 1 \
+		--epochs 1 \
+		--batch-size 4 \
+		--channel-rho-values 0.9 \
+		--csi-delay-slots 1 \
+		--probe-budgets 4 \
+		--offsets=-1,0,1 \
+		--output-prefix /tmp/learned_temporal_deviation_smoke \
+		--no-plots
 	$(PYTHON) evaluate_adaptive_feedback_probing.py \
 		--episodes 1 \
 		--num-seeds 1 \
@@ -149,6 +163,9 @@ learned-probing:
 
 learned-feedback-probing:
 	$(PYTHON) train_bandit_feedback_selector.py
+
+learned-temporal-deviation:
+	$(PYTHON) train_temporal_deviation_selector.py
 
 adaptive-feedback-probing:
 	$(PYTHON) evaluate_adaptive_feedback_probing.py

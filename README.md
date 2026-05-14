@@ -11,6 +11,7 @@
 - `train_agent.py`: 训练完整 SAC，动作是 `[g_th, alpha_th, irs_codebook]`。
 - `train_codebook_aware_agent.py`: 训练 IRS-only SAC selector，固定 `g_th/alpha_th`，只学习 IRS 码本选择，可使用 16 维 codebook quality features。
 - `train_bandit_feedback_selector.py`: 训练 feedback-conditioned IRS probing selector；训练可使用离线 oracle 标签，评估时只能看基础状态、历史 noisy aggregate feedback 和自身 probing 历史。
+- `train_temporal_deviation_selector.py`: 训练 temporal AR(1) stale-CSI 下的 learned temporal deviation selector；学习相对 rotating probe window 的 offset，评估时只使用可观测状态和历史执行反馈。
 - `evaluate_agent.py`: 单回合详细评估完整 SAC。
 - `evaluate_batch.py`: 多回合 Monte Carlo 评估完整 SAC。
 - `evaluate_random_irs_baseline.py`: 随机 IRS 相位 baseline。
@@ -495,6 +496,26 @@ results/execution_mismatch/execution_mismatch_*_decerr*.png
 
 该诊断给出正向信号：同样 `B=4` 下，deviation oracle 在所有 rho/delay 上都明显优于 rotating，并接近 full stale greedy / execution oracle。例如 `rho=0.9, delay=3` 下，`Rotating B=4` 为 `49.817/50`、perfect `84.11%`、slots `3.924`、gap `1.215`；`Temporal Deviation Oracle B=4` 为 `49.988/50`、perfect `98.78%`、slots `3.117`、gap `0.383`。`rho=0.98, delay=3` 下，rotating gap `0.967`，deviation oracle gap `0.195`。这说明真正值得学的不是候选内部 reliability 重排，而是如何在有限 CSI 下选择/偏离 probe 的 IRS 集合。
 
+随后新增第一版 learned temporal deviation selector。它不直接预测 IRS index，而是预测相对 rotating probe window 的 offset；训练标签来自隐藏 current-channel outcome，评估时只能使用 slot/backlog/rho/delay、历史 probe 统计和上一轮执行反馈：
+
+```bash
+./.venv/bin/python train_temporal_deviation_selector.py \
+  --train-episodes 500 \
+  --val-episodes 100 \
+  --eval-episodes 100 \
+  --num-eval-seeds 3 \
+  --epochs 10 \
+  --batch-size 128 \
+  --channel-rho-values 0.7,0.9,0.98 \
+  --csi-delay-slots 1,2,3 \
+  --probe-budgets 4 \
+  --offsets=-3,-2,-1,0,1,2,3 \
+  --output-prefix results/execution_mismatch/learned_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7 \
+  --no-plots
+```
+
+当前结果是中性到负面：validation offset hit rate 只有 `27.17%`，虽然平均 target tx gap 较小 `0.0169`，但闭环评估没有稳定超过 `Rotating B=4`，更没有接近 deviation oracle。例如 `rho=0.9, delay=3` 下，rotating 为 `49.827/50`、perfect `85.00%`、slots `3.940`、gap `1.242`；learned temporal deviation 为 `49.767/50`、perfect `80.00%`、slots `4.013`、gap `1.268`；deviation oracle gap 为 `0.406`。这说明低维历史特征 + 离线 hidden-target regression 还不足以学到可部署的 probe-set deviation，下一步不应继续简单调这个 MLP，而应转向 on-policy/DAgger、带置信反馈的确认机制，或更丰富的候选重排表示。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -733,7 +754,7 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 
 ## 当前 Execution Mismatch 结论
 
-当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`、`results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55.csv`、`results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv`、`results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3.csv`、`results/execution_mismatch/temporal_reliability_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_rw0-0p5-1_qz0-1.csv` 和 `results/execution_mismatch/temporal_deviation_oracle_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4.csv`。主要结论：
+当前推荐引用 `results/execution_mismatch/execution_mismatch_short_slots_pilot_ep300_runs3_execerr0-0p1-0p2-0p3-0p5.csv`、`results/execution_mismatch/execution_risk_pilot_ep300_runs3_execerr0p2-0p5_rw0p1-0p5_rt0p5-0p55.csv`、`results/execution_mismatch/opportunity_execution_risk_pilot_ep300_runs3_execerr0p2-0p5_fc0p5-1-2_mc1-2.csv`、`results/execution_mismatch/temporal_ar1_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3.csv`、`results/execution_mismatch/temporal_reliability_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_rw0-0p5-1_qz0-1.csv`、`results/execution_mismatch/temporal_deviation_oracle_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4.csv` 和 `results/execution_mismatch/learned_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7.csv`。主要结论：
 
 - 当执行误差从 `0` 增加到 `0.5` 时，`Execution Oracle Full CSI` 仍可达到 `50/50`，说明物理上仍有可调度机会；问题在于决策 CSI 与执行信道不一致。
 - `Exact Greedy Full CSI` 在 `execerr=0.5` 下仍有 `49.972/50` 成功节点，但平均失败邀请升到 `5.39`、missed opportunities 升到 `3.87`、oracle gap 升到 `2.403`，比只做决策 preview 误差更能暴露执行风险。
@@ -743,6 +764,7 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 - 新增 temporal AR(1) CSI delay 后，execution oracle 仍满覆盖，full stale greedy 也接近 oracle；有限 preview 的主要差距体现在 slots、perfect rate 和 oracle gap。`rho=0.9, delay=3` 下，`Rotating B=1` 为 `49.032/50`、gap `2.642`，`B=4` 为 `49.817/50`、gap `1.215`。朴素 AR1 mean prediction 不如 stale rotating，说明下一步应学习可靠度/分位数或多目标策略，而不是直接预测复信道均值。
 - Temporal reliability / quantile 排序进一步确认：只在 rotating 候选内部用手工可调度概率重排仍不足以超过 `Rotating B=4`。`rho=0.9, delay=3` 下普通 rotating 为 `49.817/50`、gap `1.215`，最佳 temporal-reliability 为 `49.814/50`、gap `1.226`；更保守的 `rw=1` 会明显牺牲 perfect rate 和 oracle gap。
 - Temporal deviation oracle 是正向诊断：如果 hidden oracle 能在每个 slot 只选 B=4 个更好的 probe IRS，性能会接近 oracle。`rho=0.9, delay=3` 下 deviation oracle 为 `49.988/50`、perfect `98.78%`、gap `0.383`，明显好于 rotating 的 `49.817/50`、gap `1.215`。这说明下一步应学习 probe-set deviation，而不是继续堆手工 invitation filter。
+- 第一版 learned temporal deviation selector 尚未有效吃到这个 oracle gap：validation offset hit rate 为 `27.17%`，闭环结果与 rotating 接近但不稳定；`rho=0.9, delay=3` 下 learned 为 `49.767/50`、perfect `80.00%`、gap `1.268`，弱于 rotating 的 `49.827/50`、perfect `85.00%`、gap `1.242`。这说明后续应换成 on-policy/DAgger 或更丰富反馈，而不是继续做低维离线 offset regression。
 
 ## 当前参数扫描结论
 
