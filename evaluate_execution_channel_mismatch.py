@@ -37,6 +37,7 @@ POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Ro
 POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
 POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
 POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
+POLICY_TEMPORAL_DEVIATION_ORACLE_GRID = "Temporal Deviation Oracle"
 
 MISMATCH_INDEPENDENT = "independent"
 MISMATCH_TEMPORAL_AR1 = "temporal_ar1"
@@ -57,6 +58,7 @@ POLICY_CHOICES = {
     "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
     "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+    "temporal_deviation_oracle": POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
 
@@ -587,6 +589,58 @@ def choose_execution_oracle(env, args, execution_error_std, slot_idx):
     return oracle, args.num_codebook_states, args.num_codebook_states
 
 
+def choose_temporal_deviation_oracle_decision(
+    env,
+    args,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    execution_state=None,
+):
+    """
+    Choose a B-sized probe set using hidden execution-channel quality.
+
+    This is a diagnostic upper bound for probe-set selection: the oracle may
+    pick the current top-B IRS indices, but the actual invitation mask is still
+    built from the stale/estimated decision channel.
+    """
+    budget = min(int(budget), args.num_codebook_states)
+    decision_snapshot = capture_channel_state(env)
+    if execution_state is not None:
+        apply_channel_state(env, execution_state)
+    hidden_candidates = execution_candidates(
+        env,
+        args,
+        indices=range(args.num_codebook_states),
+        execution_error_std=execution_error_std,
+        slot_idx=slot_idx,
+    )
+    hidden_ranked = sorted(hidden_candidates, key=limited.candidate_key, reverse=True)
+    selected_indices = [int(candidate["irs_index"]) for candidate in hidden_ranked[:budget]]
+
+    apply_channel_state(env, decision_snapshot)
+    error_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        budget,
+        salt=29 + slot_idx,
+    )
+    decision_candidates = limited.estimated_preview_candidates(
+        env,
+        args,
+        indices=selected_indices,
+        error_std=decision_error_std,
+        rng=error_rng,
+    )
+    decision = limited.best_candidate(decision_candidates)
+    decision["deviation_hidden_best_tx"] = int(hidden_ranked[0]["tx_this_slot"]) if hidden_ranked else 0
+    decision["deviation_hidden_selected_count"] = len(selected_indices)
+    return decision, len(selected_indices), len(selected_indices)
+
+
 def execution_risk_error_std(decision_error_std, execution_error_std):
     """Combine independent decision-estimation and execution-drift uncertainty."""
     return float(np.hypot(float(decision_error_std), float(execution_error_std)))
@@ -929,6 +983,7 @@ def policy_label(
         POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
         POLICY_AR1_PREDICT_ROTATING_GRID,
         POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+        POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
@@ -1124,6 +1179,17 @@ def evaluate_policy(
                         risk_weight=effective_risk,
                         risk_power_weight=risk_power_weight,
                         quantile_z=temporal_reliability_z,
+                    )
+                elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
+                    decision, preview_calls, _candidate_count = choose_temporal_deviation_oracle_decision(
+                        env,
+                        args,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        execution_error_std,
+                        episode_seed,
+                        execution_state=execution_state,
                     )
                 else:
                     decision, preview_calls, _candidate_count = choose_decision(
@@ -1562,6 +1628,9 @@ def policy_configs(args):
                                         }
                                     )
         elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
         elif policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:

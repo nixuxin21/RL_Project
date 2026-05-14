@@ -75,7 +75,7 @@ smoke: test
 		--decision-error-std-values 0 \
 		--execution-error-std-values 0 \
 		--probe-budgets 1 \
-		--policies execution_oracle,rotating,ar1_predict_rotating,temporal_reliability_rotating \
+		--policies execution_oracle,rotating,ar1_predict_rotating,temporal_reliability_rotating,temporal_deviation_oracle \
 		--risk-weights 0.5 \
 		--risk-power-weights 0.1 \
 		--temporal-reliability-z-values 1 \
