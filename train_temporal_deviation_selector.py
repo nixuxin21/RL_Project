@@ -28,6 +28,7 @@ from evaluate_policy_comparison import (
 
 
 POLICY_LEARNED_TEMPORAL_DEVIATION = "Learned Temporal Deviation"
+POLICY_DAGGER_TEMPORAL_DEVIATION = "DAgger Temporal Deviation"
 LEARNED_TEMPORAL_OFFSET = 0xA3C59AC3
 
 
@@ -47,6 +48,10 @@ def parse_args():
     parser.add_argument("--csi-delay-slots", default="1,2,3")
     parser.add_argument("--offsets", default="-3,-2,-1,0,1,2,3")
     parser.add_argument("--behavior-random-prob", type=float, default=0.7)
+    parser.add_argument("--dagger-iterations", type=int, default=0)
+    parser.add_argument("--dagger-episodes", type=int, default=0)
+    parser.add_argument("--dagger-beta-start", type=float, default=0.5)
+    parser.add_argument("--dagger-beta-end", type=float, default=0.0)
     parser.add_argument("--decision-error-std", type=float, default=0.0)
     parser.add_argument("--execution-error-std", type=float, default=0.0)
     parser.add_argument("--target-power-weight", type=float, default=0.02)
@@ -91,6 +96,14 @@ def validate_args(args):
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
     if not 0.0 <= args.behavior_random_prob <= 1.0:
         raise ValueError("--behavior-random-prob must be in [0, 1]")
+    if args.dagger_iterations < 0:
+        raise ValueError("--dagger-iterations must be non-negative")
+    if args.dagger_iterations > 0 and args.dagger_episodes <= 0:
+        raise ValueError("--dagger-episodes must be positive when --dagger-iterations is enabled")
+    if args.dagger_episodes < 0:
+        raise ValueError("--dagger-episodes must be non-negative")
+    if not 0.0 <= args.dagger_beta_start <= 1.0 or not 0.0 <= args.dagger_beta_end <= 1.0:
+        raise ValueError("--dagger-beta-start and --dagger-beta-end must be in [0, 1]")
     if not 0.0 <= args.history_lr <= 1.0:
         raise ValueError("--history-lr must be in [0, 1]")
     if args.decision_error_std < 0.0 or args.execution_error_std < 0.0:
@@ -165,6 +178,8 @@ def build_eval_args(args, episodes=None, num_seeds=None):
         target_power_weight=float(args.target_power_weight),
         target_failure_weight=float(args.target_failure_weight),
         history_lr=float(args.history_lr),
+        dagger_iterations=int(getattr(args, "dagger_iterations", 0)),
+        learned_policy_name=learned_policy_name(args),
         P_max=1.0,
     )
 
@@ -183,6 +198,12 @@ def resolve_output_prefix(args):
         f"rho{rho_label}_delay{delay_label}_b{budget_label}_"
         f"offsets{len(args.offsets)}"
     )
+    if args.dagger_iterations > 0:
+        suffix += (
+            f"_dagger{args.dagger_iterations}x{args.dagger_episodes}_"
+            f"beta{format_float_for_suffix(args.dagger_beta_start)}-"
+            f"{format_float_for_suffix(args.dagger_beta_end)}"
+        )
     output_prefix = os.path.join(
         "results",
         "execution_mismatch",
@@ -429,6 +450,23 @@ def choose_behavior_offset(target_scores, offsets, rng, random_prob):
     return int(offsets[int(np.argmax(target_scores))])
 
 
+def dagger_beta(args, iteration):
+    """Return expert-mixing probability for one DAgger iteration."""
+    total = int(args.dagger_iterations)
+    if total <= 1:
+        return float(args.dagger_beta_start)
+    fraction = float(iteration - 1) / float(max(total - 1, 1))
+    return float(args.dagger_beta_start + fraction * (args.dagger_beta_end - args.dagger_beta_start))
+
+
+def choose_dagger_offset(model, mean, std, feature, target_scores, args, beta, rng):
+    """Choose a rollout offset using an expert/model DAgger mixture."""
+    if rng.random() < float(beta):
+        return int(args.offsets[int(np.argmax(target_scores))])
+    scores = predict_offset_scores(model, feature, mean, std, torch.device(args.device))
+    return int(args.offsets[int(np.argmax(scores))])
+
+
 def execute_offset_slot(
     env,
     args,
@@ -553,6 +591,100 @@ def collect_dataset(args, episodes, seed, split_name):
     )
 
 
+def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, beta):
+    """Collect on-policy DAgger states and hidden supervised targets."""
+    eval_args = build_eval_args(args, episodes=episodes, num_seeds=1)
+    eval_args.P_max = 1.0
+    eval_args.device = args.device
+    env = limited.make_env(eval_args)
+    specs = split_episode_specs(seed, episodes, args.channel_rho_values, args.csi_delay_slots)
+    features = []
+    targets = []
+    target_tx = []
+    success_nodes = []
+
+    print(
+        f"Collecting DAgger temporal-deviation data: iteration={iteration}, "
+        f"episodes={episodes}, beta={beta:.3f}, seed={seed}"
+    )
+    for ep, (episode_seed, channel_rho, csi_delay_slots) in enumerate(specs, start=1):
+        env.reset(seed=episode_seed)
+        env._last_seed = episode_seed
+        history = initialize_history(eval_args)
+        behavior_rng = learned_rng(episode_seed, salt=97 + int(iteration))
+        temporal_states = mismatch.build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
+        total_tx = 0
+
+        for slot_idx in range(eval_args.num_slots):
+            execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
+            decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            feature = history_features(
+                env,
+                history,
+                eval_args,
+                channel_rho,
+                csi_delay_slots,
+                eval_args.probe_budgets[0],
+                slot_idx,
+            )
+            score_target, tx_target = offset_target_scores(
+                env,
+                eval_args,
+                eval_args.probe_budgets[0],
+                slot_idx,
+                channel_rho,
+                csi_delay_slots,
+                args.decision_error_std,
+                args.execution_error_std,
+                episode_seed,
+                decision_state,
+                execution_state,
+                args.offsets,
+            )
+            features.append(feature)
+            targets.append(score_target)
+            target_tx.append(tx_target)
+
+            chosen_offset = choose_dagger_offset(
+                model,
+                mean,
+                std,
+                feature,
+                score_target,
+                eval_args,
+                beta,
+                behavior_rng,
+            )
+            info, done, decision, candidates, indices, _oracle_gap = execute_offset_slot(
+                env,
+                eval_args,
+                eval_args.probe_budgets[0],
+                slot_idx,
+                args.decision_error_std,
+                args.execution_error_std,
+                episode_seed,
+                decision_state,
+                execution_state,
+                chosen_offset,
+            )
+            total_tx = int(info["total_tx"])
+            update_history(history, eval_args, indices, candidates, decision, info, chosen_offset)
+            if done:
+                break
+        success_nodes.append(total_tx)
+        print_progress(f"collect dagger {iteration}", ep, episodes)
+
+    print(
+        f"Collected DAgger iteration {iteration}: samples={len(targets)}, "
+        f"mean behavior success={np.mean(success_nodes):.3f}/{args.num_nodes}"
+    )
+    return (
+        np.asarray(features, dtype=np.float32),
+        np.asarray(targets, dtype=np.float32),
+        np.asarray(target_tx, dtype=np.float32),
+    )
+
+
 def normalize_features(train_x, val_x):
     """Normalize features with train-split statistics."""
     mean = train_x.mean(axis=0, keepdims=True).astype(np.float32)
@@ -661,9 +793,16 @@ def validation_metrics(predictions, target_scores, target_tx):
     ]
 
 
-def learned_result_name(budget):
+def learned_policy_name(args):
+    """Return the learned policy label for output tables."""
+    if int(getattr(args, "dagger_iterations", 0)) > 0:
+        return POLICY_DAGGER_TEMPORAL_DEVIATION
+    return POLICY_LEARNED_TEMPORAL_DEVIATION
+
+
+def learned_result_name(args, budget):
     """Return the display name for learned temporal deviation."""
-    return f"{POLICY_LEARNED_TEMPORAL_DEVIATION} B={int(budget)}"
+    return f"{learned_policy_name(args)} B={int(budget)}"
 
 
 def evaluate_learned_policy(
@@ -694,7 +833,7 @@ def evaluate_learned_policy(
     effective_risk_weights = []
 
     print(
-        f"Running {learned_result_name(budget)} model=temporal_ar1 "
+        f"Running {learned_result_name(args, budget)} model=temporal_ar1 "
         f"rho={channel_rho:g} delay={int(csi_delay_slots)}..."
     )
     for ep, episode_seed in enumerate(episode_seeds, start=1):
@@ -768,7 +907,7 @@ def evaluate_learned_policy(
             float(np.mean(episode_effective_risk_weights)) if episode_effective_risk_weights else 0.0
         )
         limited.print_progress(
-            POLICY_LEARNED_TEMPORAL_DEVIATION,
+            learned_policy_name(args),
             0.0,
             budget,
             ep,
@@ -778,8 +917,8 @@ def evaluate_learned_policy(
         )
 
     return {
-        "name": learned_result_name(budget),
-        "policy": POLICY_LEARNED_TEMPORAL_DEVIATION,
+        "name": learned_result_name(args, budget),
+        "policy": learned_policy_name(args),
         "decision_error_std": float(args.decision_error_std),
         "execution_error_std": float(args.execution_error_std),
         "mismatch_model": mismatch.MISMATCH_TEMPORAL_AR1,
@@ -907,8 +1046,11 @@ def evaluate_suite(args, model, mean, std):
 def write_train_history(path, rows):
     """Write train/validation loss history."""
     ensure_parent_dir(path)
+    fieldnames = ["epoch", "train_loss", "val_loss"]
+    if any("iteration" in row for row in rows):
+        fieldnames = ["iteration"] + fieldnames
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=["epoch", "train_loss", "val_loss"])
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved: {path}")
@@ -941,10 +1083,17 @@ def save_checkpoint(path, model, mean, std, args):
             "hidden_layers": args.hidden_layers,
             "channel_rho_values": list(args.channel_rho_values),
             "csi_delay_slots": list(args.csi_delay_slots),
+            "dagger_iterations": int(getattr(args, "dagger_iterations", 0)),
+            "dagger_episodes": int(getattr(args, "dagger_episodes", 0)),
         },
         path,
     )
     print(f"Saved: {path}")
+
+
+def tag_train_history(rows, iteration):
+    """Add DAgger iteration metadata to training rows."""
+    return [dict(row, iteration=int(iteration)) for row in rows]
 
 
 def print_best_rows(rows):
@@ -992,13 +1141,42 @@ def main():
         f"eval_episodes={args.eval_episodes}, rhos={args.channel_rho_values}, "
         f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}"
     )
+    if args.dagger_iterations > 0:
+        print(
+            f"DAgger: iterations={args.dagger_iterations}, episodes={args.dagger_episodes}, "
+            f"beta={args.dagger_beta_start:g}->{args.dagger_beta_end:g}"
+        )
     print(f"Offsets={args.offsets}, output_prefix={output_prefix}")
     print("=" * 96)
 
-    train_x, train_y, _train_tx = collect_dataset(args, args.train_episodes, args.seed + 17, "train")
+    train_x, train_y, train_tx = collect_dataset(args, args.train_episodes, args.seed + 17, "train")
     val_x, val_y, val_tx = collect_dataset(args, args.val_episodes, args.seed + 31, "val")
     model, mean, std, history = train_model(args, train_x, train_y, val_x, val_y)
-    write_train_history(f"{output_prefix}_train_history.csv", history)
+    all_history = tag_train_history(history, iteration=0) if args.dagger_iterations > 0 else list(history)
+
+    for iteration in range(1, args.dagger_iterations + 1):
+        beta = dagger_beta(args, iteration)
+        dagger_x, dagger_y, dagger_tx = collect_dagger_dataset(
+            args,
+            args.dagger_episodes,
+            args.seed + 1009 + 37 * iteration,
+            iteration,
+            model,
+            mean,
+            std,
+            beta,
+        )
+        train_x = np.concatenate([train_x, dagger_x], axis=0)
+        train_y = np.concatenate([train_y, dagger_y], axis=0)
+        train_tx = np.concatenate([train_tx, dagger_tx], axis=0)
+        print(
+            f"Retraining after DAgger iteration {iteration}: "
+            f"total_samples={len(train_y)}, target_tx_mean={np.mean(train_tx):.4f}"
+        )
+        model, mean, std, iteration_history = train_model(args, train_x, train_y, val_x, val_y)
+        all_history.extend(tag_train_history(iteration_history, iteration=iteration))
+
+    write_train_history(f"{output_prefix}_train_history.csv", all_history)
     save_checkpoint(f"{output_prefix}_model.pt", model, mean, std, args)
 
     val_x_norm = np.clip((val_x - mean) / std, -10.0, 10.0).astype(np.float32)
