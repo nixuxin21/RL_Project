@@ -11,7 +11,7 @@
 - `train_agent.py`: 训练完整 SAC，动作是 `[g_th, alpha_th, irs_codebook]`。
 - `train_codebook_aware_agent.py`: 训练 IRS-only SAC selector，固定 `g_th/alpha_th`，只学习 IRS 码本选择，可使用 16 维 codebook quality features。
 - `train_bandit_feedback_selector.py`: 训练 feedback-conditioned IRS probing selector；训练可使用离线 oracle 标签，评估时只能看基础状态、历史 noisy aggregate feedback 和自身 probing 历史。
-- `train_temporal_deviation_selector.py`: 训练 temporal AR(1) stale-CSI 下的 learned/DAgger temporal deviation selector；学习相对 rotating probe window 的 offset，评估时只使用可观测状态和历史执行反馈。
+- `train_temporal_deviation_selector.py`: 训练 temporal AR(1) stale-CSI 下的 learned/DAgger/window temporal deviation selector；学习相对 rotating probe window 的 offset，评估时只使用可观测状态和历史执行反馈。
 - `evaluate_agent.py`: 单回合详细评估完整 SAC。
 - `evaluate_batch.py`: 多回合 Monte Carlo 评估完整 SAC。
 - `evaluate_random_irs_baseline.py`: 随机 IRS 相位 baseline。
@@ -540,6 +540,27 @@ results/execution_mismatch/execution_mismatch_*_decerr*.png
 
 DAgger 仍没有稳定解决问题：validation offset hit rate 为 `25.49%`。`rho=0.7, delay=2` 下 DAgger 比 rotating 好一些，gap 从 `1.323` 降到 `1.232`、slots 从 `3.950` 降到 `3.780`；但 `rho=0.9, delay=3` 下 DAgger 为 `49.760/50`、perfect `79.67%`、gap `1.266`，仍弱于 rotating 的 `49.827/50`、perfect `85.00%`、gap `1.242`。结论更新为：单纯 DAgger 化这个低维 offset regressor 仍不够，下一步需要更丰富的 candidate reranking、uncertainty-aware 表示或真正的 feedback confirmation。
 
+随后新增 `--feature-mode window`，把每个 offset window 的历史统计显式作为候选特征，并用共享 scorer 给每个 offset 打分：
+
+```bash
+./.venv/bin/python train_temporal_deviation_selector.py \
+  --train-episodes 500 \
+  --val-episodes 100 \
+  --eval-episodes 100 \
+  --num-eval-seeds 3 \
+  --epochs 10 \
+  --batch-size 128 \
+  --feature-mode window \
+  --channel-rho-values 0.7,0.9,0.98 \
+  --csi-delay-slots 1,2,3 \
+  --probe-budgets 4 \
+  --offsets=-3,-2,-1,0,1,2,3 \
+  --output-prefix results/execution_mismatch/window_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7 \
+  --no-plots
+```
+
+window scorer 有轻微信号，但仍不稳定：offset hit rate 为 `25.49%`；`rho=0.7, delay=1` 下 gap 从 `1.281` 降到 `1.240`、slots 从 `3.690` 降到 `3.597`，`rho=0.98, delay=3` 下 gap 从 `1.004` 降到 `0.966`；但 `rho=0.9, delay=3` 下 window scorer 为 `49.793/50`、perfect `83.00%`、slots `4.070`、gap `1.254`，仍弱于 rotating 的 `49.827/50`、perfect `85.00%`、slots `3.940`、gap `1.242`。因此结论是：显式 window 表示比纯全局特征更合理，但只靠历史统计 reranking 还不足以稳定吃到 oracle gap。
+
 ## Bandit Feedback MS-AirComp
 
 该实验进一步去掉“probe 后可得到节点级 CSI/mask”的假设。每个 probe 只返回该 IRS 码本的 noisy aggregate feedback：预计可发送节点比例和平均功率；策略不能知道具体哪些节点可发送，也不能读取完整 codebook feature。执行阶段仍在真实信道上发生，代表节点基于本地信道自选择是否参与 AirComp。
@@ -790,6 +811,7 @@ Noise-aware imitation 推荐引用 `results/imitation/greedy_imitation_train5000
 - Temporal deviation oracle 是正向诊断：如果 hidden oracle 能在每个 slot 只选 B=4 个更好的 probe IRS，性能会接近 oracle。`rho=0.9, delay=3` 下 deviation oracle 为 `49.988/50`、perfect `98.78%`、gap `0.383`，明显好于 rotating 的 `49.817/50`、gap `1.215`。这说明下一步应学习 probe-set deviation，而不是继续堆手工 invitation filter。
 - 第一版 learned temporal deviation selector 尚未有效吃到这个 oracle gap：validation offset hit rate 为 `27.17%`，闭环结果与 rotating 接近但不稳定；`rho=0.9, delay=3` 下 learned 为 `49.767/50`、perfect `80.00%`、gap `1.268`，弱于 rotating 的 `49.827/50`、perfect `85.00%`、gap `1.242`。
 - DAgger 数据聚合仍是中性/负面：offset hit rate 为 `25.49%`；它在 `rho=0.7, delay=2` 把 gap 从 rotating 的 `1.323` 降到 `1.232`，但在 `rho=0.9, delay=3` 降到 `49.760/50`、perfect `79.67%`、gap `1.266`。这说明后续应换成更丰富 feedback/candidate reranking，而不是继续做低维 offset regression。
+- Window scorer 用每个 offset window 的历史统计做共享打分，能小幅降低部分场景 gap，但仍不稳定：`rho=0.9, delay=3` 下 window scorer 为 `49.793/50`、perfect `83.00%`、gap `1.254`，仍弱于 rotating。下一步应加入 uncertainty-aware guardrail 或 feedback confirmation，避免为了小幅 gap 改善牺牲 perfect rate 和 slots。
 
 ## 当前参数扫描结论
 

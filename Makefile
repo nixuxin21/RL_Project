@@ -120,6 +120,7 @@ smoke: test
 		--num-eval-seeds 1 \
 		--epochs 1 \
 		--batch-size 4 \
+		--feature-mode window \
 		--dagger-iterations 1 \
 		--dagger-episodes 1 \
 		--dagger-beta-start 0.5 \

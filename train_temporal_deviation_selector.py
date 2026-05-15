@@ -28,7 +28,9 @@ from evaluate_policy_comparison import (
 
 
 POLICY_LEARNED_TEMPORAL_DEVIATION = "Learned Temporal Deviation"
+POLICY_WINDOW_TEMPORAL_DEVIATION = "Window Temporal Deviation"
 POLICY_DAGGER_TEMPORAL_DEVIATION = "DAgger Temporal Deviation"
+POLICY_DAGGER_WINDOW_TEMPORAL_DEVIATION = "DAgger Window Temporal Deviation"
 LEARNED_TEMPORAL_OFFSET = 0xA3C59AC3
 
 
@@ -47,6 +49,7 @@ def parse_args():
     parser.add_argument("--channel-rho-values", default="0.7,0.9,0.98")
     parser.add_argument("--csi-delay-slots", default="1,2,3")
     parser.add_argument("--offsets", default="-3,-2,-1,0,1,2,3")
+    parser.add_argument("--feature-mode", choices=["global", "window"], default="global")
     parser.add_argument("--behavior-random-prob", type=float, default=0.7)
     parser.add_argument("--dagger-iterations", type=int, default=0)
     parser.add_argument("--dagger-episodes", type=int, default=0)
@@ -178,6 +181,7 @@ def build_eval_args(args, episodes=None, num_seeds=None):
         target_power_weight=float(args.target_power_weight),
         target_failure_weight=float(args.target_failure_weight),
         history_lr=float(args.history_lr),
+        feature_mode=args.feature_mode,
         dagger_iterations=int(getattr(args, "dagger_iterations", 0)),
         learned_policy_name=learned_policy_name(args),
         P_max=1.0,
@@ -198,6 +202,8 @@ def resolve_output_prefix(args):
         f"rho{rho_label}_delay{delay_label}_b{budget_label}_"
         f"offsets{len(args.offsets)}"
     )
+    if args.feature_mode != "global":
+        suffix += f"_{args.feature_mode}feat"
     if args.dagger_iterations > 0:
         suffix += (
             f"_dagger{args.dagger_iterations}x{args.dagger_episodes}_"
@@ -317,6 +323,66 @@ def history_features(env, history, args, channel_rho, csi_delay_slots, budget, s
             selected.astype(np.float32),
         ]
     ).astype(np.float32)
+
+
+def offset_window_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx, offsets):
+    """Build per-offset candidate-window features from observable history."""
+    c_count = int(args.num_codebook_states)
+    base = history_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)[:14]
+    counts = np.clip(np.asarray(history["counts"], dtype=float) / max(args.num_slots, 1), 0.0, 1.0)
+    recency = 1.0 / (1.0 + np.asarray(history["age"], dtype=float))
+    arrays = [
+        np.asarray(history["decision_tx"], dtype=float),
+        np.asarray(history["decision_power"], dtype=float),
+        np.asarray(history["success"], dtype=float),
+        np.asarray(history["failed"], dtype=float),
+        np.asarray(history["missed"], dtype=float),
+        counts,
+        recency,
+    ]
+    rows = []
+    last_selected = int(history["last_selected"])
+    for offset in offsets:
+        indices = offset_indices(args, budget, slot_idx, offset)
+        center = float(np.mean(indices)) / float(max(c_count - 1, 1))
+        phase = 2.0 * np.pi * center
+        row = [
+            *base.tolist(),
+            float(offset) / float(max(c_count, 1)),
+            abs(float(offset)) / float(max(c_count, 1)),
+            float(center),
+            float(np.sin(phase)),
+            float(np.cos(phase)),
+            float(last_selected in set(int(index) for index in indices)) if last_selected >= 0 else 0.0,
+        ]
+        for values in arrays:
+            window_values = np.asarray(values, dtype=float)[indices]
+            row.extend(
+                [
+                    float(np.mean(window_values)),
+                    float(np.max(window_values)),
+                    float(np.min(window_values)),
+                    float(np.std(window_values)),
+                ]
+            )
+        rows.append(row)
+    return np.asarray(rows, dtype=np.float32)
+
+
+def policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx):
+    """Build policy features for the selected model architecture."""
+    if getattr(args, "feature_mode", "global") == "window":
+        return offset_window_features(
+            env,
+            history,
+            args,
+            channel_rho,
+            csi_delay_slots,
+            budget,
+            slot_idx,
+            args.offsets,
+        )
+    return history_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
 
 
 def update_history(history, args, indices, decision_candidates, selected_decision, info, chosen_offset):
@@ -528,7 +594,7 @@ def collect_dataset(args, episodes, seed, split_name):
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
             decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
-            feature = history_features(
+            feature = policy_features(
                 env,
                 history,
                 eval_args,
@@ -618,7 +684,7 @@ def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, be
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
             decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
-            feature = history_features(
+            feature = policy_features(
                 env,
                 history,
                 eval_args,
@@ -687,9 +753,14 @@ def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, be
 
 def normalize_features(train_x, val_x):
     """Normalize features with train-split statistics."""
-    mean = train_x.mean(axis=0, keepdims=True).astype(np.float32)
-    std = train_x.std(axis=0, keepdims=True).astype(np.float32)
+    feature_dim = int(train_x.shape[-1])
+    train_flat = train_x.reshape(-1, feature_dim)
+    mean = train_flat.mean(axis=0).astype(np.float32)
+    std = train_flat.std(axis=0).astype(np.float32)
     std = np.maximum(std, 1e-6)
+    shape = (1,) * (train_x.ndim - 1) + (feature_dim,)
+    mean = mean.reshape(shape)
+    std = std.reshape(shape)
     return (
         np.clip((train_x - mean) / std, -10.0, 10.0).astype(np.float32),
         np.clip((val_x - mean) / std, -10.0, 10.0).astype(np.float32),
@@ -717,16 +788,44 @@ class OffsetSelector(nn.Module):
         return self.net(x_input)
 
 
+class WindowOffsetSelector(nn.Module):
+    """Shared scorer that ranks each candidate offset window."""
+
+    def __init__(self, input_dim, hidden_size, hidden_layers):
+        super().__init__()
+        layers = []
+        dim = input_dim
+        for _ in range(hidden_layers):
+            layers.append(nn.Linear(dim, hidden_size))
+            layers.append(nn.ReLU())
+            dim = hidden_size
+        layers.append(nn.Linear(dim, 1))
+        self.scorer = nn.Sequential(*layers)
+
+    def forward(self, x_input):
+        """Return one score per candidate offset window."""
+        batch_size, offset_count, feature_dim = x_input.shape
+        flat = x_input.reshape(batch_size * offset_count, feature_dim)
+        return self.scorer(flat).reshape(batch_size, offset_count)
+
+
 def train_model(args, train_x, train_y, val_x, val_y):
     """Train the offset selector."""
     train_x_norm, val_x_norm, mean, std = normalize_features(train_x, val_x)
     device = torch.device(args.device)
-    model = OffsetSelector(
-        input_dim=train_x.shape[1],
-        output_dim=train_y.shape[1],
-        hidden_size=args.hidden_size,
-        hidden_layers=args.hidden_layers,
-    ).to(device)
+    if getattr(args, "feature_mode", "global") == "window":
+        model = WindowOffsetSelector(
+            input_dim=train_x.shape[-1],
+            hidden_size=args.hidden_size,
+            hidden_layers=args.hidden_layers,
+        ).to(device)
+    else:
+        model = OffsetSelector(
+            input_dim=train_x.shape[1],
+            output_dim=train_y.shape[1],
+            hidden_size=args.hidden_size,
+            hidden_layers=args.hidden_layers,
+        ).to(device)
     loader = DataLoader(
         TensorDataset(torch.from_numpy(train_x_norm), torch.from_numpy(train_y)),
         batch_size=args.batch_size,
@@ -769,7 +868,8 @@ def train_model(args, train_x, train_y, val_x, val_y):
 
 def predict_offset_scores(model, feature, mean, std, device):
     """Predict offset scores for one feature vector."""
-    feature_norm = np.clip((feature.reshape(1, -1).astype(np.float32) - mean) / std, -10.0, 10.0)
+    feature_batch = feature.reshape((1,) + feature.shape).astype(np.float32)
+    feature_norm = np.clip((feature_batch - mean) / std, -10.0, 10.0)
     model.eval()
     with torch.no_grad():
         tensor = torch.from_numpy(feature_norm.astype(np.float32)).to(device)
@@ -795,8 +895,14 @@ def validation_metrics(predictions, target_scores, target_tx):
 
 def learned_policy_name(args):
     """Return the learned policy label for output tables."""
-    if int(getattr(args, "dagger_iterations", 0)) > 0:
+    is_dagger = int(getattr(args, "dagger_iterations", 0)) > 0
+    is_window = getattr(args, "feature_mode", "global") == "window"
+    if is_dagger and is_window:
+        return POLICY_DAGGER_WINDOW_TEMPORAL_DEVIATION
+    if is_dagger:
         return POLICY_DAGGER_TEMPORAL_DEVIATION
+    if is_window:
+        return POLICY_WINDOW_TEMPORAL_DEVIATION
     return POLICY_LEARNED_TEMPORAL_DEVIATION
 
 
@@ -858,7 +964,7 @@ def evaluate_learned_policy(
         for slot_idx in range(args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
             decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
-            feature = history_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
+            feature = policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
             scores = predict_offset_scores(model, feature, mean, std, device)
             chosen_offset = int(args.offsets[int(np.argmax(scores))])
             info, done, decision, candidates, indices, oracle_gap = execute_offset_slot(
@@ -1078,7 +1184,8 @@ def save_checkpoint(path, model, mean, std, args):
             "obs_mean": mean,
             "obs_std": std,
             "offsets": list(args.offsets),
-            "input_dim": int(mean.shape[1]),
+            "input_dim": int(mean.shape[-1]),
+            "feature_mode": args.feature_mode,
             "hidden_size": args.hidden_size,
             "hidden_layers": args.hidden_layers,
             "channel_rho_values": list(args.channel_rho_values),
@@ -1139,7 +1246,8 @@ def main():
     print(
         f"Learned temporal deviation: train_episodes={args.train_episodes}, "
         f"eval_episodes={args.eval_episodes}, rhos={args.channel_rho_values}, "
-        f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}"
+        f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}, "
+        f"feature_mode={args.feature_mode}"
     )
     if args.dagger_iterations > 0:
         print(
