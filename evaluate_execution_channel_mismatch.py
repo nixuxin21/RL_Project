@@ -37,6 +37,7 @@ POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Ro
 POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
 POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
 POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
+POLICY_STALE_TOPK_FEEDBACK_GRID = "Stale-TopK Feedback Grid"
 POLICY_TEMPORAL_DEVIATION_ORACLE_GRID = "Temporal Deviation Oracle"
 
 MISMATCH_INDEPENDENT = "independent"
@@ -58,6 +59,8 @@ POLICY_CHOICES = {
     "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
     "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+    "stale_topk_feedback": POLICY_STALE_TOPK_FEEDBACK_GRID,
+    "stale_topk_rotating": POLICY_STALE_TOPK_FEEDBACK_GRID,
     "temporal_deviation_oracle": POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
@@ -146,6 +149,8 @@ def parse_args():
     parser.add_argument("--csi-delay-slots", default="1")
     parser.add_argument("--decision-error-std-values", default="0.0")
     parser.add_argument("--execution-error-std-values", default="0,0.05,0.1,0.2,0.3")
+    parser.add_argument("--confirmation-feedback-noise-std", type=float, default=0.0)
+    parser.add_argument("--confirmation-feedback-power-weight", type=float, default=0.05)
     parser.add_argument(
         "--policies",
         default="no_irs,fixed,execution_oracle,exact_greedy,estimated_greedy,rotating,robust_rotating,risk_rotating,adaptive_risk_rotating,execution_risk_rotating,adaptive_execution_risk_rotating,opportunity_execution_risk_rotating",
@@ -220,6 +225,10 @@ def validate_args(args):
         raise ValueError("error std lists must not be empty")
     if any(value < 0.0 for value in args.decision_error_std_values + args.execution_error_std_values):
         raise ValueError("error std values must be non-negative")
+    if args.confirmation_feedback_noise_std < 0.0:
+        raise ValueError("--confirmation-feedback-noise-std must be non-negative")
+    if args.confirmation_feedback_power_weight < 0.0:
+        raise ValueError("--confirmation-feedback-power-weight must be non-negative")
 
     args.policies = parse_csv_items(args.policies)
     unknown_policies = [name for name in args.policies if name not in POLICY_CHOICES]
@@ -641,6 +650,144 @@ def choose_temporal_deviation_oracle_decision(
     return decision, len(selected_indices), len(selected_indices)
 
 
+def ordered_unique_prefix(indices, budget, num_codebook_states):
+    """Return a clipped unique prefix preserving priority order."""
+    selected = []
+    seen = set()
+    for raw_index in indices:
+        index = int(np.clip(raw_index, 0, num_codebook_states - 1))
+        if index in seen:
+            continue
+        selected.append(index)
+        seen.add(index)
+        if len(selected) >= int(budget):
+            break
+    return selected
+
+
+def confirmation_feedback(candidate, args, feedback_noise_std, feedback_power_weight, rng):
+    """Return noisy aggregate feedback for one current execution candidate."""
+    observed_tx_fraction = float(candidate["tx_this_slot"]) / float(max(args.num_nodes, 1))
+    if float(feedback_noise_std) > 0.0:
+        observed_tx_fraction += float(rng.normal(0.0, float(feedback_noise_std)))
+    observed_tx_fraction = float(np.clip(observed_tx_fraction, 0.0, 1.0))
+
+    observed_power = float(candidate["power_avg"])
+    observed_score = observed_tx_fraction - float(feedback_power_weight) * observed_power
+    observed_score += float(rng.uniform(0.0, 1e-9))
+    return {
+        "irs_index": int(candidate["irs_index"]),
+        "observed_tx_fraction": observed_tx_fraction,
+        "observed_power": observed_power,
+        "observed_score": float(observed_score),
+    }
+
+
+def choose_stale_topk_feedback_decision(
+    env,
+    args,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    execution_state=None,
+):
+    """
+    Pick an active stale-CSI probe set, then confirm it with current feedback.
+
+    The top half of the budget comes from a full stale-codebook ranking and the
+    rest preserves rotating-grid coverage. The final IRS index is selected from
+    B aggregate current-channel feedback probes, not from full execution CSI.
+    """
+    budget = min(int(budget), args.num_codebook_states)
+    if budget <= 0:
+        return choose_decision(
+            env,
+            args,
+            limited.POLICY_NO_IRS,
+            0,
+            slot_idx,
+            decision_error_std,
+            episode_seed,
+        )
+
+    error_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_RISK_AWARE_ROTATING_GRID,
+        args.num_codebook_states,
+        salt=37 + slot_idx,
+    )
+    full_stale_candidates = limited.estimated_preview_candidates(
+        env,
+        args,
+        indices=range(args.num_codebook_states),
+        error_std=decision_error_std,
+        rng=error_rng,
+    )
+    ranked_indices = [
+        int(candidate["irs_index"])
+        for candidate in sorted(full_stale_candidates, key=limited.candidate_key, reverse=True)
+    ]
+    topk_budget = max(1, budget // 2)
+    rotating_indices = limited.grid_indices(args.num_codebook_states, budget, offset=slot_idx)
+    selected_indices = ordered_unique_prefix(
+        ranked_indices[:topk_budget] + rotating_indices + ranked_indices,
+        budget,
+        args.num_codebook_states,
+    )
+
+    candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in full_stale_candidates}
+    decision_snapshot = capture_channel_state(env)
+    if execution_state is not None:
+        apply_channel_state(env, execution_state)
+    current_candidates = [
+        execution_candidates(
+            env,
+            args,
+            indices=[index],
+            execution_error_std=execution_error_std,
+            slot_idx=slot_idx,
+        )[0]
+        for index in selected_indices
+    ]
+    feedback_rng = limited.stable_rng(
+        episode_seed,
+        args.confirmation_feedback_noise_std,
+        limited.POLICY_RANDOM_PROBE,
+        budget,
+        salt=41 + slot_idx,
+    )
+    feedbacks = [
+        confirmation_feedback(
+            candidate,
+            args,
+            args.confirmation_feedback_noise_std,
+            args.confirmation_feedback_power_weight,
+            feedback_rng,
+        )
+        for candidate in current_candidates
+    ]
+    feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
+    confirmed_index = max(
+        selected_indices,
+        key=lambda index: (
+            float(feedback_by_index[index]["observed_score"]),
+            float(feedback_by_index[index]["observed_tx_fraction"]),
+            -float(feedback_by_index[index]["observed_power"]),
+        ),
+    )
+
+    apply_channel_state(env, decision_snapshot)
+    decision = candidate_by_index[int(confirmed_index)]
+    decision["stale_topk_count"] = int(topk_budget)
+    decision["confirmed_irs_index"] = int(confirmed_index)
+    decision["stale_full_preview_count"] = int(args.num_codebook_states)
+    decision["confirmation_feedback_count"] = int(len(selected_indices))
+    return decision, args.num_codebook_states + len(selected_indices), len(selected_indices)
+
+
 def execution_risk_error_std(decision_error_std, execution_error_std):
     """Combine independent decision-estimation and execution-drift uncertainty."""
     return float(np.hypot(float(decision_error_std), float(execution_error_std)))
@@ -983,6 +1130,7 @@ def policy_label(
         POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
         POLICY_AR1_PREDICT_ROTATING_GRID,
         POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+        POLICY_STALE_TOPK_FEEDBACK_GRID,
         POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     }:
         label = f"{policy_name} B={int(budget)}"
@@ -1179,6 +1327,17 @@ def evaluate_policy(
                         risk_weight=effective_risk,
                         risk_power_weight=risk_power_weight,
                         quantile_z=temporal_reliability_z,
+                    )
+                elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
+                    decision, preview_calls, _candidate_count = choose_stale_topk_feedback_decision(
+                        env,
+                        args,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        execution_error_std,
+                        episode_seed,
+                        execution_state=execution_state,
                     )
                 elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
                     decision, preview_calls, _candidate_count = choose_temporal_deviation_oracle_decision(
@@ -1628,6 +1787,9 @@ def policy_configs(args):
                                         }
                                     )
         elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
         elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
