@@ -37,6 +37,7 @@ POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Ro
 POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
 POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
 POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
+POLICY_ROTATING_FEEDBACK_CONFIRM_GRID = "Rotating Feedback Confirm Grid"
 POLICY_STALE_TOPK_FEEDBACK_GRID = "Stale-TopK Feedback Grid"
 POLICY_TEMPORAL_DEVIATION_ORACLE_GRID = "Temporal Deviation Oracle"
 
@@ -59,6 +60,8 @@ POLICY_CHOICES = {
     "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
     "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
     "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+    "rotating_feedback_confirm": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+    "feedback_confirm_rotating": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
     "stale_topk_feedback": POLICY_STALE_TOPK_FEEDBACK_GRID,
     "stale_topk_rotating": POLICY_STALE_TOPK_FEEDBACK_GRID,
     "temporal_deviation_oracle": POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
@@ -683,6 +686,124 @@ def confirmation_feedback(candidate, args, feedback_noise_std, feedback_power_we
     }
 
 
+def confirm_index_with_current_feedback(
+    env,
+    args,
+    selected_indices,
+    execution_error_std,
+    slot_idx,
+    episode_seed,
+    execution_state=None,
+    feedback_salt=41,
+):
+    """Select one IRS index from selected candidates using current aggregate feedback."""
+    decision_snapshot = capture_channel_state(env)
+    try:
+        if execution_state is not None:
+            apply_channel_state(env, execution_state)
+        current_candidates = [
+            execution_candidates(
+                env,
+                args,
+                indices=[index],
+                execution_error_std=execution_error_std,
+                slot_idx=slot_idx,
+            )[0]
+            for index in selected_indices
+        ]
+        feedback_rng = limited.stable_rng(
+            episode_seed,
+            args.confirmation_feedback_noise_std,
+            limited.POLICY_RANDOM_PROBE,
+            len(selected_indices),
+            salt=int(feedback_salt) + slot_idx,
+        )
+        feedbacks = [
+            confirmation_feedback(
+                candidate,
+                args,
+                args.confirmation_feedback_noise_std,
+                args.confirmation_feedback_power_weight,
+                feedback_rng,
+            )
+            for candidate in current_candidates
+        ]
+        feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
+        confirmed_index = max(
+            selected_indices,
+            key=lambda index: (
+                float(feedback_by_index[int(index)]["observed_score"]),
+                float(feedback_by_index[int(index)]["observed_tx_fraction"]),
+                -float(feedback_by_index[int(index)]["observed_power"]),
+            ),
+        )
+    finally:
+        apply_channel_state(env, decision_snapshot)
+    return int(confirmed_index), feedbacks
+
+
+def choose_rotating_feedback_confirm_decision(
+    env,
+    args,
+    budget,
+    slot_idx,
+    decision_error_std,
+    execution_error_std,
+    episode_seed,
+    execution_state=None,
+):
+    """
+    Confirm the standard rotating probe set using current aggregate feedback.
+
+    This is the low-cost counterpart to stale-topK confirmation: it keeps the
+    same rotating B indices, builds invitation masks from stale CSI, and uses
+    current aggregate feedback only to choose among those B candidates.
+    """
+    budget = min(int(budget), args.num_codebook_states)
+    if budget <= 0:
+        return choose_decision(
+            env,
+            args,
+            limited.POLICY_NO_IRS,
+            0,
+            slot_idx,
+            decision_error_std,
+            episode_seed,
+        )
+
+    selected_indices = limited.grid_indices(args.num_codebook_states, budget, offset=slot_idx)
+    error_rng = limited.stable_rng(
+        episode_seed,
+        decision_error_std,
+        limited.POLICY_ROTATING_GRID,
+        budget,
+        salt=37 + slot_idx,
+    )
+    decision_candidates = limited.estimated_preview_candidates(
+        env,
+        args,
+        indices=selected_indices,
+        error_std=decision_error_std,
+        rng=error_rng,
+    )
+    confirmed_index, feedbacks = confirm_index_with_current_feedback(
+        env,
+        args,
+        selected_indices,
+        execution_error_std,
+        slot_idx,
+        episode_seed,
+        execution_state=execution_state,
+        feedback_salt=43,
+    )
+
+    candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in decision_candidates}
+    decision = candidate_by_index[int(confirmed_index)]
+    decision["confirmed_irs_index"] = int(confirmed_index)
+    decision["confirmation_feedback_count"] = int(len(feedbacks))
+    return decision, 2 * len(selected_indices), len(selected_indices)
+
+
 def choose_stale_topk_feedback_decision(
     env,
     args,
@@ -739,47 +860,17 @@ def choose_stale_topk_feedback_decision(
     )
 
     candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in full_stale_candidates}
-    decision_snapshot = capture_channel_state(env)
-    if execution_state is not None:
-        apply_channel_state(env, execution_state)
-    current_candidates = [
-        execution_candidates(
-            env,
-            args,
-            indices=[index],
-            execution_error_std=execution_error_std,
-            slot_idx=slot_idx,
-        )[0]
-        for index in selected_indices
-    ]
-    feedback_rng = limited.stable_rng(
-        episode_seed,
-        args.confirmation_feedback_noise_std,
-        limited.POLICY_RANDOM_PROBE,
-        budget,
-        salt=41 + slot_idx,
-    )
-    feedbacks = [
-        confirmation_feedback(
-            candidate,
-            args,
-            args.confirmation_feedback_noise_std,
-            args.confirmation_feedback_power_weight,
-            feedback_rng,
-        )
-        for candidate in current_candidates
-    ]
-    feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
-    confirmed_index = max(
+    confirmed_index, feedbacks = confirm_index_with_current_feedback(
+        env,
+        args,
         selected_indices,
-        key=lambda index: (
-            float(feedback_by_index[index]["observed_score"]),
-            float(feedback_by_index[index]["observed_tx_fraction"]),
-            -float(feedback_by_index[index]["observed_power"]),
-        ),
+        execution_error_std,
+        slot_idx,
+        episode_seed,
+        execution_state=execution_state,
+        feedback_salt=41,
     )
 
-    apply_channel_state(env, decision_snapshot)
     decision = candidate_by_index[int(confirmed_index)]
     decision["stale_topk_count"] = int(topk_budget)
     decision["confirmed_irs_index"] = int(confirmed_index)
@@ -1130,6 +1221,7 @@ def policy_label(
         POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
         POLICY_AR1_PREDICT_ROTATING_GRID,
         POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+        POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
         POLICY_STALE_TOPK_FEEDBACK_GRID,
         POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     }:
@@ -1327,6 +1419,17 @@ def evaluate_policy(
                         risk_weight=effective_risk,
                         risk_power_weight=risk_power_weight,
                         quantile_z=temporal_reliability_z,
+                    )
+                elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
+                    decision, preview_calls, _candidate_count = choose_rotating_feedback_confirm_decision(
+                        env,
+                        args,
+                        budget,
+                        slot_idx,
+                        decision_error_std,
+                        execution_error_std,
+                        episode_seed,
+                        execution_state=execution_state,
                     )
                 elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
                     decision, preview_calls, _candidate_count = choose_stale_topk_feedback_decision(
@@ -1787,6 +1890,9 @@ def policy_configs(args):
                                         }
                                     )
         elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
         elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
