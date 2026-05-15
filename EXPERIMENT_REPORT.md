@@ -8,7 +8,7 @@
 
 能耗改进实验也已经完成：在 Feature Argmax 的 max-count 并列候选内加入功率 tie-break 后，`Feature Argmax PowerTie IRS` 在所有扫描配置下复现 Greedy IRS 的覆盖率、时延和能耗，同时每个决策时隙只额外 preview 少量并列候选。
 
-后续 noisy feature、partial probing、probing cost、channel estimation error、bandit feedback 和 execution mismatch 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖；把信道误差推进到执行阶段后，失败邀请、missed opportunities 和 oracle gap 开始明显增加，但静态 execution-risk-aware 保守邀请、机会成本过滤、AR1 mean prediction 和手工 temporal reliability ranking 都没有超过 rotating baseline。Temporal Deviation Oracle 诊断显示，若能更聪明地选择 B=4 probe IRS 集合，oracle gap 可以显著下降；但 Learned Temporal Deviation、DAgger 数据聚合和 Window Temporal Deviation scorer 都没有稳定超过 rotating，说明真正有空间的是 probe-set selection，而当前仅基于历史统计的 offset/window reranking 还不足以实现这个空间。
+后续 noisy feature、partial probing、probing cost、channel estimation error、bandit feedback 和 execution mismatch 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖；把信道误差推进到执行阶段后，失败邀请、missed opportunities 和 oracle gap 开始明显增加，但静态 execution-risk-aware 保守邀请、机会成本过滤、AR1 mean prediction 和手工 temporal reliability ranking 都没有超过 rotating baseline。Temporal Deviation Oracle 诊断显示，若能更聪明地选择 B=4 probe IRS 集合，oracle gap 可以显著下降；但 Learned Temporal Deviation、DAgger 数据聚合、Window Temporal Deviation scorer 和 confidence-gated window deviation 都没有稳定超过 rotating，说明真正有空间的是 probe-set selection，而当前仅基于历史统计的 offset/window reranking 还不足以实现这个空间。
 
 这意味着当前问题形态下，继续单纯训练 SAC 的收益不大。`Codebook-Aware SAC` 落后不是因为缺少有效特征，而是因为 RL 训练没有学到一个非常简单、稳定、可解释的规则：
 
@@ -1246,6 +1246,58 @@ Interpretation:
 - 但这个改善不稳定，常常用 perfect rate 或 slots 换 gap。`rho=0.9, delay=3` 下 success、perfect、slots 和 gap 都弱于 rotating。
 - 结论更新为：显式 window 表示方向比纯全局特征更合理，但仅靠历史统计 reranking 还不足以部署；下一步需要 uncertainty-aware guardrail 或 feedback confirmation，让模型只有在高置信时偏离 rotating。
 
+### Confidence-gated Window Temporal Deviation pilot
+
+为检验“只在高置信时偏离 rotating”是否能保住 perfect rate/slots，`train_temporal_deviation_selector.py` 新增 `--gate-margin-thresholds`。当模型预测的最佳 offset 相对 rotating offset `0` 的分数优势小于阈值时，策略强制回退到 rotating window。该实现仍只使用历史统计和当前可观测状态；同时新增 PyTorch seed 固定，使模型初始化与 DataLoader shuffle 可复现。
+
+pilot 命令：
+
+```bash
+./.venv/bin/python train_temporal_deviation_selector.py \
+  --train-episodes 500 \
+  --val-episodes 100 \
+  --eval-episodes 100 \
+  --num-eval-seeds 3 \
+  --epochs 10 \
+  --batch-size 128 \
+  --feature-mode window \
+  --gate-margin-thresholds 0,0.005,0.01,0.02,0.05 \
+  --channel-rho-values 0.7,0.9,0.98 \
+  --csi-delay-slots 1,2,3 \
+  --probe-budgets 4 \
+  --offsets=-3,-2,-1,0,1,2,3 \
+  --output-prefix results/execution_mismatch/gated_window_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7_m0-0p005-0p01-0p02-0p05 \
+  --no-plots
+```
+
+推荐引用文件：
+
+```text
+results/execution_mismatch/gated_window_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7_m0-0p005-0p01-0p02-0p05.csv
+results/execution_mismatch/gated_window_temporal_deviation_pilot_train500_val100_eval100_runs3_rho0p7-0p9-0p98_delay1-2-3_b4_offsets7_m0-0p005-0p01-0p02-0p05_val_offsets.csv
+```
+
+validation 诊断：`samples=357`，offset hit rate 为 `28.01%`，target score gap mean 为 `0.0187`，target tx gap mean 为 `0.0170`。比前一版 window run 略高，但仍不足以说明可部署。
+
+关键结果：
+
+| Rho | Delay | Policy | Success | Perfect % | Slots | Oracle tx gap |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| 0.7 | 2 | Rotating B=4 stale CSI | 49.893/50 | 89.67 | 3.950 | 1.323 |
+| 0.7 | 2 | Window Temporal Deviation B=4 | 49.900/50 | 90.67 | 3.900 | 1.307 |
+| 0.7 | 2 | Gated Window m=0.005 B=4 | 49.923/50 | 92.33 | 3.890 | 1.322 |
+| 0.9 | 3 | Rotating B=4 stale CSI | 49.827/50 | 85.00 | 3.940 | 1.242 |
+| 0.9 | 3 | Window Temporal Deviation B=4 | 49.787/50 | 81.33 | 4.067 | 1.240 |
+| 0.9 | 3 | Gated Window m=0.05 B=4 | 49.827/50 | 85.00 | 3.940 | 1.242 |
+| 0.98 | 1 | Rotating B=4 stale CSI | 49.947/50 | 95.00 | 3.517 | 0.980 |
+| 0.98 | 1 | Gated Window m=0.05 B=4 | 49.943/50 | 94.67 | 3.530 | 0.979 |
+
+Interpretation:
+
+- Margin gate 能作为护栏：`m=0.05` 在多个场景基本退回 rotating，例如 `rho=0.9, delay=3` 完全回到 rotating 指标。
+- 但它没有把 window scorer 的微弱信号稳定转成收益。低阈值仍会选错并牺牲 perfect rate/slots；高阈值只是放弃学习收益。
+- 结论更新为：失败点不只是缺少回退机制，而是历史统计 window scorer 的分数校准和信息量不够。下一步应转向显式 feedback confirmation / active probe confirmation，而不是继续调同一类 margin threshold。
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -1258,12 +1310,12 @@ Interpretation:
 - Execution channel mismatch 实验把决策 CSI 和执行信道分开；execution oracle 只作为离线上界，不代表可部署策略。
 - Temporal AR(1) mismatch 假设信道一阶时间相关；已测试已知 `rho` 的均值预测和手工 reliability/quantile 排序，二者都没有超过 stale `Rotating B=4`。
 - Temporal Deviation Oracle 使用隐藏 current CSI 选择 top-B probe set，只是上界诊断，不是可部署策略；它证明 probe-set selection 有潜在提升空间。
-- Learned/DAgger/Window Temporal Deviation 训练标签使用隐藏 current-channel outcome，但闭环评估不访问当前完整 CSI；当前 offset regression、DAgger 数据聚合和历史统计 window reranking 都没有稳定超过 `Rotating B=4`。
+- Learned/DAgger/Window/Gated Temporal Deviation 训练标签使用隐藏 current-channel outcome，但闭环评估不访问当前完整 CSI；当前 offset regression、DAgger 数据聚合、历史统计 window reranking 和 margin-gated fallback 都没有稳定超过 `Rotating B=4`。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 - Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation、opportunity-cost invitation filter、AR1 mean prediction 和 hand-crafted temporal reliability ranking 都没有超过 rotating。Temporal AR(1) delay 进一步确认：更真实的 stale CSI setting 可以保留；Temporal Deviation Oracle 显示 B=4 probe set 的选择/偏离确实有上界空间，但 Learned/DAgger/Window Temporal Deviation 说明仅靠历史统计的 offset/window reranking 还不能稳定实现这个空间。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation、opportunity-cost invitation filter、AR1 mean prediction 和 hand-crafted temporal reliability ranking 都没有超过 rotating。Temporal AR(1) delay 进一步确认：更真实的 stale CSI setting 可以保留；Temporal Deviation Oracle 显示 B=4 probe set 的选择/偏离确实有上界空间，但 Learned/DAgger/Window/Gated Temporal Deviation 说明仅靠历史统计的 offset/window reranking 和 margin fallback 还不能稳定实现这个空间。
 
 ## 对当前论文叙事的影响
 
@@ -1345,10 +1397,10 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. Confidence-gated window deviation：在现有 window scorer 外加 guardrail，只有当 best-vs-rotating score margin 或 uncertainty 指标足够高时才偏离 rotating，否则回退到 `Rotating B=4`；目标是保住 perfect rate/slots，同时只在高置信场景吃到 oracle gap。
-2. On-policy temporal/feedback probing：加入重复确认、置信区间或信息增益，让策略知道何时值得用额外 probe 验证 stale CSI，而不是只用单槽 aggregate feedback、手工可靠度重排、DAgger 化低维 offset regressor 或历史统计 window reranking。
+1. On-policy temporal/feedback confirmation：加入重复确认、置信区间或信息增益，让策略知道何时值得用额外 probe 验证 stale CSI，而不是只用单槽 aggregate feedback、手工可靠度重排、DAgger 化低维 offset regressor、历史统计 window reranking 或 margin-gated fallback。
+2. Active probe-set selection：把动作从“选 rotating 相对 offset”改成“在预算 B 内选择要确认的 IRS 子集”，允许策略显式分配一个确认 probe，而不是只重排历史窗口。
 3. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
 4. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-5. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、temporal AR(1) mismatch、temporal reliability、temporal deviation oracle、learned temporal deviation、DAgger temporal deviation、window temporal deviation、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
+5. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、temporal AR(1) mismatch、temporal reliability、temporal deviation oracle、learned temporal deviation、DAgger temporal deviation、window temporal deviation、gated window temporal deviation、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、temporal AR(1) mismatch pilot、temporal reliability pilot、temporal deviation oracle diagnostic、learned temporal deviation pilot、DAgger temporal deviation pilot、window temporal deviation pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先做 confidence-gated window deviation 或 on-policy feedback confirmation，而不是 plain noisy Greedy-index imitation、当前低维离线 MLP、DAgger 化的低维 offset regressor、历史统计 window reranking、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter、AR1 mean prediction、hand-crafted temporal reliability ranking，或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、temporal AR(1) mismatch pilot、temporal reliability pilot、temporal deviation oracle diagnostic、learned temporal deviation pilot、DAgger temporal deviation pilot、window temporal deviation pilot、gated window temporal deviation pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先做 on-policy feedback confirmation 或 active probe-set selection，而不是 plain noisy Greedy-index imitation、当前低维离线 MLP、DAgger 化的低维 offset regressor、历史统计 window reranking、margin-gated fallback、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter、AR1 mean prediction、hand-crafted temporal reliability ranking，或仅决策 preview 误差。

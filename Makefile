@@ -121,6 +121,7 @@ smoke: test
 		--epochs 1 \
 		--batch-size 4 \
 		--feature-mode window \
+		--gate-margin-thresholds 0,0.01 \
 		--dagger-iterations 1 \
 		--dagger-episodes 1 \
 		--dagger-beta-start 0.5 \

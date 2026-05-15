@@ -29,8 +29,12 @@ from evaluate_policy_comparison import (
 
 POLICY_LEARNED_TEMPORAL_DEVIATION = "Learned Temporal Deviation"
 POLICY_WINDOW_TEMPORAL_DEVIATION = "Window Temporal Deviation"
+POLICY_GATED_TEMPORAL_DEVIATION = "Gated Temporal Deviation"
+POLICY_GATED_WINDOW_TEMPORAL_DEVIATION = "Gated Window Temporal Deviation"
 POLICY_DAGGER_TEMPORAL_DEVIATION = "DAgger Temporal Deviation"
 POLICY_DAGGER_WINDOW_TEMPORAL_DEVIATION = "DAgger Window Temporal Deviation"
+POLICY_DAGGER_GATED_TEMPORAL_DEVIATION = "DAgger Gated Temporal Deviation"
+POLICY_DAGGER_GATED_WINDOW_TEMPORAL_DEVIATION = "DAgger Gated Window Temporal Deviation"
 LEARNED_TEMPORAL_OFFSET = 0xA3C59AC3
 
 
@@ -50,6 +54,7 @@ def parse_args():
     parser.add_argument("--csi-delay-slots", default="1,2,3")
     parser.add_argument("--offsets", default="-3,-2,-1,0,1,2,3")
     parser.add_argument("--feature-mode", choices=["global", "window"], default="global")
+    parser.add_argument("--gate-margin-thresholds", default="0")
     parser.add_argument("--behavior-random-prob", type=float, default=0.7)
     parser.add_argument("--dagger-iterations", type=int, default=0)
     parser.add_argument("--dagger-episodes", type=int, default=0)
@@ -126,6 +131,7 @@ def validate_args(args):
     args.channel_rho_values = limited.parse_float_list(args.channel_rho_values)
     args.csi_delay_slots = limited.parse_int_list(args.csi_delay_slots)
     args.offsets = limited.parse_int_list(args.offsets)
+    args.gate_margin_thresholds = limited.parse_float_list(args.gate_margin_thresholds)
     if not args.probe_budgets:
         raise ValueError("--probe-budgets must not be empty")
     if not args.channel_rho_values or any(value < 0.0 or value > 1.0 for value in args.channel_rho_values):
@@ -134,6 +140,10 @@ def validate_args(args):
         raise ValueError("--csi-delay-slots must be non-empty and non-negative")
     if not args.offsets:
         raise ValueError("--offsets must not be empty")
+    if not args.gate_margin_thresholds or any(value < 0.0 for value in args.gate_margin_thresholds):
+        raise ValueError("--gate-margin-thresholds must be non-empty and non-negative")
+    if any(value > 0.0 for value in args.gate_margin_thresholds) and 0 not in args.offsets:
+        raise ValueError("--offsets must include 0 when positive gate margins are enabled")
     args.fixed_irs_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
 
 
@@ -182,6 +192,7 @@ def build_eval_args(args, episodes=None, num_seeds=None):
         target_failure_weight=float(args.target_failure_weight),
         history_lr=float(args.history_lr),
         feature_mode=args.feature_mode,
+        gate_margin_thresholds=list(args.gate_margin_thresholds),
         dagger_iterations=int(getattr(args, "dagger_iterations", 0)),
         learned_policy_name=learned_policy_name(args),
         P_max=1.0,
@@ -204,6 +215,9 @@ def resolve_output_prefix(args):
     )
     if args.feature_mode != "global":
         suffix += f"_{args.feature_mode}feat"
+    if any(value > 0.0 for value in args.gate_margin_thresholds):
+        gate_label = "-".join(format_float_for_suffix(value) for value in args.gate_margin_thresholds)
+        suffix += f"_gatemargin{gate_label}"
     if args.dagger_iterations > 0:
         suffix += (
             f"_dagger{args.dagger_iterations}x{args.dagger_episodes}_"
@@ -240,6 +254,14 @@ def split_episode_specs(seed, episodes, rhos, delays):
             )
         )
     return specs
+
+
+def set_training_seed(args):
+    """Seed torch-side model initialization and DataLoader shuffling."""
+    if int(args.seed) >= 0:
+        torch.manual_seed(int(args.seed))
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(int(args.seed))
 
 
 def print_progress(name, current, total):
@@ -876,6 +898,20 @@ def predict_offset_scores(model, feature, mean, std, device):
         return model(tensor).detach().cpu().numpy()[0]
 
 
+def choose_offset_with_gate(scores, offsets, gate_margin):
+    """Choose the predicted offset, falling back to rotating if confidence is low."""
+    best_idx = int(np.argmax(scores))
+    if float(gate_margin) <= 0.0:
+        return int(offsets[best_idx])
+    rotating_idx = list(offsets).index(0)
+    if best_idx == rotating_idx:
+        return 0
+    margin = float(scores[best_idx] - scores[rotating_idx])
+    if margin >= float(gate_margin):
+        return int(offsets[best_idx])
+    return 0
+
+
 def validation_metrics(predictions, target_scores, target_tx):
     """Compute validation offset-selection diagnostics."""
     chosen = np.argmax(predictions, axis=1)
@@ -893,10 +929,19 @@ def validation_metrics(predictions, target_scores, target_tx):
     ]
 
 
-def learned_policy_name(args):
+def learned_policy_name(args, gate_margin=0.0):
     """Return the learned policy label for output tables."""
     is_dagger = int(getattr(args, "dagger_iterations", 0)) > 0
     is_window = getattr(args, "feature_mode", "global") == "window"
+    is_gated = float(gate_margin) > 0.0
+    if is_dagger and is_window and is_gated:
+        return POLICY_DAGGER_GATED_WINDOW_TEMPORAL_DEVIATION
+    if is_dagger and is_gated:
+        return POLICY_DAGGER_GATED_TEMPORAL_DEVIATION
+    if is_window and is_gated:
+        return POLICY_GATED_WINDOW_TEMPORAL_DEVIATION
+    if is_gated:
+        return POLICY_GATED_TEMPORAL_DEVIATION
     if is_dagger and is_window:
         return POLICY_DAGGER_WINDOW_TEMPORAL_DEVIATION
     if is_dagger:
@@ -906,9 +951,11 @@ def learned_policy_name(args):
     return POLICY_LEARNED_TEMPORAL_DEVIATION
 
 
-def learned_result_name(args, budget):
+def learned_result_name(args, budget, gate_margin=0.0):
     """Return the display name for learned temporal deviation."""
-    return f"{learned_policy_name(args)} B={int(budget)}"
+    if float(gate_margin) > 0.0:
+        return f"{learned_policy_name(args, gate_margin)} m={float(gate_margin):g} B={int(budget)}"
+    return f"{learned_policy_name(args, gate_margin)} B={int(budget)}"
 
 
 def evaluate_learned_policy(
@@ -920,6 +967,7 @@ def evaluate_learned_policy(
     model,
     mean,
     std,
+    gate_margin=0.0,
 ):
     """Evaluate learned temporal deviation for one scenario and run seed."""
     env = limited.make_env(args)
@@ -939,7 +987,7 @@ def evaluate_learned_policy(
     effective_risk_weights = []
 
     print(
-        f"Running {learned_result_name(args, budget)} model=temporal_ar1 "
+        f"Running {learned_result_name(args, budget, gate_margin)} model=temporal_ar1 "
         f"rho={channel_rho:g} delay={int(csi_delay_slots)}..."
     )
     for ep, episode_seed in enumerate(episode_seeds, start=1):
@@ -966,7 +1014,7 @@ def evaluate_learned_policy(
             decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
             feature = policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
             scores = predict_offset_scores(model, feature, mean, std, device)
-            chosen_offset = int(args.offsets[int(np.argmax(scores))])
+            chosen_offset = choose_offset_with_gate(scores, args.offsets, gate_margin)
             info, done, decision, candidates, indices, oracle_gap = execute_offset_slot(
                 env,
                 args,
@@ -1013,7 +1061,7 @@ def evaluate_learned_policy(
             float(np.mean(episode_effective_risk_weights)) if episode_effective_risk_weights else 0.0
         )
         limited.print_progress(
-            learned_policy_name(args),
+            learned_policy_name(args, gate_margin),
             0.0,
             budget,
             ep,
@@ -1023,8 +1071,8 @@ def evaluate_learned_policy(
         )
 
     return {
-        "name": learned_result_name(args, budget),
-        "policy": learned_policy_name(args),
+        "name": learned_result_name(args, budget, gate_margin),
+        "policy": learned_policy_name(args, gate_margin),
         "decision_error_std": float(args.decision_error_std),
         "execution_error_std": float(args.execution_error_std),
         "mismatch_model": mismatch.MISMATCH_TEMPORAL_AR1,
@@ -1119,18 +1167,20 @@ def evaluate_suite(args, model, mean, std):
                             budget=budget,
                         )
                     )
-                    seed_results.append(
-                        evaluate_learned_policy(
-                            episode_seeds,
-                            eval_args,
-                            channel_rho,
-                            csi_delay_slots,
-                            budget,
-                            model,
-                            mean,
-                            std,
+                    for gate_margin in eval_args.gate_margin_thresholds:
+                        seed_results.append(
+                            evaluate_learned_policy(
+                                episode_seeds,
+                                eval_args,
+                                channel_rho,
+                                csi_delay_slots,
+                                budget,
+                                model,
+                                mean,
+                                std,
+                                gate_margin=gate_margin,
+                            )
                         )
-                    )
                     seed_results.append(
                         mismatch.evaluate_policy(
                             episode_seeds,
@@ -1190,6 +1240,7 @@ def save_checkpoint(path, model, mean, std, args):
             "hidden_layers": args.hidden_layers,
             "channel_rho_values": list(args.channel_rho_values),
             "csi_delay_slots": list(args.csi_delay_slots),
+            "gate_margin_thresholds": list(args.gate_margin_thresholds),
             "dagger_iterations": int(getattr(args, "dagger_iterations", 0)),
             "dagger_episodes": int(getattr(args, "dagger_episodes", 0)),
         },
@@ -1240,6 +1291,7 @@ def main():
     """Train and evaluate the temporal deviation selector."""
     args = parse_args()
     validate_args(args)
+    set_training_seed(args)
     output_prefix = resolve_output_prefix(args)
 
     print("=" * 96)
@@ -1247,7 +1299,7 @@ def main():
         f"Learned temporal deviation: train_episodes={args.train_episodes}, "
         f"eval_episodes={args.eval_episodes}, rhos={args.channel_rho_values}, "
         f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}, "
-        f"feature_mode={args.feature_mode}"
+        f"feature_mode={args.feature_mode}, gate_margins={args.gate_margin_thresholds}"
     )
     if args.dagger_iterations > 0:
         print(
