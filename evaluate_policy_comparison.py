@@ -10,7 +10,8 @@
 - Feature Argmax IRS：直接选择 codebook quality feature 最大的 IRS 码本。
 - Feature Argmax PowerTie IRS：只在最大 feature 并列候选中额外比较功率。
 - Greedy IRS：每时隙 preview 全部码本并按调度数/功率排序。
-- Random IRS / Random Fixed IRS / Best Fixed IRS / Fixed IRS / No IRS。
+- No IRS / Random IRS：主线基础 baseline。
+- Random Fixed IRS / Best Fixed IRS / Fixed IRS：显式开启的静态 IRS 消融。
 
 脚本的核心设计是“共享随机性”：每个策略在同一批 episode seeds 上评估，
 从而让差异主要来自策略本身，而不是信道随机采样。
@@ -30,6 +31,16 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecNormalize
 
+from ms_aircomp.experiment_utils import (
+    action_to_alpha,
+    codebook_index_to_action,
+    ensure_parent_dir,
+    format_float_for_suffix,
+    make_episode_seeds,
+    make_run_seeds,
+    physical_to_action,
+    update_energy,
+)
 from test_env import MSAirCompEnv
 from train_codebook_aware_agent import FixedTransmissionActionWrapper
 
@@ -47,31 +58,6 @@ NUMERIC_RESULT_KEYS = (
 )
 
 
-def physical_to_action(value, low, scale):
-    """将真实物理值反向映射为环境动作空间 [-1, 1]。"""
-    action_value = (value - low) / scale - 1.0
-    return float(np.clip(action_value, -1.0, 1.0))
-
-
-def codebook_index_to_action(index, num_codebook_states):
-    """将离散 IRS 码本索引映射为连续动作第三维。"""
-    if num_codebook_states <= 1:
-        return 0.0
-    action_value = 2.0 * index / (num_codebook_states - 1) - 1.0
-    return float(np.clip(action_value, -1.0, 1.0))
-
-
-def action_to_alpha(action):
-    """从三维环境动作中解码出 AirComp 目标振幅 `alpha_th`。"""
-    return float(0.05 + (float(action[1]) + 1.0) * 0.05)
-
-
-def format_float_for_suffix(value):
-    """把浮点参数转换成适合文件名的短字符串。"""
-    text = f"{value:g}"
-    return text.replace("-", "m").replace(".", "p")
-
-
 def parse_args():
     """
     解析主策略对比的命令行参数。
@@ -81,9 +67,9 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Compare SAC, SAC IRS-only, feature-argmax IRS, feature-argmax "
-            "power-tie IRS, greedy IRS, random IRS, fixed IRS, and no-IRS "
-            "policies on shared channel seeds."
+            "Compare no-IRS, random IRS, feature-argmax IRS, feature-argmax "
+            "power-tie IRS, greedy IRS, and optional learning/static baselines "
+            "on shared channel seeds."
         )
     )
     parser.add_argument("--episodes", type=int, default=1000)
@@ -106,6 +92,14 @@ def parse_args():
         ),
     )
     parser.add_argument("--fixed-irs-index", type=int, default=7)
+    parser.add_argument(
+        "--include-fixed-irs-baselines",
+        action="store_true",
+        help=(
+            "Also evaluate static IRS ablations: Random Fixed IRS, Best Fixed IRS, "
+            "and Fixed IRS. These are excluded from the default main-baseline table."
+        ),
+    )
     parser.add_argument("--model-dir", default="./rl_models")
     parser.add_argument("--model-name", default="sac_final_model_v3.zip")
     parser.add_argument("--stats-name", default="vec_normalize.pkl")
@@ -156,8 +150,8 @@ def validate_args(args):
         raise ValueError("--num-slots must be positive")
     if args.num_irs_elements <= 0:
         raise ValueError("--num-irs-elements must be positive")
-    if args.num_codebook_states <= 0:
-        raise ValueError("--num-codebook-states must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
     if args.codebook_feature_noise_std < 0:
         raise ValueError("--codebook-feature-noise-std must be non-negative")
 
@@ -176,14 +170,9 @@ def make_output_suffix(args):
         parts.append("zerofeat")
     if args.include_irs_selector_no_features:
         parts.append("nofeat")
+    if args.include_fixed_irs_baselines:
+        parts.append("staticfixed")
     return "_".join(parts)
-
-
-def ensure_parent_dir(path):
-    """确保输出 CSV/图像所在目录存在。"""
-    parent = os.path.dirname(os.path.abspath(path))
-    if parent:
-        os.makedirs(parent, exist_ok=True)
 
 
 def resolve_output_paths(args):
@@ -221,32 +210,6 @@ def make_feature_env(args):
         codebook_feature_alpha_th=args.alpha_th,
         codebook_feature_noise_std=args.codebook_feature_noise_std,
     )
-
-
-def make_run_seeds(args):
-    """
-    生成外层 run seed 列表。
-
-    `num_seeds > 1` 时，每个 run seed 会生成一批 episode seeds；
-    最终指标会先按 run 聚合，再计算 seed-level 置信区间。
-    """
-    if args.num_seeds <= 1:
-        return [None if args.seed < 0 else args.seed]
-
-    if args.seed < 0:
-        rng = np.random.default_rng()
-        return [int(seed) for seed in rng.integers(0, 2**31 - 1, size=args.num_seeds)]
-
-    return [args.seed + idx * args.seed_stride for idx in range(args.num_seeds)]
-
-
-def make_episode_seeds(args, run_seed):
-    """在一个 run seed 下生成 episode 级随机种子列表。"""
-    if run_seed is None:
-        rng = np.random.default_rng()
-    else:
-        rng = np.random.default_rng(run_seed)
-    return [int(seed) for seed in rng.integers(0, 2**31 - 1, size=args.episodes)]
 
 
 def make_random_fixed_index_rng(episode_seed):
@@ -325,11 +288,6 @@ def finalize_result(
     }
     result.update(extra)
     return result
-
-
-def update_energy(episode_energy, info):
-    """累计能耗代理指标：本槽平均发射功率乘以本槽发送节点数。"""
-    return episode_energy + float(info["power_avg"]) * int(info["tx_this_slot"])
 
 
 def evaluate_fixed_action_policy(name, irs_phase_mode, action, episode_seeds, args, show_progress=True):
@@ -1220,15 +1178,25 @@ def run_policy_suite(
             )
         )
 
+    results.append(evaluate_fixed_action_policy("No IRS", "none", random_action, episode_seeds, args))
+    results.append(evaluate_fixed_action_policy("Random IRS", "random", random_action, episode_seeds, args))
     results.append(evaluate_feature_argmax_irs_policy(episode_seeds, args, fixed_action))
     results.append(evaluate_feature_argmax_power_tie_irs_policy(episode_seeds, args, fixed_action))
     results.append(evaluate_greedy_irs_policy(episode_seeds, args, fixed_action))
-    results.append(evaluate_fixed_action_policy("Random IRS", "random", random_action, episode_seeds, args))
-    results.append(evaluate_episode_random_fixed_irs_policy(episode_seeds, args, fixed_action))
-    if include_best_fixed:
-        results.append(evaluate_best_fixed_irs_policy(episode_seeds, args, fixed_action))
-    results.append(evaluate_fixed_action_policy(f"Fixed IRS {args.fixed_irs_index}", "codebook", fixed_action, episode_seeds, args))
-    results.append(evaluate_fixed_action_policy("No IRS", "none", random_action, episode_seeds, args))
+
+    if args.include_fixed_irs_baselines:
+        results.append(evaluate_episode_random_fixed_irs_policy(episode_seeds, args, fixed_action))
+        if include_best_fixed:
+            results.append(evaluate_best_fixed_irs_policy(episode_seeds, args, fixed_action))
+        results.append(
+            evaluate_fixed_action_policy(
+                f"Fixed IRS {args.fixed_irs_index}",
+                "codebook",
+                fixed_action,
+                episode_seeds,
+                args,
+            )
+        )
     return results
 
 
@@ -1417,13 +1385,15 @@ def main():
         f"Shared-seed policy comparison: episodes={args.episodes}, "
         f"num_seeds={len(run_seeds)}, base_seed={args.seed}"
     )
-    print(f"Fixed baseline parameters: g_th={args.g_th}, alpha_th={args.alpha_th}, fixed IRS index={fixed_index}")
+    print(f"Transmission parameters: g_th={args.g_th}, alpha_th={args.alpha_th}")
+    if args.include_fixed_irs_baselines:
+        print(f"Static IRS ablation enabled: fixed IRS index={fixed_index}")
     print(f"Codebook feature noise std: {args.codebook_feature_noise_std}")
     print("=" * 96)
 
     seed_result_sets = []
     episode_seed_sets = []
-    include_best_fixed_per_run = len(run_seeds) == 1
+    include_best_fixed_per_run = args.include_fixed_irs_baselines and len(run_seeds) == 1
     for run_idx, run_seed in enumerate(run_seeds, start=1):
         print("=" * 96)
         print(f"Run seed [{run_idx}/{len(run_seeds)}]: {run_seed}")
@@ -1443,7 +1413,7 @@ def main():
         )
 
     results = aggregate_seed_results(seed_result_sets)
-    if not include_best_fixed_per_run:
+    if args.include_fixed_irs_baselines and not include_best_fixed_per_run:
         best_fixed_result = evaluate_global_best_fixed_irs_policy(episode_seed_sets, args, fixed_action)
         insert_at = next(
             (idx + 1 for idx, result in enumerate(results) if result["name"] == "Random Fixed IRS"),

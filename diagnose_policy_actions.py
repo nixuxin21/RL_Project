@@ -84,8 +84,8 @@ def validate_args(args):
         raise ValueError("--num-slots must be positive")
     if args.num_irs_elements <= 0:
         raise ValueError("--num-irs-elements must be positive")
-    if args.num_codebook_states <= 0:
-        raise ValueError("--num-codebook-states must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
 
 
 def ensure_parent_dir(path):

@@ -111,6 +111,8 @@ def validate_args(args):
     for name, value in positive_ints.items():
         if value <= 0:
             raise ValueError(f"{name} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
     if args.codebook_feature_noise_std < 0:
         raise ValueError("--codebook-feature-noise-std must be non-negative")
     if args.eval_noise_std_values is None:

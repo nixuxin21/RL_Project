@@ -24,6 +24,12 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecNormalize
 
+from ms_aircomp.experiment_utils import (
+    codebook_index_to_action,
+    ensure_parent_dir,
+    make_episode_seed_list,
+    physical_to_action,
+)
 from test_env import MSAirCompEnv
 from train_codebook_aware_agent import FixedTransmissionActionWrapper
 
@@ -62,12 +68,8 @@ def validate_args(args):
     for name in ("num_nodes", "num_slots", "num_irs_elements", "num_codebook_states"):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
-
-
-def ensure_parent_dir(path):
-    parent = os.path.dirname(os.path.abspath(path))
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
 
 
 def resolve_output(args):
@@ -78,18 +80,6 @@ def resolve_output(args):
             f"runtime_benchmark_ep{args.episodes}_seed{args.seed}.csv",
         )
     ensure_parent_dir(args.output)
-
-
-def physical_to_action(value, low, scale):
-    action_value = (value - low) / scale - 1.0
-    return float(np.clip(action_value, -1.0, 1.0))
-
-
-def codebook_index_to_action(index, num_codebook_states):
-    if num_codebook_states <= 1:
-        return 0.0
-    action_value = 2.0 * index / (num_codebook_states - 1) - 1.0
-    return float(np.clip(action_value, -1.0, 1.0))
 
 
 def make_base_action(args, irs_index=0):
@@ -114,11 +104,6 @@ def make_env(args, irs_phase_mode="codebook", include_codebook_features=False):
         codebook_feature_g_th=args.g_th,
         codebook_feature_alpha_th=args.alpha_th,
     )
-
-
-def make_episode_seeds(seed, episodes):
-    rng = np.random.default_rng(seed)
-    return [int(value) for value in rng.integers(0, 2**31 - 1, size=episodes)]
 
 
 def feature_argmax_candidates(obs, args):
@@ -457,7 +442,7 @@ def main():
     args = parse_args()
     validate_args(args)
     resolve_output(args)
-    episode_seeds = make_episode_seeds(args.seed, args.episodes)
+    episode_seeds = make_episode_seed_list(args.seed, args.episodes)
 
     rows = [
         benchmark_rule_policy(POLICY_FEATURE_ARGMAX, episode_seeds, args),

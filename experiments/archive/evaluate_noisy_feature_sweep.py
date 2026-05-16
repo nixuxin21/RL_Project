@@ -85,6 +85,8 @@ def validate_args(args):
     for name in ("num_nodes", "num_slots", "num_irs_elements", "num_codebook_states"):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
     args.noise_std_values = parse_float_list(args.noise_std_values)
     if not args.noise_std_values:
         raise ValueError("--noise-std-values must contain at least one value")

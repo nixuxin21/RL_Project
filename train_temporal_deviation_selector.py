@@ -25,6 +25,16 @@ from evaluate_policy_comparison import (
     make_episode_seeds,
     make_run_seeds,
 )
+from ms_aircomp.channel_models import (
+    apply_channel_state,
+    build_temporal_channel_states,
+    capture_channel_state,
+    delayed_channel_state,
+)
+from ms_aircomp.execution_candidates import (
+    execution_candidate_for_decision,
+    execution_oracle_candidate,
+)
 
 
 POLICY_LEARNED_TEMPORAL_DEVIATION = "Learned Temporal Deviation"
@@ -102,6 +112,8 @@ def validate_args(args):
     ):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
     if not 0.0 <= args.behavior_random_prob <= 1.0:
         raise ValueError("--behavior-random-prob must be in [0, 1]")
     if args.dagger_iterations < 0:
@@ -496,12 +508,12 @@ def offset_target_scores(
     offsets,
 ):
     """Return hidden supervised utility scores for each candidate offset."""
-    snapshot = mismatch.capture_channel_state(env)
+    snapshot = capture_channel_state(env)
     scores = []
     tx_values = []
     for row_idx, offset in enumerate(offsets):
         indices = offset_indices(args, budget, slot_idx, offset)
-        mismatch.apply_channel_state(env, decision_state)
+        apply_channel_state(env, decision_state)
         decision, _candidates = estimated_window_decision(
             env,
             args,
@@ -511,8 +523,8 @@ def offset_target_scores(
             slot_idx,
             salt=101 + row_idx * 17,
         )
-        mismatch.apply_channel_state(env, execution_state)
-        true_candidate = mismatch.execution_candidate_for_decision(
+        apply_channel_state(env, execution_state)
+        true_candidate = execution_candidate_for_decision(
             env,
             args,
             decision,
@@ -527,7 +539,7 @@ def offset_target_scores(
         )
         scores.append(score)
         tx_values.append(float(success) / float(max(args.num_nodes, 1)))
-    mismatch.apply_channel_state(env, snapshot)
+    apply_channel_state(env, snapshot)
     return np.asarray(scores, dtype=np.float32), np.asarray(tx_values, dtype=np.float32)
 
 
@@ -569,7 +581,7 @@ def execute_offset_slot(
 ):
     """Execute one slot using a chosen relative rotating offset."""
     indices = offset_indices(args, budget, slot_idx, offset)
-    mismatch.apply_channel_state(env, decision_state)
+    apply_channel_state(env, decision_state)
     decision, candidates = estimated_window_decision(
         env,
         args,
@@ -579,15 +591,15 @@ def execute_offset_slot(
         slot_idx,
         salt=211,
     )
-    mismatch.apply_channel_state(env, execution_state)
-    true_selected = mismatch.execution_candidate_for_decision(
+    apply_channel_state(env, execution_state)
+    true_selected = execution_candidate_for_decision(
         env,
         args,
         decision,
         execution_error_std,
         slot_idx,
     )
-    execution_oracle = mismatch.execution_oracle_candidate(env, args, execution_error_std, slot_idx)
+    execution_oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
     info, done = limited.execute_limited_csi_slot(env, args, decision, true_selected)
     oracle_gap = max(0.0, float(execution_oracle["tx_this_slot"]) - float(info["tx_this_slot"]))
     return info, done, decision, candidates, indices, oracle_gap
@@ -610,12 +622,12 @@ def collect_dataset(args, episodes, seed, split_name):
         env._last_seed = episode_seed
         history = initialize_history(eval_args)
         behavior_rng = learned_rng(episode_seed, salt=13)
-        temporal_states = mismatch.build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
+        temporal_states = build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
         total_tx = 0
 
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
             feature = policy_features(
                 env,
                 history,
@@ -700,12 +712,12 @@ def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, be
         env._last_seed = episode_seed
         history = initialize_history(eval_args)
         behavior_rng = learned_rng(episode_seed, salt=97 + int(iteration))
-        temporal_states = mismatch.build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
+        temporal_states = build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
         total_tx = 0
 
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
             feature = policy_features(
                 env,
                 history,
@@ -994,7 +1006,7 @@ def evaluate_learned_policy(
         env.reset(seed=episode_seed)
         env._last_seed = episode_seed
         history = initialize_history(args)
-        temporal_states = mismatch.build_temporal_channel_states(env, args, episode_seed, channel_rho)
+        temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
         episode_power = []
         episode_reward = 0.0
         episode_energy = 0.0
@@ -1011,7 +1023,7 @@ def evaluate_learned_policy(
 
         for slot_idx in range(args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = mismatch.delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
             feature = policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
             scores = predict_offset_scores(model, feature, mean, std, device)
             chosen_offset = choose_offset_with_gate(scores, args.offsets, gate_margin)

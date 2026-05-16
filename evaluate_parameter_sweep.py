@@ -96,6 +96,8 @@ def validate_args(args):
     ):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.base_num_codebook_states <= 1:
+        raise ValueError("--base-num-codebook-states must be greater than 1")
 
 
 def ensure_parent_dir(path):

@@ -112,6 +112,25 @@ def parse_args():
     return args
 
 
+def validate_args(args):
+    """Validate training and environment sizes before launching SB3 workers."""
+    for name in (
+        "total_timesteps",
+        "num_envs",
+        "num_nodes",
+        "num_slots",
+        "num_irs_elements",
+    ):
+        if getattr(args, name) <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
+    if args.g_th <= 0.0:
+        raise ValueError("--g-th must be positive")
+    if args.alpha_th <= 0.0:
+        raise ValueError("--alpha-th must be positive")
+
+
 def make_single_env(args):
     """
     创建单个 IRS-only 训练环境。
@@ -149,6 +168,7 @@ def build_vec_env(args):
 def main():
     """训练 IRS-only SAC selector，并保存模型权重和 VecNormalize 统计文件。"""
     args = parse_args()
+    validate_args(args)
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(args.model_dir, exist_ok=True)
 

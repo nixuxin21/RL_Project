@@ -51,6 +51,21 @@ def parse_args():
     return parser.parse_args()
 
 
+def validate_args(args):
+    """Validate the random-IRS baseline CLI arguments before building the environment."""
+    if args.episodes <= 0:
+        raise ValueError("--episodes must be positive")
+    for name in ("num_nodes", "num_slots", "num_irs_elements"):
+        if getattr(args, name) <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
+    if args.g_th <= 0.0:
+        raise ValueError("--g-th must be positive")
+    if args.alpha_th <= 0.0:
+        raise ValueError("--alpha-th must be positive")
+
+
 def run_random_irs_baseline(args):
     """
     执行随机 IRS baseline 的 Monte Carlo 评估。
@@ -196,4 +211,6 @@ def plot_results(success_nodes_history, avg_power_history, args):
 
 
 if __name__ == "__main__":
-    run_random_irs_baseline(parse_args())
+    cli_args = parse_args()
+    validate_args(cli_args)
+    run_random_irs_baseline(cli_args)

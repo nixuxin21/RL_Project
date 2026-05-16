@@ -50,6 +50,14 @@ class MSAirCompEnv(gym.Env):
                 噪声作用在归一化后的 `[0, 1]` 特征尺度上，默认 0 表示精确特征。
         """
         super().__init__()
+        if num_nodes <= 0:
+            raise ValueError("num_nodes must be positive")
+        if num_slots <= 0:
+            raise ValueError("num_slots must be positive")
+        if num_irs_elements <= 0:
+            raise ValueError("num_irs_elements must be positive")
+        if num_codebook_states <= 1:
+            raise ValueError("num_codebook_states must be greater than 1")
         if irs_phase_mode not in {"codebook", "random", "none"}:
             raise ValueError("irs_phase_mode must be one of: 'codebook', 'random', 'none'")
         if codebook_feature_noise_std < 0:

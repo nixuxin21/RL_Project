@@ -116,6 +116,8 @@ def validate_args(args):
     for name, value in positive_ints.items():
         if value <= 0:
             raise ValueError(f"{name} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
 
     budgets = parse_int_list(args.probe_budgets)
     if not budgets:
