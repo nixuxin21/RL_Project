@@ -1,0 +1,8 @@
+Method,ShortLabel,Role,Preview,Gap,Failed,Missed,IsProposed,IsOracle
+Rotating B=8,Rot B8,low-cost deployment baseline,8.00,0.726,1.360,0.620,False,False
+Sparse-TopK B=4 sm=3,Sparse,reportable medium-cost baseline,16.00,0.534,0.477,1.295,False,False
+Coverage-Aware B=4 cw=0.5 cpw=0,Cov B4,same-cost B=4 coverage reference,16.00,0.497,0.473,1.131,False,False
+Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0,Cov B3,current budget-split refinement,16.00,0.432,0.546,0.864,False,False
+Mask-Corrected Coverage-Aware B=3 mc=1,MaskCorr,current best same-preview method,16.00,0.292,0.333,0.333,True,False
+Stale-TopK B=4,Stale,high-cost positive reference,20.00,0.465,0.444,1.321,False,False
+Temporal Deviation Oracle B=4,Oracle,hidden-info upper bound,4.00,0.345,0.326,0.900,False,True

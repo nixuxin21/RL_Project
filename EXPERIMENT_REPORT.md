@@ -1,5 +1,7 @@
 # MS-AirComp IRS 实验报告
 
+> 说明：本文件是按时间累积的完整实验记录，包含早期完整 CSI、SAC、imitation、partial probing、bandit feedback 和 execution mismatch 等历史阶段。当前项目主线、主表和下一步研究边界以 `docs/MAIN_STORY.md`、`docs/MAIN_RESULTS_ANALYSIS.md`、`docs/COVERAGE_AWARE_ANALYSIS.md`、`docs/EXECUTION_BASELINE_SUMMARY.md` 和 `docs/DEPRECATED_DIRECTIONS.md` 为准。
+
 ## 摘要结论
 
 当前实验已经证明：在本项目默认设置下，`Feature Argmax IRS` 是最关键的强基线。它直接读取环境观测中的 16 维 `codebook quality features`，选择最大值对应的 IRS 码本索引，在成功覆盖率和完成时延上几乎等同于 `Greedy IRS`。
@@ -8,7 +10,8 @@
 
 能耗改进实验也已经完成：在 Feature Argmax 的 max-count 并列候选内加入功率 tie-break 后，`Feature Argmax PowerTie IRS` 在所有扫描配置下复现 Greedy IRS 的覆盖率、时延和能耗，同时每个决策时隙只额外 preview 少量并列候选。
 
-后续 noisy feature、partial probing、probing cost、channel estimation error、bandit feedback 和 execution mismatch 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖；把信道误差推进到执行阶段后，失败邀请、missed opportunities 和 oracle gap 开始明显增加，但静态 execution-risk-aware 保守邀请、机会成本过滤、AR1 mean prediction 和手工 temporal reliability ranking 都没有超过 rotating baseline。Temporal Deviation Oracle 诊断显示，若能更聪明地选择 B=4 probe IRS 集合，oracle gap 可以显著下降；但 Learned Temporal Deviation、DAgger 数据聚合、Window Temporal Deviation scorer 和 confidence-gated window deviation 都没有稳定超过 rotating，说明仅基于历史统计的 offset/window reranking 还不足以实现这个空间。`Stale-TopK Feedback Grid` 用 stale 排序提出候选，再用当前 aggregate feedback 确认 IRS index，首次稳定降低了 slots 和 oracle gap，但它消耗完整 stale codebook 排序加 B 个当前 feedback probes，不是等预算 B=4 策略；最新低成本 `Rotating Feedback Confirm Grid` 只在 rotating 候选内部做 confirmation，结果反而弱于普通 rotating，说明收益关键在 candidate generation，而不是 confirmation 本身。
+后续 noisy feature、partial probing、probing cost、channel estimation error、bandit feedback 和 execution mismatch 实验进一步收紧了结论边界：feature 噪声会显著拉长时延，preview 有成本时 Rotating Grid 通常优于 full Greedy；当前等效信道估计误差模型下，Estimated Greedy 与 Rotating Grid 仍保持接近满覆盖；把信道误差推进到执行阶段后，失败邀请、missed opportunities 和 oracle gap 开始明显增加，但静态 execution-risk-aware 保守邀请、机会成本过滤、AR1 mean prediction 和手工 temporal reliability ranking 都没有超过 rotating baseline。Temporal Deviation Oracle 诊断显示，若能更聪明地选择 B=4 probe IRS 集合，oracle gap 可以显著下降；但 Learned Temporal Deviation、DAgger 数据聚合、Window Temporal Deviation scorer 和 confidence-gated window deviation 都没有稳定超过 rotating，说明仅基于历史统计的 offset/window reranking 还不足以实现这个空间。`Stale-TopK Feedback Grid` 用 stale 排序提出候选，再用当前 aggregate feedback 确认 IRS index，首次稳定降低了 slots 和 oracle gap，但它消耗完整 stale codebook 排序加 B 个当前 feedback probes，不是等预算 B=4 策略；`Rotating Feedback Confirm Grid` 只在 rotating 候选内部做 confirmation，结果反而弱于普通 rotating，说明收益关键在 candidate generation，而不是 confirmation 本身。`Sparse-TopK Feedback Grid` 只用少量 sparse stale previews 加 B 个当前 feedback probes；正式 frontier 显示 `sm=2` 不足以超过 `Rotating B=8`，`B=4, sm=3, tf=0.75` 才是当前可报告的中等成本候选。新增 `Adaptive Sparse-TopK` margin gate 能用 stale top-k margin 判断是否从 `2B` 扩展到 `3B` seed pool；pilot 显示 `mt=0.05` 几乎复现固定 `sm=3`，但平均 preview 仍为 `15.54`。v2 utility gate 形成了更平滑的成本-质量曲线，但仍未达到 `sm=3` 质量。v3 改成 history prior + local neighbor candidate generation 后，平均 preview 降到 `12.92`，但 slots/gap 只接近 `sm=2`，弱于 `sm=3` 和 v2。新增 learned sparse shortlist ranker 用 hidden current labels 离线训练、评估时只用 stale sparse preview/历史/几何特征；`ex=2` 把 gap 从 `sm=2` 的 `0.750` 降到 `0.653`，preview 为 `14`，明显优于 v3，但仍弱于 v2 和 `sm=3`。marginal-label 和 set-level hidden-value 两个后续学习目标均未超过 absolute-label `ex=2`。
+最新 Coverage-Aware Sparse-TopK 在同一 sparse preview budget 内加入 marginal device coverage fill；formal power ablation 选择 `cpw=0`，weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。B=4 formal frontier 显示它把 gap 从 `Sparse-TopK` 的 `0.534` 降到 `0.497`，failed invitations 从 `0.477` 到 `0.473` 基本持平，missed opportunities 从 `1.295` 降到 `1.131`。进一步的 budget split formal 选择 `B=3 sm=4.1`，同样 preview `16` 下达到 slots `3.189`、perfect `99.93%`、failed `0.546`、missed `0.864`、gap `0.432`；formal near-preview-16 对照中 `B=5 sm=2.2`、`B=6 sm=1.6`、`B=8 sm=1` 的 gap 分别退化到 `0.562/0.647/0.836`，说明当前最优分配是少做一个 current feedback confirmation，把预算转给更宽的 stale candidate pool。逐场景检查显示 B=3 在全部 9 个 `rho/delay` 场景上都是 lowest-gap/lowest-slots split，简单 scenario-adaptive B 选择没有额外收益。Neighbor-Coverage pilot 进一步测试把部分 stale seed 预算换成 stale leader local neighbors，但最佳 gap `0.452` 仍弱于当前 B=3 formal 的 `0.432`，因此固定 local-neighbor reallocation 不应进入主线。新增 Coverage B3 failure diagnosis 将 residual gap 分解为 pool/selection/confirmation/invitation 四类，100 episodes × 2 seeds × 9 场景下 invitation share 为 `0.530`，明显高于 selection `0.251`、confirmation `0.116` 和 pool `0.104`。Invitation Mask Correction 将该诊断转化为正向方法：保持 B3 candidate generation 和 aggregate confirmation 不变，只用 confirmed IRS 的 aggregate feedback count 修正 stale invitation mask cardinality；formal `mc=1` 在同样 preview `16` 下达到 slots `2.684`、failed `0.333`、missed `0.333`、gap `0.292`，成为当前同成本最强结果。
 
 这意味着当前问题形态下，继续单纯训练 SAC 的收益不大。`Codebook-Aware SAC` 落后不是因为缺少有效特征，而是因为 RL 训练没有学到一个非常简单、稳定、可解释的规则：
 
@@ -1409,6 +1412,435 @@ Interpretation:
 - 这说明 current feedback 不能单独解决 stale invitation mask 的问题；如果候选 IRS 集合本身不够好，feedback 会更偏向“保守少发”的候选，导致错过更多本可调度节点。
 - `Stale-TopK Feedback` 的正向信号主要来自更好的 candidate generation。下一步应优先研究低成本候选集生成，例如历史 best IRS、stale top-k 的近似筛选、uncertainty shortlist 或 selective confirmation，而不是继续在 unchanged rotating set 内调 confirmation score。
 
+### Active Probe-Set low-cost candidate-generation pilot
+
+为把完整 stale scan 降成更接近可部署的候选生成，新增两个低成本策略：
+
+- `active_diverse_feedback`: 用 rotating seed set 找 stale winner，再构造 codebook-diverse 候选集并用当前 aggregate feedback 确认。
+- `sparse_topk_feedback`: 只 preview 约 `2B` 个 evenly spaced stale candidates，取 top 候选并保留 rotating coverage，再对最终 B 个候选做当前 aggregate confirmation。
+
+命令：
+
+```bash
+make active-probe-set-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/active_probe_set_pilot_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4.csv
+```
+
+跨 9 个 rho/delay 场景的平均结果：
+
+| Policy | Success | Perfect % | Slots | Failed | Missed | Preview | Oracle tx gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rotating B=4 stale CSI | 49.999/50 | 99.90 | 3.887 | 1.585 | 1.098 | 4.00 | 1.116 |
+| Rotating Feedback Confirm B=4 | 49.988/50 | 98.80 | 4.383 | 0.627 | 2.774 | 8.00 | 1.182 |
+| Active Diverse Feedback B=4 | 49.992/50 | 99.23 | 4.148 | 0.579 | 2.436 | 9.35 | 1.035 |
+| Sparse-TopK Feedback B=4 | 49.995/50 | 99.52 | 3.751 | 0.518 | 1.818 | 12.00 | 0.773 |
+| Stale-TopK Feedback B=4 | 49.998/50 | 99.78 | 3.373 | 0.444 | 1.321 | 20.00 | 0.465 |
+| Temporal Deviation Oracle B=4 | 50.000/50 | 100.00 | 2.985 | 0.326 | 0.900 | 4.00 | 0.345 |
+
+按 rho 分组的趋势：
+
+| Rho | Rotating slots/gap | Active Diverse slots/gap | Sparse-TopK slots/gap | Stale-TopK slots/gap |
+| ---: | ---: | ---: | ---: | ---: |
+| 0.7 | 3.905 / 1.262 | 4.175 / 1.232 | 3.846 / 0.947 | 3.513 / 0.651 |
+| 0.9 | 4.016 / 1.155 | 4.206 / 1.057 | 3.852 / 0.815 | 3.450 / 0.494 |
+| 0.98 | 3.741 / 0.931 | 4.063 / 0.817 | 3.554 / 0.558 | 3.156 / 0.248 |
+
+Interpretation:
+
+- `Active Diverse Feedback` 说明纯几何多样性不足：它能降低 gap，但平均 slots 反而比 rotating 更差，preview 也升到 `9.35`。
+- `Sparse-TopK Feedback` 是当前最好的中间候选：相比 rotating，slots 降低 `0.137`、oracle gap 降低 `0.343`、failed 降低 `1.067`，但 preview 增加 `8`。
+- 它仍不是无条件最优。用 `success - slot_cost * slots - preview_cost * preview` 计算时，若 `slot_cost=0.1`，`Sparse-TopK` 相对 rotating 的 preview break-even 约为 `0.00123`；若 `slot_cost=0.2`，break-even 约为 `0.00294`。preview 成本更高时，普通 rotating 仍是合理 baseline。
+- 下一步应围绕 `Sparse-TopK` 做 cost/budget sweep：seed 数 `B, 2B, 3B`，top-k 占比，probe budget `B=2/4/8`，并把 `Stale-TopK` 保留为高成本正向参照。
+
+### Sparse-TopK cost/budget pilot
+
+为确定 `Sparse-TopK` 的默认参数，新增：
+
+```bash
+make sparse-topk-cost-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/sparse_topk_cost_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-3_b2-4-8_sm1-2-3_tf0p25-0p5-0p75.csv
+```
+
+该 pilot 扫描 `B in {2,4,8}`、`seed_multiplier in {1,2,3}` 和 `topk_fraction in {0.25,0.5,0.75}`。跨 6 个 rho/delay 场景的关键结果：
+
+| Policy/config | Success | Perfect % | Slots | Failed | Missed | Preview | Oracle tx gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rotating B=4 | 49.998/50 | 99.83 | 3.917 | 1.594 | 1.138 | 4 | 1.114 |
+| Rotating B=8 | 50.000/50 | 100.00 | 3.465 | 1.446 | 0.648 | 8 | 0.760 |
+| Sparse-TopK B=4 sm=2 tf=0.50 | 49.996/50 | 99.58 | 3.741 | 0.521 | 1.758 | 12 | 0.772 |
+| Sparse-TopK B=4 sm=2 tf=0.75 | 49.996/50 | 99.58 | 3.632 | 0.526 | 1.608 | 12 | 0.745 |
+| Sparse-TopK B=4 sm=3 tf=0.75 | 49.996/50 | 99.58 | 3.423 | 0.486 | 1.347 | 16 | 0.556 |
+| Stale-TopK B=4 | 49.998/50 | 99.75 | 3.472 | 0.497 | 1.400 | 20 | 0.492 |
+
+Interpretation:
+
+- `topk_fraction=0.75` dominates the old `0.5` at the same preview cost, so it is now the default.
+- `seed_multiplier=1` behaves like an under-ranked confirmation set and is not useful.
+- `B=4, sm=3, tf=0.75` is the best medium-cost Sparse-TopK point: it uses `Preview=16`, improves slots vs `Stale-TopK B=4`, and keeps gap close to Stale-TopK while saving four preview calls per slot.
+- `B=8, sm=2/3` saturates the 16-codebook stale pool, so `sm=3` adds no information beyond `sm=2`.
+- If the objective is pure node-equivalent utility with nonzero preview cost, `Rotating B=8` remains extremely strong. Sparse-TopK should therefore be framed as an oracle-gap reduction / candidate-generation method below full Stale-TopK cost, not as a universal utility winner.
+
+### Sparse-TopK formal frontier
+
+基于 pilot 结果，新增正式 frontier：
+
+```bash
+make sparse-topk-frontier
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/sparse_topk_frontier_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b4-8_sm2-3_tf0p75.csv
+```
+
+该实验覆盖 `rho in {0.7,0.9,0.98}`、`delay in {1,2,3}`、`B in {4,8}`、`seed_multiplier in {2,3}`，每个场景 `300` episodes x `3` seeds。跨 9 个 rho/delay 场景的关键结果：
+
+| Policy/config | Success | Perfect % | Slots | Failed | Missed | Preview | Oracle tx gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rotating B=4 | 49.999/50 | 99.90 | 3.887 | 1.585 | 1.098 | 4 | 1.116 |
+| Rotating B=8 | 50.000/50 | 100.00 | 3.429 | 1.360 | 0.620 | 8 | 0.726 |
+| Sparse-TopK B=4 sm=2 tf=0.75 | 49.996/50 | 99.64 | 3.635 | 0.517 | 1.609 | 12 | 0.736 |
+| Sparse-TopK B=4 sm=3 tf=0.75 | 49.998/50 | 99.79 | 3.376 | 0.477 | 1.295 | 16 | 0.535 |
+| Stale-TopK B=4 | 49.998/50 | 99.78 | 3.373 | 0.444 | 1.321 | 20 | 0.465 |
+| Sparse-TopK B=8 sm=2 tf=0.75 | 49.998/50 | 99.79 | 3.322 | 0.230 | 1.546 | 24 | 0.454 |
+| Temporal Deviation Oracle B=4 | 50.000/50 | 100.00 | 2.985 | 0.326 | 0.900 | 4 | 0.345 |
+
+Interpretation:
+
+- `Sparse-TopK B=4 sm=2` should not be the main configuration: it is worse than `Rotating B=8` on slots, gap and preview.
+- `Sparse-TopK B=4 sm=3` is the useful deployable midpoint. Relative to `Rotating B=8`, it lowers oracle gap from `0.726` to `0.535` and slightly lowers slots from `3.429` to `3.376`, but adds 8 preview calls per slot.
+- The preview break-even of `Sparse-TopK B=4 sm=3` vs `Rotating B=8` is narrow: about `0.00040` at slot cost `0.1`, and `0.00106` at slot cost `0.2`. If preview feedback is materially expensive, `Rotating B=8` remains the preferred deployable baseline.
+- `Stale-TopK B=4` remains the high-cost positive reference: it has nearly identical slots to `Sparse-TopK B=4 sm=3`, lower gap, and four extra preview calls.
+- `Sparse-TopK B=8 sm=2/3` is a high-preview frontier endpoint. It slightly improves slots/gap over `Stale-TopK B=4`, but at `Preview=24`; because the codebook size is 16, `sm=3` is identical to `sm=2` at B=8.
+
+This changes the next step: do not continue tuning `sm=2` as the main line. The next research problem is how to get `sm=3`-level candidate quality with `Rotating B=8`-level cost, for example via adaptive stale shortlist generation, historical best-codebook priors, or selective confirmation.
+
+### Adaptive Sparse-TopK margin gate
+
+为检验 adaptive sparse shortlist 是否能降低固定 `sm=3` 的成本，新增：
+
+```bash
+make adaptive-sparse-topk-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/adaptive_sparse_topk_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_mt0-0p02-0p05-0p1-0p2.csv
+```
+
+该策略先用 `2B` 个 sparse stale candidates 做低成本排序，并计算 stale tx-count top-vs-kth margin；如果 margin 低于阈值 `mt`，再扩展到 `3B` 个 stale candidates。随后仍只保留 B 个候选并用当前 aggregate feedback 确认 IRS index。
+
+跨 9 个 rho/delay 场景、`B=4`、`topk_fraction=0.75` 的 pilot 结果：
+
+| Policy/config | Success | Perfect % | Slots | Failed | Missed | Preview | Oracle tx gap | Expansion |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rotating B=4 | 49.998/50 | 99.83 | 3.951 | 1.630 | 1.158 | 4.00 | 1.117 | - |
+| Sparse-TopK B=4 sm=2 | 49.996/50 | 99.61 | 3.647 | 0.528 | 1.639 | 12.00 | 0.750 | - |
+| Adaptive Sparse-TopK mt=0.02 | 49.994/50 | 99.44 | 3.584 | 0.506 | 1.557 | 13.47 | 0.697 | 36.8% |
+| Adaptive Sparse-TopK mt=0.05 | 49.996/50 | 99.61 | 3.454 | 0.486 | 1.371 | 15.54 | 0.564 | 88.5% |
+| Adaptive Sparse-TopK mt=0.10 | 49.996/50 | 99.61 | 3.447 | 0.481 | 1.372 | 15.92 | 0.561 | 97.9% |
+| Sparse-TopK B=4 sm=3 | 49.996/50 | 99.61 | 3.447 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+| Stale-TopK B=4 | 49.997/50 | 99.67 | 3.485 | 0.490 | 1.431 | 20.00 | 0.498 | - |
+| Temporal Deviation Oracle B=4 | 50.000/50 | 100.00 | 3.018 | 0.347 | 0.908 | 4.00 | 0.360 | - |
+
+Interpretation:
+
+- `mt=0.05` is the first useful adaptive point: it matches fixed `sm=3` on slots and gap while saving about `0.46` preview calls per slot.
+- The saving is too small to change the frontier. The expansion rate is already `88.5%`, so the policy behaves mostly like fixed `sm=3`.
+- `mt=0.02` is cheaper (`13.47` preview) but not robust enough: it improves over `sm=2` on average, yet under high correlation with longer delay it can be worse than `sm=2` on slots/perfect rate.
+- `mt=0.10/0.20` almost always expands and should be interpreted as fixed `sm=3`, not a distinct adaptive method.
+- Therefore this pilot supports the adaptive direction, but not the current one-dimensional margin threshold as the final algorithm. The next step should add a stronger expansion signal, e.g. rho/delay-aware thresholds, historical winner priors, per-slot urgency, or explicit preview-cost utility.
+
+### Adaptive Sparse-TopK v2 utility gate
+
+基于 v1 结论，新增 `adaptive_sparse_topk_v2_feedback`。v2 保留 `2B -> 3B` sparse seed pool 结构，但 expansion gate 不再只看 stale margin，而是用：
+
+```text
+effective_threshold =
+    base_margin
+  + uncertainty_weight * (1 - rho^delay)
+  + urgency_weight * deadline_shortfall
+  - history_weight * recent_winner_stability
+  - preview_cost * extra_preview_count
+```
+
+入口：
+
+```bash
+make adaptive-sparse-topk-v2-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/adaptive_sparse_topk_v2_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_mt0p02-0p05_pc0-0p002-0p005-0p01.csv
+```
+
+跨 9 个 rho/delay 场景、`B=4`、`topk_fraction=0.75` 的关键结果：
+
+| Policy/config | Slots | Failed | Missed | Preview | Oracle tx gap | Expansion |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sparse-TopK sm=2 | 3.647 | 0.528 | 1.639 | 12.00 | 0.750 | - |
+| V1 mt=0.02 | 3.584 | 0.506 | 1.557 | 13.47 | 0.697 | 36.8% |
+| V2 mt=0.02 pc=0 | 3.552 | 0.498 | 1.542 | 13.97 | 0.646 | 49.3% |
+| V2 mt=0.05 pc=0.005 | 3.511 | 0.497 | 1.524 | 14.58 | 0.636 | 64.5% |
+| V2 mt=0.05 pc=0.002 | 3.492 | 0.505 | 1.492 | 15.36 | 0.597 | 83.9% |
+| V1 mt=0.05 | 3.454 | 0.486 | 1.371 | 15.54 | 0.564 | 88.5% |
+| Sparse-TopK sm=3 | 3.447 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+
+Interpretation:
+
+- v2 gives a smoother cost-quality curve than v1. `mt=0.05, pc=0.005` is the most useful middle point: it saves about `0.96` preview calls per slot relative to v1 `mt=0.05`, while keeping slots/gap better than v1 `mt=0.02`.
+- v2 still does not solve the core frontier problem. The best v2 points either remain close to fixed `sm=3` cost or lose too much gap quality when preview is pushed near `13`.
+- The current `deadline_shortfall` term is almost always zero in these runs, so v2's actual behavior is mostly margin + rho/delay uncertainty + history stability + preview cost.
+- This suggests the next improvement should not just tune scalar weights. The more promising change is candidate generation itself: include historical best IRS candidates, learned expansion utility, or a nonuniform stale shortlist, rather than only deciding whether to expand an evenly spaced sparse grid.
+
+### Adaptive Sparse-TopK v3 history/local-neighbor candidate generation
+
+基于 v2 结论，新增 `adaptive_sparse_topk_v3_feedback`。v3 不再做 `2B -> 3B` scalar expansion gate，而是固定使用 `2B` 个 sparse stale candidates，再把候选集向两个方向轻微偏移：
+
+- stable recent confirmed IRS 作为 history prior；
+- stale leaders 的 wrapped local codebook neighbors。
+
+随后仍只选 B 个 IRS 候选，并用当前 aggregate feedback confirmation 选最终 IRS。
+
+入口：
+
+```bash
+make adaptive-sparse-topk-v3-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/adaptive_sparse_topk_v3_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_nr1_nc2_hc1.csv
+```
+
+跨 9 个 rho/delay 场景、`B=4`、`base_multiplier=2`、`topk_fraction=0.75`、`neighbor_radius=1`、`neighbor_count=2`、`history_count=1` 的关键结果：
+
+| Policy/config | Slots | Perfect % | Failed | Missed | Preview | Oracle tx gap | Extra |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Rotating B=4 | 3.951 | 99.83 | 1.630 | 1.158 | 4.00 | 1.117 | - |
+| Sparse-TopK sm=2 | 3.647 | 99.61 | 0.528 | 1.639 | 12.00 | 0.750 | - |
+| Adaptive Sparse-TopK v3 | 3.583 | 99.67 | 0.549 | 1.760 | 12.92 | 0.754 | history prior 33.0%, selected extra preview 0.924 |
+| Adaptive Sparse-TopK v2 mt=0.05 pc=0.002 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | expansion 83.9% |
+| Sparse-TopK sm=3 | 3.447 | 99.61 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+| Stale-TopK B=4 | 3.485 | 99.67 | 0.490 | 1.431 | 20.00 | 0.498 | high-cost positive reference |
+| Temporal Deviation Oracle B=4 | 3.018 | 100.00 | 0.347 | 0.908 | 4.00 | 0.360 | hidden current-channel upper bound |
+
+Interpretation:
+
+- v3 is cheaper than v2 and fixed `sm=3`, with average preview `12.92`; it slightly improves slots over fixed `sm=2`.
+- It does not improve oracle gap over `sm=2` and remains clearly weaker than `sm=3`/v2. The local-neighbor/history perturbation is therefore not enough as the main algorithm.
+- The extra candidate mechanism is active but limited: history prior is used in about one third of slots, and selected extra stale previews average less than one per slot. This explains why cost is attractive but candidate quality does not move far enough.
+- There is a local positive signal under very high temporal correlation (`rho=0.98`, delay 2/3), where v3 slots can beat sm=2/sm=3; however the gap is still worse, so it is not stable enough to report as the best baseline.
+- The next candidate-generation step should be nonuniform or learned shortlist scoring, not another fixed local-neighbor heuristic. Useful inputs are stale rank, recent confirmed winner stability, rho/delay, codebook distance and marginal confirmation utility.
+
+### Learned Sparse Shortlist ranker
+
+基于 v3 结论，新增 `train_learned_sparse_shortlist.py` 和 `learned_sparse_shortlist_feedback`。训练阶段使用 hidden current-channel outcome 作为离线标签，学习一个标准化线性 ridge ranker；评估阶段只使用可部署特征：`2B` sparse stale preview summary、stale rank/margin、recent confirmed winner stability、rho/delay、slot/deadline 和 codebook distance。策略流程是：
+
+1. preview `2B` 个 sparse stale candidates；
+2. 用 ranker 从未 preview 的 codebook states 中选择 `ex=1/2` 个 nonuniform extra candidates；
+3. 对 base + learned extra 形成 B 个最终候选；
+4. 用当前 aggregate feedback confirmation 选择 IRS。
+
+入口：
+
+```bash
+make learned-sparse-shortlist-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/learned_sparse_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_model.npz
+results/execution_mismatch/learned_sparse_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_diagnostics.csv
+results/execution_mismatch/learned_sparse_shortlist_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_ex1-2.csv
+```
+
+训练诊断：`train=500`、`val=100` episodes 下，validation MSE `0.000999`、correlation `0.996`、top1 regret `0.0304`。这说明离线标签可被当前特征拟合，但闭环策略是否收益仍需要看下表。
+
+跨 9 个 rho/delay 场景、`B=4`、`base_multiplier=2`、`topk_fraction=0.75` 的关键结果：
+
+| Policy/config | Slots | Perfect % | Failed | Missed | Preview | Oracle tx gap | Extra |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Sparse-TopK sm=2 | 3.647 | 99.61 | 0.528 | 1.639 | 12.00 | 0.750 | - |
+| Adaptive Sparse-TopK v3 | 3.583 | 99.67 | 0.549 | 1.760 | 12.92 | 0.754 | fixed history/local neighbors |
+| Learned Sparse Shortlist ex=1 | 3.557 | 99.83 | 0.549 | 1.477 | 13.00 | 0.689 | selected extra 1.000 |
+| Learned Sparse Shortlist ex=2 | 3.570 | 99.83 | 0.529 | 1.509 | 14.00 | 0.653 | selected extra 2.000 |
+| Adaptive Sparse-TopK v2 mt=0.05 pc=0.002 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | expansion 83.9% |
+| Sparse-TopK sm=3 | 3.447 | 99.61 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+| Stale-TopK B=4 | 3.485 | 99.67 | 0.490 | 1.431 | 20.00 | 0.498 | high-cost positive reference |
+
+Interpretation:
+
+- Learned shortlist is the first low-cost candidate-generation result that clearly improves v3: `ex=2` reduces gap from `0.754` to `0.653` at preview `14`.
+- It also improves fixed `sm=2` gap from `0.750` to `0.653`, while keeping preview below v2 and `sm=3`.
+- It still does not solve the frontier. `ex=2` is worse than v2 on slots/gap and worse than fixed `sm=3` on slots/gap, though it saves `1.36` preview calls vs v2 and `2` calls vs `sm=3`.
+- The most useful next refinement is not a larger MLP by default; first improve final-set construction. A scalar extra-candidate score is still too indirect for selecting the final confirmation set.
+
+### Marginal-value Learned Sparse Shortlist labels
+
+基于上面的问题，又加入了 `--target-mode marginal`。训练标签不再是单个候选的 absolute hidden score，而是“强制插入该候选并替换 base shortlist 中一个位置后，相比原 base set 的 hidden-value marginal gain”。入口：
+
+```bash
+make learned-sparse-shortlist-marginal-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/learned_sparse_shortlist_marginal_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_tex2_model.npz
+results/execution_mismatch/learned_sparse_shortlist_marginal_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_tex2_diagnostics.csv
+results/execution_mismatch/learned_sparse_shortlist_marginal_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_ex1-2.csv
+```
+
+训练诊断：`train=500`、`val=100`、`target_extra_count=2` 下，validation MSE `0.000045`、correlation `0.145`、top1 regret `0.0064`。top1 regret 比 absolute-label 模型的 `0.0304` 更低，但闭环结果没有提升：
+
+| Label / config | Slots | Preview | Oracle tx gap |
+| --- | ---: | ---: | ---: |
+| Absolute ex=1 | 3.557 | 13.00 | 0.689 |
+| Marginal ex=1 | 3.607 | 13.00 | 0.689 |
+| Absolute ex=2 | 3.570 | 14.00 | 0.653 |
+| Marginal ex=2 | 3.603 | 14.00 | 0.662 |
+
+Interpretation:
+
+- Marginal labels are not enough by themselves. Although the offline top1 regret improves, the closed-loop `ex=2` gap worsens from `0.653` to `0.662`, and slots worsen from `3.570` to `3.603`.
+- The likely failure mode is objective mismatch: the scalar label evaluates one forced insertion, but the deployed policy selects a final B-sized confirmation set with one or two extras and then uses aggregate feedback. Candidate interactions and displacement effects are therefore only partially represented.
+- 当前最佳 learned shortlist 仍是 absolute-label `ex=2`，不是 marginal-label 模型。随后已继续测试 set-level、execution-value 和 pairwise/cost-aware set scorer。
+
+### Set-level Learned Shortlist scorer
+
+进一步新增 `learned_set_shortlist_feedback` 和 `--target-mode set_value`。这个版本不再只给单个 extra 打分，而是枚举 deployable final B-sized shortlist variants，用 set-level features 直接预测该最终 confirmation set 的 hidden best-confirmation value。评估时它仍只 preview `2B` sparse stale seed pool、最终选中的 non-seed extras 和 B 次 current aggregate feedback。
+
+入口：
+
+```bash
+make learned-set-shortlist-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/learned_set_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_maxex2_model.npz
+results/execution_mismatch/learned_set_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_maxex2_diagnostics.csv
+results/execution_mismatch/learned_set_shortlist_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_maxex1-2.csv
+```
+
+训练诊断：`train=500`、`val=100`、`max_extra_count=2` 下，validation MSE `0.000178`、correlation `0.999`、top1 regret `0.0055`。离线 set ranking 很容易拟合，但闭环结果仍没有提升：
+
+| Policy/config | Slots | Perfect % | Failed | Missed | Preview | Oracle tx gap | Extra |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Learned Sparse Shortlist absolute ex=2 | 3.570 | 99.83 | 0.529 | 1.509 | 14.00 | 0.653 | selected extra 2.000 |
+| Learned Set Shortlist maxex=1 | 3.605 | 99.67 | 0.540 | 1.566 | 12.93 | 0.686 | selected extra 0.928 |
+| Learned Set Shortlist maxex=2 | 3.659 | 99.50 | 0.556 | 1.677 | 13.68 | 0.703 | selected extra 1.681 |
+| Adaptive Sparse-TopK v2 mt=0.05 pc=0.002 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | expansion 83.9% |
+| Sparse-TopK sm=3 | 3.447 | 99.61 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+
+Interpretation:
+
+- Set-level scoring reduces preview cost versus absolute `ex=2`, especially `maxex=1` at preview `12.93`, but the quality loss is larger than the cost saving: gap rises from `0.653` to `0.686`.
+- Allowing `maxex=2` makes the policy choose more extras on average (`1.681`) and worsens both slots and gap. This suggests the set-value label overvalues hidden current set coverage that does not translate cleanly through stale invitation masks and slot execution.
+- 当前 learned 路线的最好点仍是 absolute-label `ex=2`。随后测试 closed-loop execution value：对每个 final set 先模拟 current aggregate confirmation，再用 stale decision mask 与 execution channel 计算真实 successful transmissions / failed invitations / missed opportunities，而不是只用 hidden current best-confirmation value。
+
+### Closed-loop Execution-value Learned Shortlist labels
+
+新增 `--target-mode execution_value`，并用 `learned_set_shortlist_feedback` 复用同一套 set-level features。标签计算流程与部署闭环对齐：
+
+1. 对 final B-sized shortlist 先模拟 current aggregate confirmation；
+2. 用确认后的 IRS index 对应的 stale/estimated decision mask 作为邀请集合；
+3. 在 execution channel 下计算 successful transmissions、failed invitations 和 missed opportunities；
+4. 用 `success - 0.5 * failed - 0.5 * missed - power_weight * power` 作为监督标签。
+
+入口：
+
+```bash
+make learned-execution-value-shortlist-pilot
+```
+
+推荐引用：
+
+```text
+results/execution_mismatch/learned_execution_value_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_maxex2_fw0p5_mw0p5_model.npz
+results/execution_mismatch/learned_execution_value_shortlist_pilot_train500_val100_rho0p7-0p9-0p98_delay1-2-3_b4_bm2_tf0p75_maxex2_fw0p5_mw0p5_diagnostics.csv
+results/execution_mismatch/learned_execution_value_shortlist_pilot_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b4_maxex1-2_fw0p5_mw0p5.csv
+```
+
+训练诊断：`train=500`、`val=100`、`max_extra_count=2` 下，validation MSE `0.000465`、correlation `0.998`、top1 regret `0.0099`。
+
+跨 9 个 rho/delay 场景的聚合结果：
+
+| Policy/config | Slots | Perfect % | Failed | Missed | Preview | Oracle tx gap | Extra |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Learned Sparse Shortlist absolute ex=2 | 3.570 | 99.83 | 0.529 | 1.509 | 14.00 | 0.653 | selected extra 2.000 |
+| Hidden Set-value maxex=1 | 3.605 | 99.67 | 0.540 | 1.566 | 12.93 | 0.686 | selected extra 0.928 |
+| Hidden Set-value maxex=2 | 3.659 | 99.50 | 0.556 | 1.677 | 13.68 | 0.703 | selected extra 1.681 |
+| Execution-value maxex=1 | 3.589 | 99.56 | 0.550 | 1.549 | 12.95 | 0.702 | selected extra 0.947 |
+| Execution-value maxex=2 | 3.619 | 99.67 | 0.547 | 1.556 | 13.81 | 0.681 | selected extra 1.805 |
+| Adaptive Sparse-TopK v2 mt=0.05 pc=0.002 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | expansion 83.9% |
+| Sparse-TopK sm=3 | 3.447 | 99.61 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+
+Interpretation:
+
+- Execution-value labels improve the hidden set-value `maxex=2` gap from `0.703` to `0.681`, so aligning labels with stale-mask execution helps.
+- The improvement is still not enough: execution-value `maxex=2` remains worse than absolute-label `ex=2` on slots and gap (`3.619/0.681` vs `3.570/0.653`), and both remain behind v2/`sm=3`.
+- The current bottleneck is likely not just label semantics. The final-set variant space and linear set scorer still cannot reliably decide which base candidate should be displaced; the following pairwise/cost-aware pilot tests that failure mode directly.
+
+### Pairwise / Cost-aware Learned Shortlist pilot
+
+Entry:
+
+```bash
+make learned-pairwise-shortlist-pilot
+```
+
+Additional diagnostic run used the same training/evaluation command with `--label-preview-cost 0`.
+
+Implementation:
+
+- `target_mode=pairwise_execution` first computes the same closed-loop execution utility as the execution-value set scorer.
+- Training then builds best-vs-rest feature differences within each state and fits a linear ridge ranker on utility gaps.
+- `label_preview_cost` optionally subtracts a per-extra-stale-preview penalty before pairwise differences are generated.
+
+Training diagnostics:
+
+| Target | Pairwise rows | Val corr | Val top1 regret |
+| --- | ---: | ---: | ---: |
+| Pairwise execution `pc=0` | 53,832 | 0.686 | 0.0111 |
+| Pairwise execution `pc=0.005` | 130,732 | 0.021 | 0.0131 |
+
+Cross-scenario aggregate over the same 9 rho/delay settings:
+
+| Policy/config | Slots | Perfect % | Failed | Missed | Preview | Oracle tx gap | Extra |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Learned Sparse Shortlist absolute ex=2 | 3.570 | 99.83 | 0.529 | 1.509 | 14.00 | 0.653 | selected extra 2.000 |
+| Execution-value maxex=1 | 3.589 | 99.56 | 0.550 | 1.549 | 12.95 | 0.702 | selected extra 0.947 |
+| Execution-value maxex=2 | 3.619 | 99.67 | 0.547 | 1.556 | 13.81 | 0.681 | selected extra 1.805 |
+| Pairwise execution `pc=0` maxex=1/2 | 3.619 | 99.67 | 0.539 | 1.630 | 12.18 | 0.751 | selected extra 0.180 |
+| Pairwise execution `pc=0.005` maxex=1/2 | 3.588 | 99.67 | 0.547 | 1.551 | 13.00 | 0.704 | selected extra 1.000 |
+| Adaptive Sparse-TopK v2 mt=0.05 pc=0.002 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | expansion 83.9% |
+| Sparse-TopK sm=3 | 3.447 | 99.61 | 0.492 | 1.372 | 16.00 | 0.561 | - |
+
+Interpretation:
+
+- Pairwise ranking without preview cost has better offline correlation than `pc=0.005`, but the closed-loop policy nearly stops selecting extra candidates and its gap degrades to `0.751`.
+- `pc=0.005` produces a stable one-extra policy and slightly better slots than execution-value `maxex=1`, but its gap `0.704` is still worse than absolute-label `ex=2` and far behind v2/`sm=3`.
+- This closes the current linear learned-shortlist branch: absolute-label `ex=2` remains the best learned diagnostic, but the reportable main methods should be `Sparse-TopK sm=3` and adaptive v2 continuum, with `Stale-TopK` / temporal deviation oracle as high-cost or hidden-info references.
+
 ## 当前结论边界
 
 当前结论成立于：
@@ -1424,11 +1856,14 @@ Interpretation:
 - Learned/DAgger/Window/Gated Temporal Deviation 训练标签使用隐藏 current-channel outcome，但闭环评估不访问当前完整 CSI；当前 offset regression、DAgger 数据聚合、历史统计 window reranking 和 margin-gated fallback 都没有稳定超过 `Rotating B=4`。
 - Stale-TopK Feedback 不访问当前完整 CSI 或 node-level mask，但它使用完整 stale codebook 排序并对 B 个候选做当前 aggregate feedback confirmation；因此它是正向确认基线，不是等预算 B=4 结果。
 - Rotating Feedback Confirm 只在 ordinary rotating B 个候选内部做当前 aggregate feedback confirmation；它是低成本负对照，说明 confirmation 本身不足以带来收益。
+- Active Diverse Feedback 和 Sparse-TopK Feedback 都不访问当前完整 CSI 或 node-level mask；它们只在低成本候选集上使用当前 aggregate feedback。当前结果支持 `Sparse-TopK B=4 sm=3 tf=0.75` 作为中等成本候选，不支持继续把纯几何 diversity 或 `sm=2` 作为主方法。
+- Coverage-Aware Sparse-TopK 不访问当前完整 CSI 或 node-level mask；它只改变 sparse stale pool 内的候选填充规则。formal power ablation 选择 `cpw=0`；weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。B=4 设定在 preview `16` 下相对 `Sparse-TopK sm=3` 降低 gap 和 missed opportunities，failed invitations 基本持平；budget split formal 进一步选择 `B=3 sm=4.1`，同样 preview 下把 gap 降到 `0.432`、missed 降到 `0.864`，代价是 failed invitations 升到 `0.546`。继续增大 B 到 `5/6/8` 会减少 failed invitations，但 stale candidate breadth 不足导致 missed opportunities 和 gap 明显恶化。
+- Adaptive Sparse-TopK v1 只根据 stale sparse preview 的 tx-count margin 决定是否从 `2B` 扩展到 `3B` seed pool；v2 加入 rho/delay、deadline urgency、历史稳定性和 preview-cost penalty；v3 改为 history prior + local-neighbor candidate generation；learned sparse shortlist 使用离线 hidden-label 训练的线性 ranker 做 nonuniform extra candidate selection。absolute-label learned shortlist 有正向信号，但 marginal-label scalar target、set-level hidden-value target、closed-loop execution-value target 和 pairwise/cost-aware set target 都没有进一步提升闭环结果。它们都支持 adaptive/learned shortlist 的方向，但仍未把 `sm=3` 质量压到接近 `Rotating B=8` 成本。
 - Bandit feedback stress sweep 中策略只能看到 noisy aggregate probe feedback；oracle 只作为离线诊断上界。
 - Learned Feedback Probing 中训练标签可来自离线 full-oracle preview，但评估策略不能访问完整 CSI 或 node-level 调度结果，只能看历史 aggregate probe feedback。
 - Adaptive Feedback Probing 中 gate 只使用单次 noisy aggregate feedback 和剩余 deadline，不使用隐藏真实调度结果。
 
-加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation、opportunity-cost invitation filter、AR1 mean prediction 和 hand-crafted temporal reliability ranking 都没有超过 rotating。Temporal AR(1) delay 进一步确认：更真实的 stale CSI setting 可以保留；Temporal Deviation Oracle 显示 B=4 probe set 的选择/偏离确实有上界空间，但 Learned/DAgger/Window/Gated Temporal Deviation 说明仅靠历史统计的 offset/window reranking 和 margin fallback 还不能稳定实现这个空间。Stale-TopK Feedback 说明“当前 aggregate confirmation + 更好候选集”可以把 gap 降下来；Rotating Feedback Confirm 进一步说明，若候选集仍是 ordinary rotating，仅加 confirmation 会变差。下一步的关键是低成本 candidate generation，而不是继续调 confirmation score。
+加入 noisy features 后，Feature Argmax/PowerTie 会出现明显时延退化；但现有 Codebook-Aware SAC 零样本并不占优。加入 partial probing 和 probing cost 后，Rotating Grid 这类简单非学习 probing 规则已经很强；当前低维 learned probing 也没有超过它。加入当前等效信道估计误差后，Estimated Greedy/Rotating Grid 仍保持接近满覆盖。加入 bandit feedback stress 后，问题更贴近有限 CSI 的研究目标，但简单 Rotating Probe 仍是非常强的规则基线。新增 Learned Feedback Probing 进一步表明，低维历史特征 + 离线监督 MLP 仍不足以超过 rotating baseline。Adaptive Feedback Probing 又表明，单次 noisy feedback 的硬阈值 backup gate 也不足以超过 rotating baseline。Execution Channel Mismatch 则证明执行阶段漂移会显著增加失败邀请和 oracle gap，是比单纯 decision-preview 误差更有研究价值的鲁棒性方向；但当前 static execution-risk-aware conservative invitation、opportunity-cost invitation filter、AR1 mean prediction 和 hand-crafted temporal reliability ranking 都没有超过 rotating。Temporal AR(1) delay 进一步确认：更真实的 stale CSI setting 可以保留；Temporal Deviation Oracle 显示 B=4 probe set 的选择/偏离确实有上界空间，但 Learned/DAgger/Window/Gated Temporal Deviation 说明仅靠历史统计的 offset/window reranking 和 margin fallback 还不能稳定实现这个空间。Stale-TopK Feedback 说明“当前 aggregate confirmation + 更好候选集”可以把 gap 降下来；Rotating Feedback Confirm 进一步说明，若候选集仍是 ordinary rotating，仅加 confirmation 会变差。Active Probe-Set pilot 说明，纯 geometry diversity 不够，而 sparse stale ranking 有价值；formal frontier 进一步表明 `sm=2` 不足以超过 `Rotating B=8`，`Sparse-TopK B=4 sm=3 tf=0.75` 才是当前可报告的中等成本点。Coverage-Aware Sparse-TopK `cw=0.5 cpw=0` 进一步说明，在同样 preview `16` 下改变候选填充规则可降低 gap 和 missed opportunities；weight sensitivity 很小，且 power ablation 表明 stale power penalty 不应保留。budget split formal 继续说明当前 preview `16` 更适合 `B=3 sm=4.1` 这种“更宽 stale candidate pool + 更少 current confirmation”的分配，它应被视为当前主线起点而不是最终算法。Adaptive Sparse-TopK v1/v2 说明 fixed `sm=3` 的成本可以小幅节省并形成平滑 cost-quality curve；v3 说明 history prior + fixed local neighbors 能降低成本但候选质量仍接近 `sm=2`；learned shortlist 说明 nonuniform learned extras 可以进一步降低 gap，但 marginal scalar targets、set-level hidden-value target、execution-value target 和 pairwise/cost-aware set targets 都还没达到 absolute-label `ex=2`，更没有达到 v2/`sm=3`。下一步应收敛论文主线，报告 `Rotating B=8`、`Sparse-TopK sm=3`、`Coverage-Aware B=4`、`Coverage-Aware B=3 sm=4.1`、adaptive v2 continuum、`Stale-TopK` 和 temporal deviation oracle；新算法只有在 preview `16` 附近超过当前 Coverage-Aware budget split 时才应进入主线。
 
 ## 对当前论文叙事的影响
 
@@ -1510,10 +1945,11 @@ Rule-guided RL: 使用可解释规则提供强先验，再用 RL 学习能耗或
 
 优先级从高到低：
 
-1. 低成本 candidate generation：从 `Stale-TopK Feedback` 出发，减少完整 stale 扫描，例如用历史 best IRS、近似 stale shortlist、uncertainty shortlist 或 selective confirmation 生成 B 个更有价值的候选；`rotating_feedback_confirm` 已说明只在 unchanged rotating set 内加 confirmation 不够。
-2. Active probe-set selection：把动作从“选 rotating 相对 offset”改成“在预算 B 内选择要确认的 IRS 子集”，允许策略显式分配确认 probe，而不是只重排历史窗口。
-3. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
-4. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
-5. 整理论文图表：把主对比、runtime benchmark、参数扫描、noisy feature、noisy imitation、partial probing、learned probing、probing cost、channel estimation、execution mismatch、temporal AR(1) mismatch、temporal reliability、temporal deviation oracle、learned temporal deviation、DAgger temporal deviation、window temporal deviation、gated window temporal deviation、stale-topK feedback confirmation、bandit feedback stress、learned feedback probing 和 adaptive feedback probing 结果压缩成最终论文表格与图。
+1. Invitation Mask Correction finalization：`make final-invitation-mask-analysis` 已完成论文级结果包。可靠反馈下 direct `mc=1` 是主方法；feedback-noise std `0.1` 下 `mc=1 clip=2` 把 direct `mc=1` 的 gap/failed/missed 从 `0.856/5.264/0.734` 降到 `0.818/3.275/0.599`。下一步应把 direct main point 和 clipped high-noise variant 写入主贡献与补充鲁棒性表。
+2. Adaptive Sparse-TopK formalization：把 v2 作为 cost-quality continuum baseline 报告，并在主表中明确它不是最终方法，而是成本-质量折中点。
+3. Nonlinear slate/subset learning：如果继续学习路线，应从线性 learned set-label 升级到非线性 slate policy 或 subset policy，并显式建模 confirmation feedback 与 preview cost；不要继续调 absolute/marginal/set/execution/pairwise 这些线性标签。
+4. Multi-objective reward / constraint：显式优化 coverage + latency + power/MSE，看学习策略是否能在能耗或风险约束下超过 Feature Argmax PowerTie / Rotating Grid。
+5. Feature ablation：去掉 16 维 codebook features 后重新评估 Codebook-Aware SAC / no-feature selector。
+6. 论文表格定稿：`make execution-baseline-summary` 已生成 `docs/EXECUTION_BASELINE_SUMMARY.md` 和 `results/execution_mismatch/final_execution_baseline_summary.csv`；后续只需把该表转换为论文格式。
 
-参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、temporal AR(1) mismatch pilot、temporal reliability pilot、temporal deviation oracle diagnostic、learned temporal deviation pilot、DAgger temporal deviation pilot、window temporal deviation pilot、gated window temporal deviation pilot、stale-topK feedback confirmation pilot、rotating feedback confirm pilot、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应优先做低成本 candidate generation 或 active probe-set selection，而不是 plain noisy Greedy-index imitation、当前低维离线 MLP、DAgger 化的低维 offset regressor、历史统计 window reranking、margin-gated fallback、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter、AR1 mean prediction、hand-crafted temporal reliability ranking、unchanged rotating set confirmation，或仅决策 preview 误差。
+参数泛化、能耗 tie-break、正式主对比、runtime benchmark、noisy feature sweep、noise-aware imitation、partial probing sweep、learned probing、probing cost tradeoff、channel estimation error sweep、execution channel mismatch pilot、static execution-risk-aware pilot、opportunity-cost execution-risk pilot、temporal AR(1) mismatch pilot、temporal reliability pilot、temporal deviation oracle diagnostic、learned temporal deviation pilot、DAgger temporal deviation pilot、window temporal deviation pilot、gated window temporal deviation pilot、stale-topK feedback confirmation pilot、rotating feedback confirm pilot、active probe-set pilot、sparse-topK cost pilot、sparse-topK formal frontier、adaptive sparse-topK margin pilot、adaptive sparse-topK v2/v3 pilots、learned sparse shortlist pilot、marginal-value learned sparse shortlist pilot、set-level learned shortlist pilot、closed-loop execution-value learned shortlist pilot、pairwise/cost-aware learned shortlist pilot、coverage-aware sparse-topK ablation/frontier、coverage sparse power ablation、coverage budget split pilot/formal、neighbor-coverage local reallocation pilot、coverage B3 failure diagnosis、invitation mask correction formal、invitation mask correction noise sweep、invitation mask correction noise-aware formal、final invitation mask analysis、execution baseline summary、bandit feedback stress、learned feedback probing 和 adaptive feedback probing pilot 已经完成。下一步若继续保留学习方向，应升级为 nonlinear slate/subset policy；若继续规则主线，则应围绕 direct `Mask-Corrected Coverage-Aware B=3 mc=1` 和 high-noise `mc=1 clip=2` 完成论文叙事，而不是 plain noisy Greedy-index imitation、当前低维离线 MLP、DAgger 化的低维 offset regressor、历史统计 window reranking、margin-gated fallback、单次 noisy feedback hard gate、static conservative invitation、opportunity-cost invitation filter、AR1 mean prediction、hand-crafted temporal reliability ranking、unchanged rotating set confirmation、纯几何 diversity candidate generation、单一 stale margin threshold、单一 scalar expansion gate、固定 local-neighbor heuristic、固定 local-neighbor reallocation、单候选 scalar marginal label、hidden set-value label、closed-loop scalar regression label、pairwise linear set-label，或仅决策 preview 误差。
