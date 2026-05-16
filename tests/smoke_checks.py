@@ -52,6 +52,28 @@ from evaluate_bandit_feedback_ms_aircomp import (
     observe_probe_feedback,
     select_feedback_probe_indices,
 )
+from ms_aircomp.adaptive_sparse_policies import (
+    choose_adaptive_sparse_topk_feedback_decision,
+    choose_adaptive_sparse_topk_v2_feedback_decision,
+    choose_adaptive_sparse_topk_v3_feedback_decision,
+)
+from ms_aircomp.execution_policies import (
+    choose_active_diverse_feedback_decision,
+    choose_neighbor_coverage_sparse_topk_feedback_decision,
+    choose_sparse_topk_feedback_decision,
+)
+import ms_aircomp.execution_policy_registry as execution_policy_registry
+from ms_aircomp.invitation_mask_correction import (
+    apply_invitation_mask_correction,
+    corrected_target_count,
+)
+from ms_aircomp.learned_shortlist import (
+    LEARNED_SET_SHORTLIST_FEATURE_NAMES,
+    LEARNED_SHORTLIST_FEATURE_NAMES,
+    choose_learned_set_shortlist_feedback_decision,
+    choose_learned_sparse_shortlist_feedback_decision,
+)
+from ms_aircomp.probe_sets import fill_diverse_codebook_indices
 from test_env import MSAirCompEnv
 
 
@@ -71,6 +93,24 @@ def make_args():
         bandit_prior=0.0,
         ucb_coeff=0.25,
         thompson_std=0.2,
+        confirmation_feedback_noise_std=0.0,
+        confirmation_feedback_power_weight=0.05,
+        sparse_topk_seed_multiplier=2.0,
+        sparse_topk_fraction=0.75,
+        adaptive_sparse_base_multiplier=2.0,
+        adaptive_sparse_expanded_multiplier=3.0,
+        adaptive_sparse_margin_threshold=0.05,
+        adaptive_sparse_v2_preview_cost=0.002,
+        adaptive_sparse_v2_uncertainty_weight=0.02,
+        adaptive_sparse_v2_urgency_weight=0.5,
+        adaptive_sparse_v2_history_weight=0.02,
+        adaptive_sparse_history_window=3,
+        adaptive_sparse_history_prior_threshold=0.67,
+        adaptive_sparse_v3_neighbor_radius=1,
+        adaptive_sparse_v3_neighbor_count=2,
+        adaptive_sparse_v3_history_count=1,
+        learned_shortlist_extra_count=1,
+        learned_set_extra_count=1,
     )
 
 
@@ -201,6 +241,21 @@ def assert_negative_feature_noise_is_rejected(args):
     except ValueError:
         return
     raise AssertionError("negative codebook feature noise std should raise ValueError")
+
+
+def assert_invalid_environment_dimensions_are_rejected():
+    invalid_configs = [
+        {"num_nodes": 0},
+        {"num_slots": 0},
+        {"num_irs_elements": 0},
+        {"num_codebook_states": 1},
+    ]
+    for config in invalid_configs:
+        try:
+            MSAirCompEnv(**config)
+        except ValueError:
+            continue
+        raise AssertionError(f"invalid environment config should raise ValueError: {config}")
 
 
 def assert_power_tie_matches_greedy(args):
@@ -350,6 +405,187 @@ def assert_limited_csi_execution_only_counts_invited_nodes(args):
     assert env.current_slot == 1
 
 
+def assert_invitation_mask_correction_count_rules():
+    correction_args = Namespace(num_nodes=10, confirmation_feedback_noise_std=0.1)
+
+    assert corrected_target_count(
+        correction_args,
+        remaining_count=8,
+        stale_count=3,
+        feedback_count=7,
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+    ) == 7
+    assert corrected_target_count(
+        correction_args,
+        remaining_count=8,
+        stale_count=3,
+        feedback_count=7,
+        strength=0.5,
+        deadband_z=0.0,
+        max_delta=-1.0,
+    ) == 5
+    assert corrected_target_count(
+        correction_args,
+        remaining_count=8,
+        stale_count=3,
+        feedback_count=5,
+        strength=1.0,
+        deadband_z=2.0,
+        max_delta=-1.0,
+    ) == 3
+    assert corrected_target_count(
+        correction_args,
+        remaining_count=8,
+        stale_count=3,
+        feedback_count=7,
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=1.0,
+    ) == 4
+
+
+def assert_invitation_mask_correction_preserves_noop_masks():
+    correction_args = Namespace(num_nodes=6, confirmation_feedback_noise_std=0.0)
+    env = Namespace(
+        transmitted_flags=np.array([False, False, True, False, False, False], dtype=bool)
+    )
+    candidate = {
+        "valid_mask": np.array([True, False, True, False, False, True], dtype=bool),
+        "h_gain": np.array([0.8, 0.9, 1.0, 0.7, 0.6, 0.5], dtype=float),
+        "required_power": np.array([0.2, 0.4, 0.1, 0.5, 0.6, 0.3], dtype=float),
+        "tx_this_slot": 3,
+        "power_avg": 0.2,
+    }
+    expected_remaining_stale_mask = np.array(
+        [True, False, False, False, False, True], dtype=bool
+    )
+
+    no_strength = apply_invitation_mask_correction(
+        candidate,
+        correction_args,
+        env,
+        feedback={"observed_tx_fraction": 4.0 / 6.0},
+        strength=0.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+    )
+    assert np.array_equal(no_strength["valid_mask"], expected_remaining_stale_mask)
+    assert no_strength["mask_correction_target_count"] == 2
+    assert no_strength["mask_correction_added"] == 0
+    assert no_strength["mask_correction_pruned"] == 0
+    assert no_strength["mask_correction_applied"] == 0
+
+    deadband_noop = apply_invitation_mask_correction(
+        candidate,
+        correction_args,
+        env,
+        feedback={"observed_tx_fraction": 2.0 / 6.0},
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+    )
+    assert np.array_equal(deadband_noop["valid_mask"], expected_remaining_stale_mask)
+    assert deadband_noop["mask_correction_target_count"] == 2
+    assert deadband_noop["mask_correction_applied"] == 0
+
+    expanded = apply_invitation_mask_correction(
+        candidate,
+        correction_args,
+        env,
+        feedback={"observed_tx_fraction": 4.0 / 6.0},
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+    )
+    expected_expanded_mask = np.array([True, True, False, True, True, False], dtype=bool)
+    assert np.array_equal(expanded["valid_mask"], expected_expanded_mask)
+    assert expanded["tx_this_slot"] == 4
+    assert expanded["mask_correction_stale_count"] == 2
+    assert expanded["mask_correction_feedback_count"] == 4
+    assert expanded["mask_correction_target_count"] == 4
+    assert expanded["mask_correction_added"] == 3
+    assert expanded["mask_correction_pruned"] == 1
+    assert expanded["mask_correction_target_delta"] == 2
+    assert expanded["mask_correction_applied"] == 1
+    assert not expanded["valid_mask"][2]
+
+
+def assert_execution_policy_registry_expands_labels_and_scenarios():
+    registry_args = Namespace(
+        policies=[
+            "coverage_sparse_topk_feedback",
+            "neighbor_coverage_sparse_topk_feedback",
+            "adaptive_sparse_topk_v3_feedback",
+            "execution_oracle",
+        ],
+        num_codebook_states=16,
+        probe_budgets=[3],
+        robust_gain_margins=[1.0],
+        robust_power_margins=[1.0],
+        risk_weights=[0.5],
+        risk_power_weights=[0.0],
+        risk_invite_thresholds=[0.75],
+        adaptive_risk_base_weights=[0.5],
+        opportunity_failure_costs=[1.0],
+        opportunity_missed_costs=[1.0],
+        opportunity_deadline_gains=[0.0],
+        opportunity_backlog_gains=[0.0],
+        sparse_topk_seed_multipliers=[4.1],
+        sparse_topk_fractions=[0.75],
+        coverage_sparse_weights=[0.5],
+        coverage_sparse_power_weights=[0.0],
+        adaptive_sparse_base_multiplier=2.0,
+        adaptive_sparse_expanded_multiplier=3.0,
+        adaptive_sparse_margin_thresholds=[0.05],
+        adaptive_sparse_v2_preview_costs=[0.002],
+        adaptive_sparse_v3_neighbor_radius=1,
+        adaptive_sparse_v3_neighbor_count=2,
+        adaptive_sparse_v3_history_count=1,
+        learned_shortlist_extra_counts=[1],
+        learned_set_extra_counts=[1],
+        temporal_reliability_z_values=[0.0],
+        mismatch_models=[
+            execution_policy_registry.MISMATCH_INDEPENDENT,
+            execution_policy_registry.MISMATCH_TEMPORAL_AR1,
+        ],
+        channel_rho_values=[0.7, 0.9],
+        csi_delay_slots=[1, 3],
+    )
+
+    configs = execution_policy_registry.policy_configs(registry_args)
+    assert len(configs) == 4
+    assert configs[-1] == {
+        "policy_name": execution_policy_registry.POLICY_EXECUTION_ORACLE,
+        "budget": 16,
+    }
+
+    labels = [execution_policy_registry.policy_label(**config) for config in configs]
+    assert labels[0] == (
+        "Coverage-Aware Sparse-TopK Feedback Grid B=3"
+        " sm=4.1 tf=0.75 cw=0.5 cpw=0"
+    )
+    assert labels[1] == (
+        "Neighbor-Coverage Sparse-TopK Feedback Grid B=3"
+        " sm=4.1 tf=0.75 cw=0.5 cpw=0 nr=1 nc=2"
+    )
+    assert labels[2] == (
+        "Adaptive Sparse-TopK V3 Feedback Grid B=3"
+        " bm=2 nr=1 nc=2 hc=1 tf=0.75"
+    )
+    assert labels[3] == execution_policy_registry.POLICY_EXECUTION_ORACLE
+
+    scenarios = list(execution_policy_registry.mismatch_scenarios(registry_args))
+    assert scenarios == [
+        (execution_policy_registry.MISMATCH_INDEPENDENT, 0.0, 0),
+        (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.7, 1),
+        (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.7, 3),
+        (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.9, 1),
+        (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.9, 3),
+    ]
+
+
 def assert_risk_aware_candidate_filters_low_reliability(args):
     env = MSAirCompEnv(
         num_nodes=args.num_nodes,
@@ -470,22 +706,421 @@ def assert_bandit_probe_selectors_respect_budget(args):
             assert all(0 <= index < args.num_codebook_states for index in indices)
 
 
+def assert_active_diverse_feedback_respects_budget(args):
+    for budget in (1, 2, 4, 8):
+        indices = fill_diverse_codebook_indices([3], budget, args.num_codebook_states)
+        assert len(indices) == budget
+        assert len(set(indices)) == budget
+        assert indices[0] == 3
+        assert all(0 <= index < args.num_codebook_states for index in indices)
+
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+    decision, preview_calls, candidate_count = choose_active_diverse_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert 0 <= int(decision["irs_index"]) < args.num_codebook_states
+    assert candidate_count == budget
+    assert 2 * budget <= preview_calls <= 3 * budget
+
+
+def assert_sparse_topk_feedback_respects_budget(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+    decision, preview_calls, candidate_count = choose_sparse_topk_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert 0 <= int(decision["irs_index"]) < args.num_codebook_states
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget
+    assert decision["sparse_seed_count"] == 2 * budget
+    assert decision["sparse_topk_count"] == 3
+
+    decision, preview_calls, candidate_count = choose_sparse_topk_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        seed_multiplier=3.0,
+        topk_fraction=0.75,
+    )
+    assert candidate_count == budget
+    assert preview_calls == 4 * budget
+    assert decision["sparse_seed_count"] == 3 * budget
+    assert decision["sparse_topk_count"] == 3
+
+
+def assert_neighbor_coverage_sparse_topk_reallocates_stale_budget(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+
+    decision, preview_calls, candidate_count = (
+        choose_neighbor_coverage_sparse_topk_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx=0,
+            decision_error_std=0.0,
+            execution_error_std=0.0,
+            episode_seed=args.seed,
+            seed_multiplier=3.0,
+            topk_fraction=0.75,
+            coverage_weight=0.5,
+            power_weight=0.0,
+            neighbor_radius=1,
+            neighbor_count=2,
+        )
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert 0 <= int(decision["irs_index"]) < args.num_codebook_states
+    assert candidate_count == budget
+    assert preview_calls == 4 * budget
+    assert decision["sparse_seed_count"] == 3 * budget
+    assert decision["sparse_topk_count"] == 3
+    assert decision["adaptive_sparse_v3_neighbor_extra_preview_count"] == 2.0
+    assert decision["adaptive_sparse_v3_selected_extra_preview_count"] <= 2.0
+
+
+def assert_adaptive_sparse_topk_expands_only_on_low_margin(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        margin_threshold=0.0,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert 0 <= int(decision["irs_index"]) < args.num_codebook_states
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget
+    assert decision["adaptive_sparse_expanded"] == 0.0
+    assert decision["sparse_seed_count"] == 2 * budget
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        margin_threshold=2.0,
+    )
+
+    assert candidate_count == budget
+    assert preview_calls == 4 * budget
+    assert decision["adaptive_sparse_expanded"] == 1.0
+    assert decision["sparse_seed_count"] == 3 * budget
+
+
+def assert_adaptive_sparse_topk_v2_uses_cost_and_history(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_v2_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        margin_threshold=2.0,
+        preview_cost=0.0,
+        history_weight=0.0,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert candidate_count == budget
+    assert preview_calls == 4 * budget
+    assert decision["adaptive_sparse_expanded"] == 1.0
+    assert decision["sparse_seed_count"] == 3 * budget
+    assert decision["adaptive_sparse_cost_penalty"] == 0.0
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_v2_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        confirmed_history=[0, 0, 0],
+        margin_threshold=2.0,
+        preview_cost=0.0,
+        history_weight=5.0,
+    )
+
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget
+    assert decision["adaptive_sparse_expanded"] == 0.0
+    assert decision["adaptive_sparse_history_stability"] == 1.0
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_v2_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        margin_threshold=2.0,
+        preview_cost=1.0,
+        history_weight=0.0,
+    )
+
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget
+    assert decision["adaptive_sparse_expanded"] == 0.0
+    assert decision["adaptive_sparse_cost_penalty"] > 0.0
+
+
+def assert_adaptive_sparse_topk_v3_uses_history_and_neighbors(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_v3_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        confirmed_history=[0, 0, 0],
+        neighbor_count=2,
+        history_count=1,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert candidate_count == budget
+    assert 3 * budget <= preview_calls <= 4 * budget
+    assert decision["adaptive_sparse_expanded"] == 0.0
+    assert decision["adaptive_sparse_v3_history_prior_used"] == 1.0
+    assert decision["sparse_seed_count"] == 2 * budget
+    assert decision["adaptive_sparse_v3_selected_extra_preview_count"] <= budget
+
+    decision, preview_calls, candidate_count = choose_adaptive_sparse_topk_v3_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        confirmed_history=[],
+        neighbor_count=0,
+        history_count=0,
+    )
+
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget
+    assert decision["adaptive_sparse_v3_history_prior_used"] == 0.0
+    assert decision["adaptive_sparse_v3_neighbor_extra_preview_count"] == 0.0
+
+
+def assert_learned_sparse_shortlist_respects_budget(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+    model = {
+        "weights": np.zeros(len(LEARNED_SHORTLIST_FEATURE_NAMES), dtype=float),
+        "bias": 0.0,
+        "feature_mean": np.zeros(len(LEARNED_SHORTLIST_FEATURE_NAMES), dtype=float),
+        "feature_scale": np.ones(len(LEARNED_SHORTLIST_FEATURE_NAMES), dtype=float),
+    }
+
+    decision, preview_calls, candidate_count = choose_learned_sparse_shortlist_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        confirmed_history=[0, 0, 0],
+        channel_rho=0.9,
+        csi_delay_slots=1,
+        extra_count=1,
+        model=model,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert candidate_count == budget
+    assert preview_calls == 3 * budget + 1
+    assert decision["sparse_seed_count"] == 2 * budget
+    assert decision["learned_shortlist_extra_count"] == 1
+    assert decision["learned_shortlist_selected_extra_preview_count"] <= 1
+
+
+def assert_learned_set_shortlist_respects_budget(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_before = env.current_slot
+    flags_before = env.transmitted_flags.copy()
+    budget = 4
+    model = {
+        "weights": np.zeros(len(LEARNED_SET_SHORTLIST_FEATURE_NAMES), dtype=float),
+        "bias": 0.0,
+        "feature_mean": np.zeros(len(LEARNED_SET_SHORTLIST_FEATURE_NAMES), dtype=float),
+        "feature_scale": np.ones(len(LEARNED_SET_SHORTLIST_FEATURE_NAMES), dtype=float),
+    }
+
+    decision, preview_calls, candidate_count = choose_learned_set_shortlist_feedback_decision(
+        env,
+        args,
+        budget,
+        slot_idx=0,
+        decision_error_std=0.0,
+        execution_error_std=0.0,
+        episode_seed=args.seed,
+        confirmed_history=[0, 0, 0],
+        channel_rho=0.9,
+        csi_delay_slots=1,
+        extra_count=2,
+        model=model,
+    )
+
+    assert env.current_slot == slot_before
+    assert np.array_equal(env.transmitted_flags, flags_before)
+    assert candidate_count == budget
+    assert 3 * budget <= preview_calls <= 3 * budget + 2
+    assert decision["sparse_seed_count"] == 2 * budget
+    assert decision["learned_shortlist_extra_count"] == 2
+    assert decision["learned_shortlist_selected_extra_preview_count"] <= 2
+    assert decision["learned_set_shortlist_variant_count"] > 1
+
+
 def main():
     args = make_args()
     assert_preview_has_no_side_effects(args)
     assert_codebook_features_match_preview(args)
     assert_noisy_codebook_features_are_seeded_and_clipped(args)
     assert_negative_feature_noise_is_rejected(args)
+    assert_invalid_environment_dimensions_are_rejected()
     assert_power_tie_matches_greedy(args)
     assert_episode_seed_generation_is_stable(args)
     assert_partial_probe_selectors_respect_budget(args)
     assert_estimated_preview_zero_error_matches_exact(args)
     assert_limited_csi_zero_error_matches_true(args)
     assert_limited_csi_execution_only_counts_invited_nodes(args)
+    assert_invitation_mask_correction_count_rules()
+    assert_invitation_mask_correction_preserves_noop_masks()
+    assert_execution_policy_registry_expands_labels_and_scenarios()
     assert_risk_aware_candidate_filters_low_reliability(args)
     assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args)
     assert_bandit_feedback_observes_only_aggregate_metrics(args)
     assert_bandit_probe_selectors_respect_budget(args)
+    assert_active_diverse_feedback_respects_budget(args)
+    assert_sparse_topk_feedback_respects_budget(args)
+    assert_neighbor_coverage_sparse_topk_reallocates_stale_budget(args)
+    assert_adaptive_sparse_topk_expands_only_on_low_margin(args)
+    assert_adaptive_sparse_topk_v2_uses_cost_and_history(args)
+    assert_adaptive_sparse_topk_v3_uses_history_and_neighbors(args)
+    assert_learned_sparse_shortlist_respects_budget(args)
+    assert_learned_set_shortlist_respects_budget(args)
     print("smoke checks passed")
 
 

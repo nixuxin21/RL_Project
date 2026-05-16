@@ -11,125 +11,72 @@ The execution oracle is kept only as an offline upper bound.
 """
 
 import argparse
-import csv
 import os
-
-os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
-
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 import evaluate_limited_csi_ms_aircomp as limited
-from evaluate_policy_comparison import (
-    ensure_parent_dir,
-    format_float_for_suffix,
-    make_episode_seeds,
-    make_run_seeds,
+from evaluate_policy_comparison import make_episode_seeds, make_run_seeds
+from ms_aircomp.channel_models import (
+    apply_channel_state,
+    ar1_predict_channel_state,
+    build_temporal_channel_states,
+    delayed_channel_state,
+    temporal_uncertainty_std,
 )
-
-
-POLICY_EXECUTION_ORACLE = "Execution Oracle Full CSI"
-POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID = "Execution-Risk Rotating Grid"
-POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
-POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Risk Rotating Grid"
-POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
-POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
-POLICY_ROTATING_FEEDBACK_CONFIRM_GRID = "Rotating Feedback Confirm Grid"
-POLICY_STALE_TOPK_FEEDBACK_GRID = "Stale-TopK Feedback Grid"
-POLICY_TEMPORAL_DEVIATION_ORACLE_GRID = "Temporal Deviation Oracle"
-
-MISMATCH_INDEPENDENT = "independent"
-MISMATCH_TEMPORAL_AR1 = "temporal_ar1"
-MISMATCH_CHOICES = {MISMATCH_INDEPENDENT, MISMATCH_TEMPORAL_AR1}
-
-POLICY_CHOICES = {
-    "no_irs": limited.POLICY_NO_IRS,
-    "fixed": limited.POLICY_FIXED_IRS,
-    "exact_greedy": limited.POLICY_EXACT_GREEDY,
-    "estimated_greedy": limited.POLICY_EST_GREEDY,
-    "random_probe": limited.POLICY_RANDOM_PROBE,
-    "rotating": limited.POLICY_ROTATING_GRID,
-    "robust_rotating": limited.POLICY_ROBUST_ROTATING_GRID,
-    "risk_rotating": limited.POLICY_RISK_AWARE_ROTATING_GRID,
-    "adaptive_risk_rotating": limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
-    "execution_risk_rotating": POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-    "adaptive_execution_risk_rotating": POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-    "opportunity_execution_risk_rotating": POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
-    "ar1_predict_rotating": POLICY_AR1_PREDICT_ROTATING_GRID,
-    "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
-    "rotating_feedback_confirm": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
-    "feedback_confirm_rotating": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
-    "stale_topk_feedback": POLICY_STALE_TOPK_FEEDBACK_GRID,
-    "stale_topk_rotating": POLICY_STALE_TOPK_FEEDBACK_GRID,
-    "temporal_deviation_oracle": POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
-    "execution_oracle": POLICY_EXECUTION_ORACLE,
-}
-
-NUMERIC_RESULT_KEYS = (
-    "success_nodes",
-    "avg_power",
-    "episode_reward",
-    "slots_used",
-    "total_energy",
-    "scheduled_nodes",
-    "failed_nodes",
-    "missed_opportunities",
-    "true_opportunities",
-    "failure_slots",
-    "decision_preview_calls_per_slot",
-    "oracle_tx_gap_mean",
-    "effective_risk_weight",
+from ms_aircomp.execution_decision_dispatch import (
+    choose_decision,
+    choose_execution_mismatch_decision,
 )
-
-CSV_FIELDS = [
-    "decision_error_std",
-    "execution_error_std",
-    "mismatch_model",
-    "channel_rho",
-    "csi_delay_slots",
-    "probe_budget",
-    "policy",
-    "episodes",
-    "num_seeds",
-    "num_nodes",
-    "num_slots",
-    "num_irs_elements",
-    "num_codebook_states",
-    "g_th",
-    "alpha_th",
-    "gain_margin",
-    "power_margin",
-    "risk_weight",
-    "risk_power_weight",
-    "risk_invite_threshold",
-    "adaptive_risk_base_weight",
-    "opportunity_failure_cost",
-    "opportunity_missed_cost",
-    "opportunity_deadline_gain",
-    "opportunity_backlog_gain",
-    "temporal_reliability_z",
-    "success_mean",
-    "success_ci95",
-    "success_rate_mean",
-    "perfect_rate",
-    "slots_mean",
-    "slots_ci95",
-    "avg_power",
-    "total_energy_mean",
-    "total_energy_ci95",
-    "scheduled_nodes_mean",
-    "failed_nodes_mean",
-    "missed_opportunities_mean",
-    "true_opportunities_mean",
-    "failure_slot_rate",
-    "decision_preview_calls_per_slot_mean",
-    "oracle_tx_gap_mean",
-    "effective_risk_weight_mean",
-    "avg_reward",
-]
+from ms_aircomp.execution_candidates import execution_oracle_candidate
+from ms_aircomp.execution_output import (
+    plot_results,
+    print_progress,
+    print_summary,
+    resolve_output_prefix,
+)
+from ms_aircomp.execution_policy_registry import (
+    MISMATCH_CHOICES,
+    MISMATCH_INDEPENDENT,
+    MISMATCH_TEMPORAL_AR1,
+    POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+    POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+    POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
+    POLICY_AR1_PREDICT_ROTATING_GRID,
+    POLICY_CHOICES,
+    POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_EXECUTION_ORACLE,
+    POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+    POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+    POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
+    POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+    POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_STALE_TOPK_FEEDBACK_GRID,
+    POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
+    POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
+    mismatch_scenarios,
+    policy_configs,
+    policy_label,
+)
+from ms_aircomp.execution_result_summary import (
+    CSV_FIELDS,
+    NUMERIC_RESULT_KEYS,
+    OPTIONAL_RESULT_DEFAULTS,
+    aggregate_seed_results,
+    metric_mean_ci,
+    result_array,
+    result_value,
+    seed_summary,
+    summarize_results,
+    write_csv,
+)
+from ms_aircomp.learned_shortlist import (
+    load_learned_set_shortlist_model,
+    load_learned_shortlist_model,
+)
 
 
 def parse_csv_items(value):
@@ -173,6 +120,134 @@ def parse_args():
     parser.add_argument("--opportunity-deadline-gains", default="0.5")
     parser.add_argument("--opportunity-backlog-gains", default="0.5")
     parser.add_argument("--temporal-reliability-z-values", default="1.0")
+    parser.add_argument(
+        "--sparse-topk-seed-multipliers",
+        default="2",
+        help="Comma-separated multipliers for sparse stale preview pool size; seed count is ceil(multiplier * B).",
+    )
+    parser.add_argument(
+        "--sparse-topk-fractions",
+        default="0.75",
+        help="Comma-separated fractions of B reserved for sparse stale top candidates before rotating coverage.",
+    )
+    parser.add_argument(
+        "--coverage-sparse-weights",
+        default="0.5",
+        help=(
+            "Comma-separated marginal device-coverage weights for coverage-aware sparse top-k. "
+            "Higher values favor stale candidates that cover devices not covered by already selected candidates."
+        ),
+    )
+    parser.add_argument(
+        "--coverage-sparse-power-weight",
+        type=float,
+        default=0.0,
+        help="Power penalty used while selecting coverage-aware sparse candidates from stale previews.",
+    )
+    parser.add_argument(
+        "--coverage-sparse-power-weights",
+        default=None,
+        help=(
+            "Optional comma-separated power penalties for coverage-aware sparse top-k. "
+            "When omitted, --coverage-sparse-power-weight is used for backwards compatibility."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-sparse-margin-thresholds",
+        default="0.05",
+        help=(
+            "Comma-separated normalized stale top-k margin thresholds for adaptive sparse top-k. "
+            "Expand from base to expanded seed multiplier when the top-vs-kth stale tx-count margin is below threshold."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-sparse-base-multiplier",
+        type=float,
+        default=2.0,
+        help="Base stale preview multiplier for adaptive sparse top-k.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-expanded-multiplier",
+        type=float,
+        default=3.0,
+        help="Expanded stale preview multiplier for adaptive sparse top-k.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v2-preview-costs",
+        default="0.002",
+        help=(
+            "Comma-separated expansion cost penalties for adaptive sparse top-k v2. "
+            "Each value is a normalized margin penalty per extra stale preview."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v2-uncertainty-weight",
+        type=float,
+        default=0.02,
+        help="Margin-threshold boost per unit stale rho/delay uncertainty for adaptive sparse top-k v2.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v2-urgency-weight",
+        type=float,
+        default=0.5,
+        help="Margin-threshold boost for deadline/backlog shortfall in adaptive sparse top-k v2.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v2-history-weight",
+        type=float,
+        default=0.02,
+        help="Margin-threshold reduction when recent confirmed IRS choices are stable in adaptive sparse top-k v2.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-history-window",
+        type=int,
+        default=3,
+        help="Number of recent confirmed IRS choices used by adaptive sparse top-k v2.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-history-prior-threshold",
+        type=float,
+        default=0.67,
+        help="Minimum recent winner frequency before adaptive sparse top-k v2 injects a history prior.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v3-neighbor-radius",
+        type=int,
+        default=1,
+        help="Codebook-neighborhood radius around stale top candidates for adaptive sparse top-k v3.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v3-neighbor-count",
+        type=int,
+        default=2,
+        help="Maximum neighbor IRS indices to consider before rotating coverage in adaptive sparse top-k v3.",
+    )
+    parser.add_argument(
+        "--adaptive-sparse-v3-history-count",
+        type=int,
+        default=1,
+        help="Maximum recent stable winner indices to consider before rotating coverage in adaptive sparse top-k v3.",
+    )
+    parser.add_argument(
+        "--learned-shortlist-model",
+        default="",
+        help="Path to a .npz linear ranker for learned sparse shortlist feedback.",
+    )
+    parser.add_argument(
+        "--learned-shortlist-extra-counts",
+        default="1",
+        help="Comma-separated numbers of learned extra stale candidates to add after the 2B sparse pool.",
+    )
+    parser.add_argument(
+        "--learned-set-shortlist-model",
+        default="",
+        help="Path to a .npz set-level ranker for learned set shortlist feedback.",
+    )
+    parser.add_argument(
+        "--learned-set-extra-counts",
+        default="1",
+        help="Comma-separated maximum numbers of non-seed candidates considered by learned set shortlist feedback.",
+    )
     parser.add_argument("--num-nodes", type=int, default=50)
     parser.add_argument("--num-slots", type=int, default=10)
     parser.add_argument("--num-irs-elements", type=int, default=64)
@@ -194,6 +269,8 @@ def validate_args(args):
     for name in ("num_nodes", "num_slots", "num_irs_elements", "num_codebook_states"):
         if getattr(args, name) <= 0:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
     if args.g_th <= 0.0:
         raise ValueError("--g-th must be positive")
     if args.alpha_th <= 0.0:
@@ -249,6 +326,19 @@ def validate_args(args):
     args.opportunity_deadline_gains = limited.parse_float_list(args.opportunity_deadline_gains)
     args.opportunity_backlog_gains = limited.parse_float_list(args.opportunity_backlog_gains)
     args.temporal_reliability_z_values = limited.parse_float_list(args.temporal_reliability_z_values)
+    args.sparse_topk_seed_multipliers = limited.parse_float_list(args.sparse_topk_seed_multipliers)
+    args.sparse_topk_fractions = limited.parse_float_list(args.sparse_topk_fractions)
+    args.coverage_sparse_weights = limited.parse_float_list(args.coverage_sparse_weights)
+    if args.coverage_sparse_power_weights is None:
+        args.coverage_sparse_power_weights = [float(args.coverage_sparse_power_weight)]
+    else:
+        args.coverage_sparse_power_weights = limited.parse_float_list(
+            args.coverage_sparse_power_weights
+        )
+    args.adaptive_sparse_margin_thresholds = limited.parse_float_list(args.adaptive_sparse_margin_thresholds)
+    args.adaptive_sparse_v2_preview_costs = limited.parse_float_list(args.adaptive_sparse_v2_preview_costs)
+    args.learned_shortlist_extra_counts = limited.parse_int_list(args.learned_shortlist_extra_counts)
+    args.learned_set_extra_counts = limited.parse_int_list(args.learned_set_extra_counts)
     for name in (
         "robust_gain_margins",
         "robust_power_margins",
@@ -261,6 +351,14 @@ def validate_args(args):
         "opportunity_deadline_gains",
         "opportunity_backlog_gains",
         "temporal_reliability_z_values",
+        "sparse_topk_seed_multipliers",
+        "sparse_topk_fractions",
+        "coverage_sparse_weights",
+        "coverage_sparse_power_weights",
+        "adaptive_sparse_margin_thresholds",
+        "adaptive_sparse_v2_preview_costs",
+        "learned_shortlist_extra_counts",
+        "learned_set_extra_counts",
     ):
         if not getattr(args, name):
             raise ValueError(f"--{name.replace('_', '-')} must not be empty")
@@ -284,967 +382,64 @@ def validate_args(args):
         raise ValueError("--opportunity-backlog-gains must be non-negative")
     if any(value < 0.0 for value in args.temporal_reliability_z_values):
         raise ValueError("--temporal-reliability-z-values must be non-negative")
+    if any(value <= 0.0 for value in args.sparse_topk_seed_multipliers):
+        raise ValueError("--sparse-topk-seed-multipliers must be positive")
+    if any(value <= 0.0 or value > 1.0 for value in args.sparse_topk_fractions):
+        raise ValueError("--sparse-topk-fractions must be in (0, 1]")
+    if any(value < 0.0 for value in args.coverage_sparse_weights):
+        raise ValueError("--coverage-sparse-weights must be non-negative")
+    if any(value < 0.0 for value in args.coverage_sparse_power_weights):
+        raise ValueError("--coverage-sparse-power-weights must be non-negative")
+    if any(value < 0.0 for value in args.adaptive_sparse_margin_thresholds):
+        raise ValueError("--adaptive-sparse-margin-thresholds must be non-negative")
+    if args.adaptive_sparse_base_multiplier <= 0.0:
+        raise ValueError("--adaptive-sparse-base-multiplier must be positive")
+    if args.adaptive_sparse_expanded_multiplier < args.adaptive_sparse_base_multiplier:
+        raise ValueError("--adaptive-sparse-expanded-multiplier must be at least the base multiplier")
+    if any(value < 0.0 for value in args.adaptive_sparse_v2_preview_costs):
+        raise ValueError("--adaptive-sparse-v2-preview-costs must be non-negative")
+    if args.adaptive_sparse_v2_uncertainty_weight < 0.0:
+        raise ValueError("--adaptive-sparse-v2-uncertainty-weight must be non-negative")
+    if args.adaptive_sparse_v2_urgency_weight < 0.0:
+        raise ValueError("--adaptive-sparse-v2-urgency-weight must be non-negative")
+    if args.adaptive_sparse_v2_history_weight < 0.0:
+        raise ValueError("--adaptive-sparse-v2-history-weight must be non-negative")
+    if args.adaptive_sparse_history_window <= 0:
+        raise ValueError("--adaptive-sparse-history-window must be positive")
+    if args.adaptive_sparse_history_prior_threshold < 0.0 or args.adaptive_sparse_history_prior_threshold > 1.0:
+        raise ValueError("--adaptive-sparse-history-prior-threshold must be in [0, 1]")
+    if args.adaptive_sparse_v3_neighbor_radius < 0:
+        raise ValueError("--adaptive-sparse-v3-neighbor-radius must be non-negative")
+    if args.adaptive_sparse_v3_neighbor_count < 0:
+        raise ValueError("--adaptive-sparse-v3-neighbor-count must be non-negative")
+    if args.adaptive_sparse_v3_history_count < 0:
+        raise ValueError("--adaptive-sparse-v3-history-count must be non-negative")
+    if any(value < 0 for value in args.learned_shortlist_extra_counts):
+        raise ValueError("--learned-shortlist-extra-counts must be non-negative")
+    if any(value < 0 for value in args.learned_set_extra_counts):
+        raise ValueError("--learned-set-extra-counts must be non-negative")
+    if any(POLICY_CHOICES.get(alias) == POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID for alias in args.policies):
+        if not args.learned_shortlist_model:
+            raise ValueError("--learned-shortlist-model is required for learned shortlist feedback")
+        if not os.path.exists(args.learned_shortlist_model):
+            raise ValueError(f"Learned shortlist model not found: {args.learned_shortlist_model}")
+    if any(POLICY_CHOICES.get(alias) == POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID for alias in args.policies):
+        if not args.learned_set_shortlist_model:
+            raise ValueError("--learned-set-shortlist-model is required for learned set shortlist feedback")
+        if not os.path.exists(args.learned_set_shortlist_model):
+            raise ValueError(f"Learned set shortlist model not found: {args.learned_set_shortlist_model}")
 
     args.fixed_irs_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
-
-
-def resolve_output_prefix(args):
-    """Resolve output prefix for CSV and plots."""
-    if args.output_prefix is not None:
-        ensure_parent_dir(args.output_prefix)
-        return args.output_prefix
-
-    seed_label = "unseeded" if args.seed < 0 else f"seed{args.seed}"
-    budget_label = "-".join(format_float_for_suffix(value) for value in args.probe_budgets)
-    model_label = "-".join(args.mismatch_models)
-    rho_label = "-".join(format_float_for_suffix(value) for value in args.channel_rho_values)
-    delay_label = "-".join(str(value) for value in args.csi_delay_slots)
-    decision_label = "-".join(format_float_for_suffix(value) for value in args.decision_error_std_values)
-    execution_label = "-".join(format_float_for_suffix(value) for value in args.execution_error_std_values)
-    suffix = (
-        f"ep{args.episodes}_runs{args.num_seeds}_{seed_label}_b{budget_label}_"
-        f"model{model_label}_rho{rho_label}_delay{delay_label}_"
-        f"decerr{decision_label}_execerr{execution_label}"
+    args.learned_shortlist_model_data = (
+        load_learned_shortlist_model(args.learned_shortlist_model)
+        if getattr(args, "learned_shortlist_model", "")
+        else None
     )
-    output_prefix = os.path.join("results", "execution_mismatch", f"execution_mismatch_{suffix}")
-    ensure_parent_dir(output_prefix)
-    return output_prefix
-
-
-def execution_rng(episode_seed, execution_error_std, slot_idx, no_irs=False):
-    """Create a policy-independent RNG for execution channel drift."""
-    if episode_seed is None:
-        return np.random.default_rng()
-    error_tag = int(round(float(execution_error_std) * 1_000_000))
-    mode_tag = 0x4CF5AD43 if no_irs else 0
-    seed = (
-        int(episode_seed)
-        + 0xD1B54A32
-        + error_tag * 0x9E3779B1
-        + int(slot_idx) * 0x85EBCA6B
-        + mode_tag
-    ) % (2**32)
-    return np.random.default_rng(seed)
-
-
-def drift_channels(h_total, execution_error_std, rng):
-    """Apply per-slot execution drift to equivalent channels."""
-    clean = np.asarray(h_total, dtype=np.complex128)
-    if float(execution_error_std) <= 0.0:
-        return clean.copy()
-    rms = np.sqrt(np.mean(np.abs(clean) ** 2, axis=1, keepdims=True))
-    noise = (rng.normal(size=clean.shape) + 1j * rng.normal(size=clean.shape)) / np.sqrt(2.0)
-    return clean + float(execution_error_std) * np.maximum(rms, 1e-12) * noise
-
-
-def capture_channel_state(env):
-    """Copy the current physical channels from the environment."""
-    return {
-        "h_d": np.asarray(env.h_d, dtype=np.complex128).copy(),
-        "h_r": np.asarray(env.h_r, dtype=np.complex128).copy(),
-        "h_bs_r": np.asarray(env.h_bs_r, dtype=np.complex128).copy(),
-    }
-
-
-def apply_channel_state(env, state):
-    """Apply a copied physical-channel state to the environment."""
-    env.h_d = np.asarray(state["h_d"], dtype=np.complex128).copy()
-    env.h_r = np.asarray(state["h_r"], dtype=np.complex128).copy()
-    env.h_bs_r = np.asarray(state["h_bs_r"], dtype=np.complex128).copy()
-    env.avg_large_scale = float(np.mean(np.abs(env.h_d) ** 2))
-
-
-def temporal_rng(episode_seed, channel_rho):
-    """Create a policy-independent RNG for temporal channel evolution."""
-    if episode_seed is None:
-        return np.random.default_rng()
-    rho_tag = int(round(float(channel_rho) * 1_000_000))
-    seed = (int(episode_seed) + 0xA511E9B3 + rho_tag * 0x9E3779B1) % (2**32)
-    return np.random.default_rng(seed)
-
-
-def complex_normal(rng, shape, scale=1.0):
-    """Return circular complex Gaussian samples with the requested scale."""
-    return float(scale) * (rng.normal(size=shape) + 1j * rng.normal(size=shape)) / np.sqrt(2.0)
-
-
-def build_temporal_channel_states(env, args, episode_seed, channel_rho):
-    """Generate one AR(1) physical-channel state per slot."""
-    rho = float(channel_rho)
-    innovation_weight = np.sqrt(max(0.0, 1.0 - rho**2))
-    rng = temporal_rng(episode_seed, rho)
-    states = [capture_channel_state(env)]
-    for _slot_idx in range(1, int(args.num_slots)):
-        prev = states[-1]
-        states.append(
-            {
-                "h_d": rho * prev["h_d"]
-                + innovation_weight * complex_normal(rng, prev["h_d"].shape, scale=0.1),
-                "h_r": rho * prev["h_r"]
-                + innovation_weight * complex_normal(rng, prev["h_r"].shape),
-                "h_bs_r": rho * prev["h_bs_r"]
-                + innovation_weight * complex_normal(rng, prev["h_bs_r"].shape),
-            }
-        )
-    return states
-
-
-def delayed_channel_state(states, slot_idx, csi_delay_slots):
-    """Return the stale CSI state visible to the decision policy."""
-    delayed_idx = max(0, int(slot_idx) - int(csi_delay_slots))
-    delayed_idx = min(delayed_idx, len(states) - 1)
-    return states[delayed_idx]
-
-
-def ar1_predict_channel_state(delayed_state, channel_rho, csi_delay_slots):
-    """Predict the current channel mean from delayed AR(1) CSI."""
-    delay = max(int(csi_delay_slots), 0)
-    rho = float(channel_rho)
-    direct_factor = rho**delay
-    return {
-        "h_d": direct_factor * delayed_state["h_d"],
-        "h_r": direct_factor * delayed_state["h_r"],
-        "h_bs_r": direct_factor * delayed_state["h_bs_r"],
-    }
-
-
-def temporal_uncertainty_std(channel_rho, csi_delay_slots, use_ar1_prediction=False):
-    """Return relative CSI uncertainty induced by temporal delay."""
-    delay = max(int(csi_delay_slots), 0)
-    if delay == 0:
-        return 0.0
-    rho_delay = float(channel_rho) ** delay
-    if use_ar1_prediction:
-        return float(np.sqrt(max(0.0, 1.0 - rho_delay**2)))
-    return float(np.sqrt(max(0.0, 2.0 * (1.0 - rho_delay))))
-
-
-def temporal_reliability_candidate(
-    env,
-    args,
-    candidate,
-    decision_error_std,
-    temporal_error_std,
-    risk_weight=0.5,
-    risk_power_weight=0.1,
-    quantile_z=1.0,
-):
-    """Score a stale-CSI candidate by expected current schedulability."""
-    adjusted = dict(candidate)
-    estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
-    h_gain = np.asarray(candidate["h_gain"], dtype=float)
-    h_abs = np.sqrt(np.maximum(h_gain, 0.0))
-    total_error_std = float(np.hypot(float(decision_error_std), float(temporal_error_std)))
-    rms = float(np.sqrt(np.mean(h_gain))) if h_gain.size else 0.0
-    error_scale = total_error_std * max(rms, 1e-12)
-    reliability = limited.estimate_success_reliability(env, args, h_abs, error_scale)
-
-    amp_lower = np.maximum(h_abs - float(quantile_z) * error_scale, 0.0)
-    lower_gain = amp_lower**2
-    lower_required_power = (float(args.alpha_th) ** 2) / (lower_gain + 1e-12)
-    remaining = ~env.transmitted_flags
-    quantile_valid_mask = (
-        remaining
-        & (lower_gain >= float(args.g_th))
-        & (lower_required_power <= float(env.P_max))
+    args.learned_set_shortlist_model_data = (
+        load_learned_set_shortlist_model(args.learned_set_shortlist_model)
+        if getattr(args, "learned_set_shortlist_model", "")
+        else None
     )
-    quantile_invited_mask = estimated_valid_mask & quantile_valid_mask
-
-    tx_count = int(np.sum(estimated_valid_mask))
-    scheduled_power = np.asarray(candidate["required_power"], dtype=float)[estimated_valid_mask]
-    power_avg = float(np.mean(scheduled_power)) if tx_count > 0 else 0.0
-    expected_success = float(np.sum(reliability[estimated_valid_mask]))
-    risk_mass = float(np.sum(1.0 - reliability[estimated_valid_mask]))
-    quantile_count = int(np.sum(quantile_invited_mask))
-    score = (
-        expected_success
-        - float(risk_weight) * risk_mass
-        - float(risk_power_weight) * power_avg
-    )
-
-    adjusted["success_reliability"] = reliability
-    adjusted["temporal_reliability_error_std"] = total_error_std
-    adjusted["temporal_reliability_error_scale"] = error_scale
-    adjusted["temporal_reliability_z"] = float(quantile_z)
-    adjusted["temporal_quantile_valid_count"] = quantile_count
-    adjusted["expected_success"] = expected_success
-    adjusted["risk_mass"] = risk_mass
-    adjusted["temporal_reliability_score"] = float(score)
-    adjusted["effective_risk_weight"] = float(risk_weight)
-    return adjusted
-
-
-def temporal_reliability_candidate_key(candidate):
-    """Rank temporal reliability candidates without hard false-reject filtering."""
-    return (
-        float(candidate["temporal_reliability_score"]),
-        int(candidate["temporal_quantile_valid_count"]),
-        float(candidate["expected_success"]),
-        int(candidate["tx_this_slot"]),
-        -float(candidate["risk_mass"]),
-        -float(candidate["power_avg"]) if int(candidate["tx_this_slot"]) > 0 else 0.0,
-        float(candidate["mean_gain_remaining"]),
-    )
-
-
-def choose_temporal_reliability_decision(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    temporal_error_std,
-    episode_seed,
-    risk_weight=0.5,
-    risk_power_weight=0.1,
-    quantile_z=1.0,
-):
-    """Choose rotating candidates using temporal schedulability reliability."""
-    budget = min(int(budget), args.num_codebook_states)
-    # Reuse a known stable_rng policy offset; temporal reliability keeps its own salts below.
-    random_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        budget,
-        salt=17 + slot_idx,
-    )
-    error_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        budget,
-        salt=19 + slot_idx,
-    )
-    indices = limited.select_indices(
-        limited.POLICY_ROTATING_GRID,
-        args,
-        budget,
-        slot_idx,
-        random_rng,
-    )
-    candidates = limited.estimated_preview_candidates(
-        env,
-        args,
-        indices=indices,
-        error_std=decision_error_std,
-        rng=error_rng,
-    )
-    adjusted = [
-        temporal_reliability_candidate(
-            env,
-            args,
-            candidate,
-            decision_error_std,
-            temporal_error_std,
-            risk_weight=risk_weight,
-            risk_power_weight=risk_power_weight,
-            quantile_z=quantile_z,
-        )
-        for candidate in candidates
-    ]
-    return max(adjusted, key=temporal_reliability_candidate_key), len(indices), len(indices)
-
-
-def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_idx=0, no_irs=False):
-    """Build drifted execution candidates for selected indices or no-IRS."""
-    rng = execution_rng(getattr(env, "_last_seed", None), execution_error_std, slot_idx, no_irs=no_irs)
-    if no_irs:
-        h_ref = limited.effective_channels(env, no_irs=True)
-        h_exec = drift_channels(h_ref, execution_error_std, rng)
-        return [limited.build_candidate(env, args, -2, h_exec[0], no_irs=True)]
-
-    clean_indices = [int(np.clip(index, 0, args.num_codebook_states - 1)) for index in indices]
-    h_ref = limited.effective_channels(env, clean_indices)
-    h_exec = drift_channels(h_ref, execution_error_std, rng)
-    return [
-        limited.build_candidate(env, args, index, h_exec[row_idx])
-        for row_idx, index in enumerate(clean_indices)
-    ]
-
-
-def execution_candidate_for_decision(env, args, decision_candidate, execution_error_std, slot_idx):
-    """Return drifted execution candidate matching a decision."""
-    irs_index = int(decision_candidate["irs_index"])
-    if irs_index == -2:
-        return execution_candidates(
-            env,
-            args,
-            execution_error_std=execution_error_std,
-            slot_idx=slot_idx,
-            no_irs=True,
-        )[0]
-    return execution_candidates(
-        env,
-        args,
-        indices=[irs_index],
-        execution_error_std=execution_error_std,
-        slot_idx=slot_idx,
-    )[0]
-
-
-def execution_oracle_candidate(env, args, execution_error_std, slot_idx):
-    """Return hidden oracle candidate under the drifted execution channel."""
-    candidates = execution_candidates(
-        env,
-        args,
-        indices=range(args.num_codebook_states),
-        execution_error_std=execution_error_std,
-        slot_idx=slot_idx,
-    )
-    return limited.best_candidate(candidates)
-
-
-def choose_execution_oracle(env, args, execution_error_std, slot_idx):
-    """Choose and invite using the hidden execution channel."""
-    oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
-    return oracle, args.num_codebook_states, args.num_codebook_states
-
-
-def choose_temporal_deviation_oracle_decision(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-    execution_state=None,
-):
-    """
-    Choose a B-sized probe set using hidden execution-channel quality.
-
-    This is a diagnostic upper bound for probe-set selection: the oracle may
-    pick the current top-B IRS indices, but the actual invitation mask is still
-    built from the stale/estimated decision channel.
-    """
-    budget = min(int(budget), args.num_codebook_states)
-    decision_snapshot = capture_channel_state(env)
-    if execution_state is not None:
-        apply_channel_state(env, execution_state)
-    hidden_candidates = execution_candidates(
-        env,
-        args,
-        indices=range(args.num_codebook_states),
-        execution_error_std=execution_error_std,
-        slot_idx=slot_idx,
-    )
-    hidden_ranked = sorted(hidden_candidates, key=limited.candidate_key, reverse=True)
-    selected_indices = [int(candidate["irs_index"]) for candidate in hidden_ranked[:budget]]
-
-    apply_channel_state(env, decision_snapshot)
-    error_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        budget,
-        salt=29 + slot_idx,
-    )
-    decision_candidates = limited.estimated_preview_candidates(
-        env,
-        args,
-        indices=selected_indices,
-        error_std=decision_error_std,
-        rng=error_rng,
-    )
-    decision = limited.best_candidate(decision_candidates)
-    decision["deviation_hidden_best_tx"] = int(hidden_ranked[0]["tx_this_slot"]) if hidden_ranked else 0
-    decision["deviation_hidden_selected_count"] = len(selected_indices)
-    return decision, len(selected_indices), len(selected_indices)
-
-
-def ordered_unique_prefix(indices, budget, num_codebook_states):
-    """Return a clipped unique prefix preserving priority order."""
-    selected = []
-    seen = set()
-    for raw_index in indices:
-        index = int(np.clip(raw_index, 0, num_codebook_states - 1))
-        if index in seen:
-            continue
-        selected.append(index)
-        seen.add(index)
-        if len(selected) >= int(budget):
-            break
-    return selected
-
-
-def confirmation_feedback(candidate, args, feedback_noise_std, feedback_power_weight, rng):
-    """Return noisy aggregate feedback for one current execution candidate."""
-    observed_tx_fraction = float(candidate["tx_this_slot"]) / float(max(args.num_nodes, 1))
-    if float(feedback_noise_std) > 0.0:
-        observed_tx_fraction += float(rng.normal(0.0, float(feedback_noise_std)))
-    observed_tx_fraction = float(np.clip(observed_tx_fraction, 0.0, 1.0))
-
-    observed_power = float(candidate["power_avg"])
-    observed_score = observed_tx_fraction - float(feedback_power_weight) * observed_power
-    observed_score += float(rng.uniform(0.0, 1e-9))
-    return {
-        "irs_index": int(candidate["irs_index"]),
-        "observed_tx_fraction": observed_tx_fraction,
-        "observed_power": observed_power,
-        "observed_score": float(observed_score),
-    }
-
-
-def confirm_index_with_current_feedback(
-    env,
-    args,
-    selected_indices,
-    execution_error_std,
-    slot_idx,
-    episode_seed,
-    execution_state=None,
-    feedback_salt=41,
-):
-    """Select one IRS index from selected candidates using current aggregate feedback."""
-    decision_snapshot = capture_channel_state(env)
-    try:
-        if execution_state is not None:
-            apply_channel_state(env, execution_state)
-        current_candidates = [
-            execution_candidates(
-                env,
-                args,
-                indices=[index],
-                execution_error_std=execution_error_std,
-                slot_idx=slot_idx,
-            )[0]
-            for index in selected_indices
-        ]
-        feedback_rng = limited.stable_rng(
-            episode_seed,
-            args.confirmation_feedback_noise_std,
-            limited.POLICY_RANDOM_PROBE,
-            len(selected_indices),
-            salt=int(feedback_salt) + slot_idx,
-        )
-        feedbacks = [
-            confirmation_feedback(
-                candidate,
-                args,
-                args.confirmation_feedback_noise_std,
-                args.confirmation_feedback_power_weight,
-                feedback_rng,
-            )
-            for candidate in current_candidates
-        ]
-        feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
-        confirmed_index = max(
-            selected_indices,
-            key=lambda index: (
-                float(feedback_by_index[int(index)]["observed_score"]),
-                float(feedback_by_index[int(index)]["observed_tx_fraction"]),
-                -float(feedback_by_index[int(index)]["observed_power"]),
-            ),
-        )
-    finally:
-        apply_channel_state(env, decision_snapshot)
-    return int(confirmed_index), feedbacks
-
-
-def choose_rotating_feedback_confirm_decision(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-    execution_state=None,
-):
-    """
-    Confirm the standard rotating probe set using current aggregate feedback.
-
-    This is the low-cost counterpart to stale-topK confirmation: it keeps the
-    same rotating B indices, builds invitation masks from stale CSI, and uses
-    current aggregate feedback only to choose among those B candidates.
-    """
-    budget = min(int(budget), args.num_codebook_states)
-    if budget <= 0:
-        return choose_decision(
-            env,
-            args,
-            limited.POLICY_NO_IRS,
-            0,
-            slot_idx,
-            decision_error_std,
-            episode_seed,
-        )
-
-    selected_indices = limited.grid_indices(args.num_codebook_states, budget, offset=slot_idx)
-    error_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_ROTATING_GRID,
-        budget,
-        salt=37 + slot_idx,
-    )
-    decision_candidates = limited.estimated_preview_candidates(
-        env,
-        args,
-        indices=selected_indices,
-        error_std=decision_error_std,
-        rng=error_rng,
-    )
-    confirmed_index, feedbacks = confirm_index_with_current_feedback(
-        env,
-        args,
-        selected_indices,
-        execution_error_std,
-        slot_idx,
-        episode_seed,
-        execution_state=execution_state,
-        feedback_salt=43,
-    )
-
-    candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in decision_candidates}
-    decision = candidate_by_index[int(confirmed_index)]
-    decision["confirmed_irs_index"] = int(confirmed_index)
-    decision["confirmation_feedback_count"] = int(len(feedbacks))
-    return decision, 2 * len(selected_indices), len(selected_indices)
-
-
-def choose_stale_topk_feedback_decision(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-    execution_state=None,
-):
-    """
-    Pick an active stale-CSI probe set, then confirm it with current feedback.
-
-    The top half of the budget comes from a full stale-codebook ranking and the
-    rest preserves rotating-grid coverage. The final IRS index is selected from
-    B aggregate current-channel feedback probes, not from full execution CSI.
-    """
-    budget = min(int(budget), args.num_codebook_states)
-    if budget <= 0:
-        return choose_decision(
-            env,
-            args,
-            limited.POLICY_NO_IRS,
-            0,
-            slot_idx,
-            decision_error_std,
-            episode_seed,
-        )
-
-    error_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        args.num_codebook_states,
-        salt=37 + slot_idx,
-    )
-    full_stale_candidates = limited.estimated_preview_candidates(
-        env,
-        args,
-        indices=range(args.num_codebook_states),
-        error_std=decision_error_std,
-        rng=error_rng,
-    )
-    ranked_indices = [
-        int(candidate["irs_index"])
-        for candidate in sorted(full_stale_candidates, key=limited.candidate_key, reverse=True)
-    ]
-    topk_budget = max(1, budget // 2)
-    rotating_indices = limited.grid_indices(args.num_codebook_states, budget, offset=slot_idx)
-    selected_indices = ordered_unique_prefix(
-        ranked_indices[:topk_budget] + rotating_indices + ranked_indices,
-        budget,
-        args.num_codebook_states,
-    )
-
-    candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in full_stale_candidates}
-    confirmed_index, feedbacks = confirm_index_with_current_feedback(
-        env,
-        args,
-        selected_indices,
-        execution_error_std,
-        slot_idx,
-        episode_seed,
-        execution_state=execution_state,
-        feedback_salt=41,
-    )
-
-    decision = candidate_by_index[int(confirmed_index)]
-    decision["stale_topk_count"] = int(topk_budget)
-    decision["confirmed_irs_index"] = int(confirmed_index)
-    decision["stale_full_preview_count"] = int(args.num_codebook_states)
-    decision["confirmation_feedback_count"] = int(len(selected_indices))
-    return decision, args.num_codebook_states + len(selected_indices), len(selected_indices)
-
-
-def execution_risk_error_std(decision_error_std, execution_error_std):
-    """Combine independent decision-estimation and execution-drift uncertainty."""
-    return float(np.hypot(float(decision_error_std), float(execution_error_std)))
-
-
-def candidate_with_execution_reliability(
-    env,
-    args,
-    candidate,
-    decision_error_std,
-    execution_error_std,
-):
-    """
-    Re-score a decision candidate with execution-drift reliability.
-
-    Limited-CSI risk-aware candidates normally derive reliability only from
-    noisy decision CSI. In execution-mismatch experiments, a stale decision can
-    be exact while the execution slot still drifts. This helper exposes that
-    drift as a posterior reliability term without revealing the realized
-    execution channel.
-    """
-    adjusted = dict(candidate)
-    h_gain = np.asarray(candidate["h_gain"], dtype=float)
-    h_proxy = np.sqrt(np.maximum(h_gain, 0.0))
-    combined_std = execution_risk_error_std(decision_error_std, execution_error_std)
-    rms = float(np.sqrt(np.mean(h_gain))) if h_gain.size else 0.0
-    error_scale = combined_std * max(rms, 1e-12)
-    adjusted["success_reliability"] = limited.estimate_success_reliability(
-        env,
-        args,
-        h_proxy,
-        error_scale,
-    )
-    adjusted["execution_risk_error_std"] = combined_std
-    adjusted["execution_risk_error_scale"] = error_scale
-    return adjusted
-
-
-def execution_risk_candidate_set(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-):
-    """Return rotating-grid candidates re-scored with execution-drift reliability."""
-    budget = min(int(budget), args.num_codebook_states)
-    random_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        budget,
-        salt=2 + slot_idx,
-    )
-    error_rng = limited.stable_rng(
-        episode_seed,
-        decision_error_std,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        budget,
-        salt=3 + slot_idx,
-    )
-    indices = limited.select_indices(
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        args,
-        budget,
-        slot_idx,
-        random_rng,
-    )
-    candidates = limited.estimated_preview_candidates(
-        env,
-        args,
-        indices=indices,
-        error_std=decision_error_std,
-        rng=error_rng,
-    )
-    candidates = [
-        candidate_with_execution_reliability(
-            env,
-            args,
-            candidate,
-            decision_error_std,
-            execution_error_std,
-        )
-        for candidate in candidates
-    ]
-    return candidates, len(indices)
-
-
-def execution_urgency(env, args, slot_idx, deadline_gain=0.5, backlog_gain=0.5):
-    """Return a multiplier that raises missed-opportunity cost near deadline/backlog."""
-    if args.num_slots <= 1:
-        deadline_pressure = 1.0
-    else:
-        deadline_pressure = float(slot_idx) / float(max(args.num_slots - 1, 1))
-    remaining_count = int(np.sum(~env.transmitted_flags))
-    remaining_ratio = float(remaining_count) / float(max(args.num_nodes, 1))
-    slots_left = max(int(args.num_slots) - int(slot_idx), 1)
-    schedule_ratio = float(slots_left) / float(max(args.num_slots, 1))
-    backlog_pressure = max(0.0, remaining_ratio - schedule_ratio) / max(schedule_ratio, 1e-12)
-    backlog_pressure = min(backlog_pressure, 2.0)
-    return 1.0 + float(deadline_gain) * deadline_pressure + float(backlog_gain) * backlog_pressure
-
-
-def opportunity_cost_candidate(
-    env,
-    candidate,
-    args,
-    slot_idx,
-    failure_cost=1.0,
-    missed_cost=1.0,
-    power_weight=0.1,
-    deadline_gain=0.5,
-    backlog_gain=0.5,
-):
-    """Build an execution-risk candidate using false-accept and false-reject costs."""
-    adjusted = dict(candidate)
-    estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
-    reliability = np.asarray(candidate["success_reliability"], dtype=float)
-    required_power = np.asarray(candidate["required_power"], dtype=float)
-    urgency = execution_urgency(
-        env,
-        args,
-        slot_idx,
-        deadline_gain=deadline_gain,
-        backlog_gain=backlog_gain,
-    )
-    success_value = urgency
-    false_reject_cost = float(missed_cost) * urgency
-    false_accept_cost = float(failure_cost)
-    normalized_power = required_power / max(float(env.P_max), 1e-12)
-    invite_utility = (
-        reliability * success_value
-        - (1.0 - reliability) * false_accept_cost
-        - float(power_weight) * normalized_power
-    )
-    skip_utility = -false_reject_cost * reliability
-    invite_mask = estimated_valid_mask & (invite_utility >= skip_utility)
-
-    scheduled_power = required_power[invite_mask]
-    tx_count = int(np.sum(invite_mask))
-    power_avg = float(np.mean(scheduled_power)) if tx_count > 0 else 0.0
-    expected_success = float(np.sum(reliability[invite_mask]))
-    failure_mass = float(np.sum(1.0 - reliability[invite_mask]))
-    rejected_mask = estimated_valid_mask & (~invite_mask)
-    missed_mass = float(np.sum(reliability[rejected_mask]))
-    policy_value = float(
-        np.sum(invite_utility[invite_mask])
-        + np.sum(skip_utility[rejected_mask])
-    )
-
-    adjusted["estimated_valid_mask"] = estimated_valid_mask
-    adjusted["valid_mask"] = invite_mask
-    adjusted["tx_this_slot"] = tx_count
-    adjusted["power_avg"] = power_avg
-    adjusted["expected_success"] = expected_success
-    adjusted["risk_mass"] = failure_mass
-    adjusted["missed_reliability_mass"] = missed_mass
-    adjusted["opportunity_score"] = policy_value
-    adjusted["opportunity_urgency"] = urgency
-    adjusted["opportunity_false_accept_cost"] = false_accept_cost
-    adjusted["opportunity_false_reject_cost"] = false_reject_cost
-    adjusted["effective_risk_weight"] = false_accept_cost
-    adjusted["risk_rejected_count"] = int(np.sum(rejected_mask))
-    return adjusted
-
-
-def opportunity_cost_candidate_key(candidate):
-    """Rank opportunity-cost candidates by expected utility and reliable progress."""
-    return (
-        float(candidate["opportunity_score"]),
-        float(candidate["expected_success"]),
-        int(candidate["tx_this_slot"]),
-        -float(candidate["risk_mass"]),
-        -float(candidate["power_avg"]) if int(candidate["tx_this_slot"]) > 0 else 0.0,
-        float(candidate["mean_gain_remaining"]),
-    )
-
-
-def choose_opportunity_execution_risk_decision(
-    env,
-    args,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-    failure_cost=1.0,
-    missed_cost=1.0,
-    power_weight=0.1,
-    deadline_gain=0.5,
-    backlog_gain=0.5,
-):
-    """Choose rotating-grid candidates by expected utility under execution drift."""
-    candidates, preview_calls = execution_risk_candidate_set(
-        env,
-        args,
-        budget,
-        slot_idx,
-        decision_error_std,
-        execution_error_std,
-        episode_seed,
-    )
-    adjusted = [
-        opportunity_cost_candidate(
-            env,
-            candidate,
-            args,
-            slot_idx,
-            failure_cost=failure_cost,
-            missed_cost=missed_cost,
-            power_weight=power_weight,
-            deadline_gain=deadline_gain,
-            backlog_gain=backlog_gain,
-        )
-        for candidate in candidates
-    ]
-    return max(adjusted, key=opportunity_cost_candidate_key), preview_calls, preview_calls
-
-
-def choose_execution_risk_decision(
-    env,
-    args,
-    policy_name,
-    budget,
-    slot_idx,
-    decision_error_std,
-    execution_error_std,
-    episode_seed,
-    risk_weight=0.5,
-    risk_power_weight=0.1,
-    risk_invite_threshold=0.5,
-    adaptive_risk_error_ref=0.3,
-    adaptive_risk_error_gain=1.0,
-    adaptive_risk_deadline_relief=0.6,
-    adaptive_risk_backlog_relief=0.8,
-):
-    """Choose rotating-grid candidates using execution-drift risk statistics."""
-    candidates, preview_calls = execution_risk_candidate_set(
-        env,
-        args,
-        budget,
-        slot_idx,
-        decision_error_std,
-        execution_error_std,
-        episode_seed,
-    )
-    effective_risk = float(risk_weight)
-    if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
-        effective_risk = limited.adaptive_risk_weight(
-            env,
-            args,
-            execution_risk_error_std(decision_error_std, execution_error_std),
-            slot_idx,
-            base_weight=risk_weight,
-            error_ref=adaptive_risk_error_ref,
-            error_gain=adaptive_risk_error_gain,
-            deadline_relief=adaptive_risk_deadline_relief,
-            backlog_relief=adaptive_risk_backlog_relief,
-        )
-    return (
-        limited.best_risk_aware_candidate(
-            candidates,
-            args,
-            slot_idx,
-            risk_weight=effective_risk,
-            risk_power_weight=risk_power_weight,
-            risk_invite_threshold=risk_invite_threshold,
-        ),
-        preview_calls,
-        preview_calls,
-    )
-
-
-def choose_decision(
-    env,
-    args,
-    policy_name,
-    budget,
-    slot_idx,
-    decision_error_std,
-    episode_seed,
-    gain_margin=1.0,
-    power_margin=1.0,
-    risk_weight=0.0,
-    risk_power_weight=0.0,
-    risk_invite_threshold=0.0,
-    adaptive_risk_error_ref=0.3,
-    adaptive_risk_error_gain=1.0,
-    adaptive_risk_deadline_relief=0.6,
-    adaptive_risk_backlog_relief=0.8,
-):
-    """Choose a limited-CSI decision from the stale/estimated decision channel."""
-    choice_policy_name = policy_name
-    if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
-        choice_policy_name = limited.POLICY_ROTATING_GRID
-    return limited.choose_policy_candidate(
-        env,
-        args,
-        choice_policy_name,
-        budget,
-        slot_idx,
-        decision_error_std,
-        episode_seed,
-        gain_margin=gain_margin,
-        power_margin=power_margin,
-        risk_weight=risk_weight,
-        risk_power_weight=risk_power_weight,
-        risk_invite_threshold=risk_invite_threshold,
-        adaptive_risk_error_ref=adaptive_risk_error_ref,
-        adaptive_risk_error_gain=adaptive_risk_error_gain,
-        adaptive_risk_deadline_relief=adaptive_risk_deadline_relief,
-        adaptive_risk_backlog_relief=adaptive_risk_backlog_relief,
-    )
-
-
-def policy_label(
-    policy_name,
-    budget=0,
-    gain_margin=1.0,
-    power_margin=1.0,
-    risk_weight=0.0,
-    risk_invite_threshold=0.0,
-    opportunity_failure_cost=0.0,
-    opportunity_missed_cost=0.0,
-    opportunity_deadline_gain=0.0,
-    opportunity_backlog_gain=0.0,
-    temporal_reliability_z=0.0,
-):
-    """Return a compact display label."""
-    if policy_name in {
-        limited.POLICY_RANDOM_PROBE,
-        limited.POLICY_ROTATING_GRID,
-        limited.POLICY_ROBUST_ROTATING_GRID,
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
-        POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-        POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-        POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
-        POLICY_AR1_PREDICT_ROTATING_GRID,
-        POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
-        POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
-        POLICY_STALE_TOPK_FEEDBACK_GRID,
-        POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
-    }:
-        label = f"{policy_name} B={int(budget)}"
-    else:
-        label = policy_name
-    if policy_name == limited.POLICY_ROBUST_ROTATING_GRID:
-        label += f" gm={gain_margin:g} pm={power_margin:g}"
-    if policy_name in {
-        limited.POLICY_RISK_AWARE_ROTATING_GRID,
-        limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
-        POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-        POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-    }:
-        label += f" rw={risk_weight:g} rt={risk_invite_threshold:g}"
-    if policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
-        label += (
-            f" fc={opportunity_failure_cost:g} mc={opportunity_missed_cost:g}"
-            f" dg={opportunity_deadline_gain:g} bg={opportunity_backlog_gain:g}"
-        )
-    if policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
-        label += f" rw={risk_weight:g} qz={temporal_reliability_z:g}"
-    return label
 
 
 def evaluate_policy(
@@ -1268,6 +463,20 @@ def evaluate_policy(
     opportunity_deadline_gain=0.0,
     opportunity_backlog_gain=0.0,
     temporal_reliability_z=0.0,
+    sparse_topk_seed_multiplier=2.0,
+    sparse_topk_fraction=0.75,
+    sparse_topk_show_params=False,
+    coverage_sparse_weight=0.5,
+    coverage_sparse_power_weight=0.0,
+    adaptive_sparse_base_multiplier=2.0,
+    adaptive_sparse_expanded_multiplier=3.0,
+    adaptive_sparse_margin_threshold=0.05,
+    adaptive_sparse_v2_preview_cost=0.002,
+    adaptive_sparse_v3_neighbor_radius=1,
+    adaptive_sparse_v3_neighbor_count=2,
+    adaptive_sparse_v3_history_count=1,
+    learned_shortlist_extra_count=1,
+    adaptive_sparse_show_params=False,
 ):
     """Evaluate one policy/config under decision and execution mismatch."""
     env = limited.make_env(args)
@@ -1289,6 +498,20 @@ def evaluate_policy(
         opportunity_deadline_gain=opportunity_deadline_gain,
         opportunity_backlog_gain=opportunity_backlog_gain,
         temporal_reliability_z=temporal_reliability_z,
+        sparse_topk_seed_multiplier=sparse_topk_seed_multiplier,
+        sparse_topk_fraction=sparse_topk_fraction,
+        sparse_topk_show_params=sparse_topk_show_params,
+        coverage_sparse_weight=coverage_sparse_weight,
+        coverage_sparse_power_weight=coverage_sparse_power_weight,
+        adaptive_sparse_base_multiplier=adaptive_sparse_base_multiplier,
+        adaptive_sparse_expanded_multiplier=adaptive_sparse_expanded_multiplier,
+        adaptive_sparse_margin_threshold=adaptive_sparse_margin_threshold,
+        adaptive_sparse_v2_preview_cost=adaptive_sparse_v2_preview_cost,
+        adaptive_sparse_v3_neighbor_radius=adaptive_sparse_v3_neighbor_radius,
+        adaptive_sparse_v3_neighbor_count=adaptive_sparse_v3_neighbor_count,
+        adaptive_sparse_v3_history_count=adaptive_sparse_v3_history_count,
+        learned_shortlist_extra_count=learned_shortlist_extra_count,
+        adaptive_sparse_show_params=adaptive_sparse_show_params,
     )
     success_nodes = []
     avg_power = []
@@ -1303,6 +526,19 @@ def evaluate_policy(
     preview_calls_per_slot = []
     oracle_tx_gap_mean = []
     effective_risk_weights = []
+    adaptive_sparse_expanded = []
+    adaptive_sparse_margins = []
+    adaptive_sparse_effective_thresholds = []
+    adaptive_sparse_expand_scores = []
+    adaptive_sparse_history_stabilities = []
+    adaptive_sparse_urgencies = []
+    adaptive_sparse_cost_penalties = []
+    adaptive_sparse_v3_history_prior_used = []
+    adaptive_sparse_v3_neighbor_extra_preview_counts = []
+    adaptive_sparse_v3_selected_extra_preview_counts = []
+    learned_shortlist_selected_extra_preview_counts = []
+    coverage_sparse_selected_marginal_fractions = []
+    coverage_sparse_selected_overlap_fractions = []
 
     print(
         f"Running {display_name} model={mismatch_model} rho={channel_rho:g} "
@@ -1326,6 +562,20 @@ def evaluate_policy(
         episode_preview_calls = []
         episode_oracle_gaps = []
         episode_effective_risk_weights = []
+        episode_adaptive_sparse_expanded = []
+        episode_adaptive_sparse_margins = []
+        episode_adaptive_sparse_effective_thresholds = []
+        episode_adaptive_sparse_expand_scores = []
+        episode_adaptive_sparse_history_stabilities = []
+        episode_adaptive_sparse_urgencies = []
+        episode_adaptive_sparse_cost_penalties = []
+        episode_adaptive_sparse_v3_history_prior_used = []
+        episode_adaptive_sparse_v3_neighbor_extra_preview_counts = []
+        episode_adaptive_sparse_v3_selected_extra_preview_counts = []
+        episode_learned_shortlist_selected_extra_preview_counts = []
+        episode_coverage_sparse_selected_marginal_fractions = []
+        episode_coverage_sparse_selected_overlap_fractions = []
+        episode_confirmed_irs_history = []
         total_tx = 0
         episode_slots = args.num_slots
 
@@ -1355,132 +605,45 @@ def evaluate_policy(
             risk_execution_error_std = float(np.hypot(float(execution_error_std), temporal_error_std))
 
             execution_oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
-            if policy_name == POLICY_EXECUTION_ORACLE:
-                decision, preview_calls, _candidate_count = choose_execution_oracle(
-                    env,
-                    args,
-                    execution_error_std,
-                    slot_idx,
-                )
-                true_selected = decision
-            else:
-                effective_risk = risk_weight
-                if policy_name == limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID:
-                    effective_risk = adaptive_risk_base_weight
-                if policy_name == POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID:
-                    effective_risk = adaptive_risk_base_weight
-                if decision_state is not None:
-                    apply_channel_state(env, decision_state)
-                if policy_name in {
-                    POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-                    POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-                }:
-                    decision, preview_calls, _candidate_count = choose_execution_risk_decision(
-                        env,
-                        args,
-                        policy_name,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        risk_execution_error_std,
-                        episode_seed,
-                        risk_weight=effective_risk,
-                        risk_power_weight=risk_power_weight,
-                        risk_invite_threshold=risk_invite_threshold,
-                        adaptive_risk_error_ref=args.adaptive_risk_error_ref,
-                        adaptive_risk_error_gain=args.adaptive_risk_error_gain,
-                        adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
-                        adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
-                    )
-                elif policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
-                    decision, preview_calls, _candidate_count = choose_opportunity_execution_risk_decision(
-                        env,
-                        args,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        risk_execution_error_std,
-                        episode_seed,
-                        failure_cost=opportunity_failure_cost,
-                        missed_cost=opportunity_missed_cost,
-                        power_weight=risk_power_weight,
-                        deadline_gain=opportunity_deadline_gain,
-                        backlog_gain=opportunity_backlog_gain,
-                    )
-                elif policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
-                    decision, preview_calls, _candidate_count = choose_temporal_reliability_decision(
-                        env,
-                        args,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        risk_execution_error_std,
-                        episode_seed,
-                        risk_weight=effective_risk,
-                        risk_power_weight=risk_power_weight,
-                        quantile_z=temporal_reliability_z,
-                    )
-                elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
-                    decision, preview_calls, _candidate_count = choose_rotating_feedback_confirm_decision(
-                        env,
-                        args,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        execution_error_std,
-                        episode_seed,
-                        execution_state=execution_state,
-                    )
-                elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
-                    decision, preview_calls, _candidate_count = choose_stale_topk_feedback_decision(
-                        env,
-                        args,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        execution_error_std,
-                        episode_seed,
-                        execution_state=execution_state,
-                    )
-                elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
-                    decision, preview_calls, _candidate_count = choose_temporal_deviation_oracle_decision(
-                        env,
-                        args,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        execution_error_std,
-                        episode_seed,
-                        execution_state=execution_state,
-                    )
-                else:
-                    decision, preview_calls, _candidate_count = choose_decision(
-                        env,
-                        args,
-                        policy_name,
-                        budget,
-                        slot_idx,
-                        decision_error_std,
-                        episode_seed,
-                        gain_margin=gain_margin,
-                        power_margin=power_margin,
-                        risk_weight=effective_risk,
-                        risk_power_weight=risk_power_weight,
-                        risk_invite_threshold=risk_invite_threshold,
-                        adaptive_risk_error_ref=args.adaptive_risk_error_ref,
-                        adaptive_risk_error_gain=args.adaptive_risk_error_gain,
-                        adaptive_risk_deadline_relief=args.adaptive_risk_deadline_relief,
-                        adaptive_risk_backlog_relief=args.adaptive_risk_backlog_relief,
-                    )
-                if execution_state is not None:
-                    apply_channel_state(env, execution_state)
-                true_selected = execution_candidate_for_decision(
-                    env,
-                    args,
-                    decision,
-                    execution_error_std,
-                    slot_idx,
-                )
+            decision, true_selected, preview_calls, _candidate_count = choose_execution_mismatch_decision(
+                env,
+                args,
+                policy_name,
+                budget,
+                slot_idx,
+                decision_error_std,
+                execution_error_std,
+                risk_execution_error_std,
+                episode_seed,
+                decision_state=decision_state,
+                execution_state=execution_state,
+                episode_confirmed_irs_history=episode_confirmed_irs_history,
+                channel_rho=channel_rho,
+                csi_delay_slots=csi_delay_slots,
+                gain_margin=gain_margin,
+                power_margin=power_margin,
+                risk_weight=risk_weight,
+                risk_power_weight=risk_power_weight,
+                risk_invite_threshold=risk_invite_threshold,
+                adaptive_risk_base_weight=adaptive_risk_base_weight,
+                opportunity_failure_cost=opportunity_failure_cost,
+                opportunity_missed_cost=opportunity_missed_cost,
+                opportunity_deadline_gain=opportunity_deadline_gain,
+                opportunity_backlog_gain=opportunity_backlog_gain,
+                temporal_reliability_z=temporal_reliability_z,
+                sparse_topk_seed_multiplier=sparse_topk_seed_multiplier,
+                sparse_topk_fraction=sparse_topk_fraction,
+                coverage_sparse_weight=coverage_sparse_weight,
+                coverage_sparse_power_weight=coverage_sparse_power_weight,
+                adaptive_sparse_base_multiplier=adaptive_sparse_base_multiplier,
+                adaptive_sparse_expanded_multiplier=adaptive_sparse_expanded_multiplier,
+                adaptive_sparse_margin_threshold=adaptive_sparse_margin_threshold,
+                adaptive_sparse_v2_preview_cost=adaptive_sparse_v2_preview_cost,
+                adaptive_sparse_v3_neighbor_radius=adaptive_sparse_v3_neighbor_radius,
+                adaptive_sparse_v3_neighbor_count=adaptive_sparse_v3_neighbor_count,
+                adaptive_sparse_v3_history_count=adaptive_sparse_v3_history_count,
+                learned_shortlist_extra_count=learned_shortlist_extra_count,
+            )
 
             info, done = limited.execute_limited_csi_slot(env, args, decision, true_selected)
             total_tx = int(info["total_tx"])
@@ -1497,6 +660,43 @@ def evaluate_policy(
                 max(0.0, float(execution_oracle["tx_this_slot"]) - float(info["tx_this_slot"]))
             )
             episode_effective_risk_weights.append(float(decision.get("effective_risk_weight", 0.0)))
+            episode_adaptive_sparse_expanded.append(float(decision.get("adaptive_sparse_expanded", 0.0)))
+            episode_adaptive_sparse_margins.append(float(decision.get("adaptive_sparse_margin", 0.0)))
+            episode_adaptive_sparse_effective_thresholds.append(
+                float(decision.get("adaptive_sparse_effective_margin_threshold", 0.0))
+            )
+            episode_adaptive_sparse_expand_scores.append(
+                float(decision.get("adaptive_sparse_expand_score", 0.0))
+            )
+            episode_adaptive_sparse_history_stabilities.append(
+                float(decision.get("adaptive_sparse_history_stability", 0.0))
+            )
+            episode_adaptive_sparse_urgencies.append(float(decision.get("adaptive_sparse_urgency", 0.0)))
+            episode_adaptive_sparse_cost_penalties.append(
+                float(decision.get("adaptive_sparse_cost_penalty", 0.0))
+            )
+            episode_adaptive_sparse_v3_history_prior_used.append(
+                float(decision.get("adaptive_sparse_v3_history_prior_used", 0.0))
+            )
+            episode_adaptive_sparse_v3_neighbor_extra_preview_counts.append(
+                float(decision.get("adaptive_sparse_v3_neighbor_extra_preview_count", 0.0))
+            )
+            episode_adaptive_sparse_v3_selected_extra_preview_counts.append(
+                float(decision.get("adaptive_sparse_v3_selected_extra_preview_count", 0.0))
+            )
+            episode_learned_shortlist_selected_extra_preview_counts.append(
+                float(decision.get("learned_shortlist_selected_extra_preview_count", 0.0))
+            )
+            episode_coverage_sparse_selected_marginal_fractions.append(
+                float(decision.get("coverage_sparse_selected_marginal_fraction", 0.0))
+            )
+            episode_coverage_sparse_selected_overlap_fractions.append(
+                float(decision.get("coverage_sparse_selected_overlap_fraction", 0.0))
+            )
+            if int(decision.get("confirmed_irs_index", decision.get("irs_index", -1))) >= 0:
+                episode_confirmed_irs_history.append(
+                    int(decision.get("confirmed_irs_index", decision.get("irs_index", -1)))
+                )
             if info["scheduled_this_slot"] > 0:
                 episode_power.append(float(info["power_avg"]))
             if done:
@@ -1518,6 +718,65 @@ def evaluate_policy(
         oracle_tx_gap_mean.append(float(np.mean(episode_oracle_gaps)) if episode_oracle_gaps else 0.0)
         effective_risk_weights.append(
             float(np.mean(episode_effective_risk_weights)) if episode_effective_risk_weights else 0.0
+        )
+        adaptive_sparse_expanded.append(
+            float(np.mean(episode_adaptive_sparse_expanded)) if episode_adaptive_sparse_expanded else 0.0
+        )
+        adaptive_sparse_margins.append(
+            float(np.mean(episode_adaptive_sparse_margins)) if episode_adaptive_sparse_margins else 0.0
+        )
+        adaptive_sparse_effective_thresholds.append(
+            float(np.mean(episode_adaptive_sparse_effective_thresholds))
+            if episode_adaptive_sparse_effective_thresholds
+            else 0.0
+        )
+        adaptive_sparse_expand_scores.append(
+            float(np.mean(episode_adaptive_sparse_expand_scores))
+            if episode_adaptive_sparse_expand_scores
+            else 0.0
+        )
+        adaptive_sparse_history_stabilities.append(
+            float(np.mean(episode_adaptive_sparse_history_stabilities))
+            if episode_adaptive_sparse_history_stabilities
+            else 0.0
+        )
+        adaptive_sparse_urgencies.append(
+            float(np.mean(episode_adaptive_sparse_urgencies)) if episode_adaptive_sparse_urgencies else 0.0
+        )
+        adaptive_sparse_cost_penalties.append(
+            float(np.mean(episode_adaptive_sparse_cost_penalties))
+            if episode_adaptive_sparse_cost_penalties
+            else 0.0
+        )
+        adaptive_sparse_v3_history_prior_used.append(
+            float(np.mean(episode_adaptive_sparse_v3_history_prior_used))
+            if episode_adaptive_sparse_v3_history_prior_used
+            else 0.0
+        )
+        adaptive_sparse_v3_neighbor_extra_preview_counts.append(
+            float(np.mean(episode_adaptive_sparse_v3_neighbor_extra_preview_counts))
+            if episode_adaptive_sparse_v3_neighbor_extra_preview_counts
+            else 0.0
+        )
+        adaptive_sparse_v3_selected_extra_preview_counts.append(
+            float(np.mean(episode_adaptive_sparse_v3_selected_extra_preview_counts))
+            if episode_adaptive_sparse_v3_selected_extra_preview_counts
+            else 0.0
+        )
+        learned_shortlist_selected_extra_preview_counts.append(
+            float(np.mean(episode_learned_shortlist_selected_extra_preview_counts))
+            if episode_learned_shortlist_selected_extra_preview_counts
+            else 0.0
+        )
+        coverage_sparse_selected_marginal_fractions.append(
+            float(np.mean(episode_coverage_sparse_selected_marginal_fractions))
+            if episode_coverage_sparse_selected_marginal_fractions
+            else 0.0
+        )
+        coverage_sparse_selected_overlap_fractions.append(
+            float(np.mean(episode_coverage_sparse_selected_overlap_fractions))
+            if episode_coverage_sparse_selected_overlap_fractions
+            else 0.0
         )
 
         print_progress(display_name, decision_error_std, execution_error_std, ep, args.episodes, success_nodes, args.num_nodes)
@@ -1542,6 +801,149 @@ def evaluate_policy(
         "opportunity_deadline_gain": float(opportunity_deadline_gain),
         "opportunity_backlog_gain": float(opportunity_backlog_gain),
         "temporal_reliability_z": float(temporal_reliability_z),
+        "sparse_topk_seed_multiplier": float(
+            sparse_topk_seed_multiplier
+            if policy_name
+            in {
+                POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "sparse_topk_fraction": float(
+            sparse_topk_fraction
+            if policy_name
+            in {
+                POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+                POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+                POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "coverage_sparse_weight": float(
+            coverage_sparse_weight
+            if policy_name
+            in {
+                POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "coverage_sparse_power_weight": float(
+            coverage_sparse_power_weight
+            if policy_name
+            in {
+                POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "adaptive_sparse_base_multiplier": float(
+            adaptive_sparse_base_multiplier
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+                POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+                POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "adaptive_sparse_expanded_multiplier": float(
+            adaptive_sparse_base_multiplier
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID
+            else adaptive_sparse_base_multiplier
+            if policy_name in {
+                POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+                POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+            }
+            else adaptive_sparse_expanded_multiplier
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "adaptive_sparse_margin_threshold": float(
+            adaptive_sparse_margin_threshold
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+            }
+            else 0.0
+        ),
+        "adaptive_sparse_v2_preview_cost": float(
+            adaptive_sparse_v2_preview_cost
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID
+            else 0.0
+        ),
+        "adaptive_sparse_v2_uncertainty_weight": float(
+            args.adaptive_sparse_v2_uncertainty_weight
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID
+            else 0.0
+        ),
+        "adaptive_sparse_v2_urgency_weight": float(
+            args.adaptive_sparse_v2_urgency_weight
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID
+            else 0.0
+        ),
+        "adaptive_sparse_v2_history_weight": float(
+            args.adaptive_sparse_v2_history_weight
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID
+            else 0.0
+        ),
+        "adaptive_sparse_history_window": int(
+            args.adaptive_sparse_history_window
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
+                POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+                POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+                POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+            }
+            else 0
+        ),
+        "adaptive_sparse_v3_neighbor_radius": int(
+            adaptive_sparse_v3_neighbor_radius
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+            }
+            else 0
+        ),
+        "adaptive_sparse_v3_neighbor_count": int(
+            adaptive_sparse_v3_neighbor_count
+            if policy_name
+            in {
+                POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
+                POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+            }
+            else 0
+        ),
+        "adaptive_sparse_v3_history_count": int(
+            adaptive_sparse_v3_history_count
+            if policy_name == POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID
+            else 0
+        ),
+        "learned_shortlist_extra_count": int(
+            learned_shortlist_extra_count
+            if policy_name
+            in {
+                POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+                POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+            }
+            else 0
+        ),
         "success_nodes": np.asarray(success_nodes, dtype=float),
         "avg_power": np.asarray(avg_power, dtype=float),
         "episode_reward": np.asarray(rewards, dtype=float),
@@ -1555,381 +957,44 @@ def evaluate_policy(
         "decision_preview_calls_per_slot": np.asarray(preview_calls_per_slot, dtype=float),
         "oracle_tx_gap_mean": np.asarray(oracle_tx_gap_mean, dtype=float),
         "effective_risk_weight": np.asarray(effective_risk_weights, dtype=float),
+        "adaptive_sparse_expanded": np.asarray(adaptive_sparse_expanded, dtype=float),
+        "adaptive_sparse_margin": np.asarray(adaptive_sparse_margins, dtype=float),
+        "adaptive_sparse_effective_margin_threshold": np.asarray(
+            adaptive_sparse_effective_thresholds,
+            dtype=float,
+        ),
+        "adaptive_sparse_expand_score": np.asarray(adaptive_sparse_expand_scores, dtype=float),
+        "adaptive_sparse_history_stability": np.asarray(
+            adaptive_sparse_history_stabilities,
+            dtype=float,
+        ),
+        "adaptive_sparse_urgency": np.asarray(adaptive_sparse_urgencies, dtype=float),
+        "adaptive_sparse_cost_penalty": np.asarray(adaptive_sparse_cost_penalties, dtype=float),
+        "adaptive_sparse_v3_history_prior_used": np.asarray(
+            adaptive_sparse_v3_history_prior_used,
+            dtype=float,
+        ),
+        "adaptive_sparse_v3_neighbor_extra_preview_count": np.asarray(
+            adaptive_sparse_v3_neighbor_extra_preview_counts,
+            dtype=float,
+        ),
+        "adaptive_sparse_v3_selected_extra_preview_count": np.asarray(
+            adaptive_sparse_v3_selected_extra_preview_counts,
+            dtype=float,
+        ),
+        "learned_shortlist_selected_extra_preview_count": np.asarray(
+            learned_shortlist_selected_extra_preview_counts,
+            dtype=float,
+        ),
+        "coverage_sparse_selected_marginal_fraction": np.asarray(
+            coverage_sparse_selected_marginal_fractions,
+            dtype=float,
+        ),
+        "coverage_sparse_selected_overlap_fraction": np.asarray(
+            coverage_sparse_selected_overlap_fractions,
+            dtype=float,
+        ),
     }
-
-
-def print_progress(name, decision_error_std, execution_error_std, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10 percent intervals."""
-    interval = max(episodes // 10, 1)
-    if ep % interval == 0 or ep == episodes:
-        recent = np.mean(success_nodes[-interval:])
-        print(
-            f"  {name} decerr={decision_error_std:g} execerr={execution_error_std:g}: "
-            f"[{ep:04d}/{episodes:04d}] recent success {recent:.2f}/{num_nodes}"
-        )
-
-
-def seed_summary(result):
-    """Compress one run seed result into seed-level means."""
-    return {key: float(np.mean(result[key])) for key in NUMERIC_RESULT_KEYS}
-
-
-def aggregate_seed_results(seed_result_sets):
-    """Aggregate matching result lists across run seeds."""
-    if not seed_result_sets:
-        return []
-    aggregated_results = []
-    result_count = len(seed_result_sets[0])
-    for result_idx in range(result_count):
-        parts = [seed_results[result_idx] for seed_results in seed_result_sets]
-        aggregated = {
-            "name": parts[0]["name"],
-            "decision_error_std": parts[0]["decision_error_std"],
-            "execution_error_std": parts[0]["execution_error_std"],
-            "mismatch_model": parts[0]["mismatch_model"],
-            "channel_rho": parts[0]["channel_rho"],
-            "csi_delay_slots": parts[0]["csi_delay_slots"],
-            "probe_budget": parts[0]["probe_budget"],
-            "gain_margin": parts[0]["gain_margin"],
-            "power_margin": parts[0]["power_margin"],
-            "risk_weight": parts[0]["risk_weight"],
-            "risk_power_weight": parts[0]["risk_power_weight"],
-            "risk_invite_threshold": parts[0]["risk_invite_threshold"],
-            "adaptive_risk_base_weight": parts[0]["adaptive_risk_base_weight"],
-            "opportunity_failure_cost": parts[0]["opportunity_failure_cost"],
-            "opportunity_missed_cost": parts[0]["opportunity_missed_cost"],
-            "opportunity_deadline_gain": parts[0]["opportunity_deadline_gain"],
-            "opportunity_backlog_gain": parts[0]["opportunity_backlog_gain"],
-            "temporal_reliability_z": parts[0]["temporal_reliability_z"],
-        }
-        for key in NUMERIC_RESULT_KEYS:
-            aggregated[key] = np.concatenate([part[key] for part in parts])
-        aggregated["seed_summaries"] = [seed_summary(part) for part in parts]
-        aggregated_results.append(aggregated)
-    return aggregated_results
-
-
-def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95 percent CI."""
-    seed_values = np.asarray(
-        [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
-        dtype=float,
-    )
-    mean_value = float(np.mean(result[key]))
-    if len(seed_values) <= 1:
-        return mean_value, 0.0
-    ci95 = 1.96 * float(np.std(seed_values, ddof=1)) / np.sqrt(len(seed_values))
-    return mean_value, ci95
-
-
-def summarize_results(args, results):
-    """Convert aggregated results into CSV rows."""
-    rows = []
-    for result in results:
-        success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
-        slots_mean, slots_ci95 = metric_mean_ci(result, "slots_used")
-        energy_mean, energy_ci95 = metric_mean_ci(result, "total_energy")
-        rows.append(
-            {
-                "decision_error_std": float(result["decision_error_std"]),
-                "execution_error_std": float(result["execution_error_std"]),
-                "mismatch_model": result["mismatch_model"],
-                "channel_rho": float(result["channel_rho"]),
-                "csi_delay_slots": int(result["csi_delay_slots"]),
-                "probe_budget": int(result["probe_budget"]),
-                "policy": result["name"],
-                "episodes": len(result["success_nodes"]),
-                "num_seeds": args.num_seeds,
-                "num_nodes": args.num_nodes,
-                "num_slots": args.num_slots,
-                "num_irs_elements": args.num_irs_elements,
-                "num_codebook_states": args.num_codebook_states,
-                "g_th": args.g_th,
-                "alpha_th": args.alpha_th,
-                "gain_margin": float(result["gain_margin"]),
-                "power_margin": float(result["power_margin"]),
-                "risk_weight": float(result["risk_weight"]),
-                "risk_power_weight": float(result["risk_power_weight"]),
-                "risk_invite_threshold": float(result["risk_invite_threshold"]),
-                "adaptive_risk_base_weight": float(result["adaptive_risk_base_weight"]),
-                "opportunity_failure_cost": float(result["opportunity_failure_cost"]),
-                "opportunity_missed_cost": float(result["opportunity_missed_cost"]),
-                "opportunity_deadline_gain": float(result["opportunity_deadline_gain"]),
-                "opportunity_backlog_gain": float(result["opportunity_backlog_gain"]),
-                "temporal_reliability_z": float(result["temporal_reliability_z"]),
-                "success_mean": success_mean,
-                "success_ci95": success_ci95,
-                "success_rate_mean": success_mean / args.num_nodes,
-                "perfect_rate": float(np.mean(result["success_nodes"] == args.num_nodes) * 100.0),
-                "slots_mean": slots_mean,
-                "slots_ci95": slots_ci95,
-                "avg_power": float(np.mean(result["avg_power"])),
-                "total_energy_mean": energy_mean,
-                "total_energy_ci95": energy_ci95,
-                "scheduled_nodes_mean": float(np.mean(result["scheduled_nodes"])),
-                "failed_nodes_mean": float(np.mean(result["failed_nodes"])),
-                "missed_opportunities_mean": float(np.mean(result["missed_opportunities"])),
-                "true_opportunities_mean": float(np.mean(result["true_opportunities"])),
-                "failure_slot_rate": float(np.mean(result["failure_slots"]) * 100.0),
-                "decision_preview_calls_per_slot_mean": float(
-                    np.mean(result["decision_preview_calls_per_slot"])
-                ),
-                "oracle_tx_gap_mean": float(np.mean(result["oracle_tx_gap_mean"])),
-                "effective_risk_weight_mean": float(np.mean(result["effective_risk_weight"])),
-                "avg_reward": float(np.mean(result["episode_reward"])),
-            }
-        )
-    return rows
-
-
-def write_csv(path, rows):
-    """Write execution mismatch summary CSV."""
-    ensure_parent_dir(path)
-    with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"Saved: {path}")
-
-
-def print_summary(rows):
-    """Print a compact execution mismatch summary."""
-    print("=" * 184)
-    print("Execution Channel Mismatch Summary")
-    print("=" * 184)
-    print(
-        f"{'Model':>12} {'Rho':>5} {'Delay':>5} {'DecErr':>6} {'ExecErr':>7} "
-        f"{'Policy':<44} {'Success':>9} {'Perfect%':>9} "
-        f"{'Slots':>7} {'Fail':>8} {'MissOpp':>8} {'Preview':>8} {'Gap':>7}"
-    )
-    for row in rows:
-        print(
-            f"{row['mismatch_model']:>12} {row['channel_rho']:>5.2f} "
-            f"{row['csi_delay_slots']:>5} {row['decision_error_std']:>6.3f} "
-            f"{row['execution_error_std']:>7.3f} "
-            f"{row['policy']:<44} {row['success_mean']:>9.3f} "
-            f"{row['perfect_rate']:>8.2f}% {row['slots_mean']:>7.3f} "
-            f"{row['failed_nodes_mean']:>8.2f} {row['missed_opportunities_mean']:>8.2f} "
-            f"{row['decision_preview_calls_per_slot_mean']:>8.2f} "
-            f"{row['oracle_tx_gap_mean']:>7.3f}"
-        )
-
-
-def plot_results(rows, args, output_prefix):
-    """Plot success, failed invitations, and oracle gap vs execution error."""
-    policies = []
-    for row in rows:
-        if row["policy"] not in policies:
-            policies.append(row["policy"])
-
-    scenario_keys = sorted(
-        {
-            (
-                row["mismatch_model"],
-                row["channel_rho"],
-                row["csi_delay_slots"],
-                row["decision_error_std"],
-            )
-            for row in rows
-        },
-        key=lambda item: (item[0], item[1], item[2], item[3]),
-    )
-    for mismatch_model, channel_rho, csi_delay_slots, decision_error_std in scenario_keys:
-        subset = [
-            row
-            for row in rows
-            if row["mismatch_model"] == mismatch_model
-            and row["channel_rho"] == channel_rho
-            and row["csi_delay_slots"] == csi_delay_slots
-            and row["decision_error_std"] == decision_error_std
-        ]
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-        cmap = plt.get_cmap("tab20")
-        colors = {policy: cmap(idx % 20) for idx, policy in enumerate(policies)}
-        for policy in policies:
-            policy_rows = sorted(
-                [row for row in subset if row["policy"] == policy],
-                key=lambda row: row["execution_error_std"],
-            )
-            if not policy_rows:
-                continue
-            x = [row["execution_error_std"] for row in policy_rows]
-            axes[0].plot(
-                x,
-                [row["success_mean"] for row in policy_rows],
-                marker="o",
-                linewidth=1.5,
-                label=policy,
-                color=colors[policy],
-            )
-            axes[1].plot(
-                x,
-                [row["failed_nodes_mean"] for row in policy_rows],
-                marker="o",
-                linewidth=1.5,
-                label=policy,
-                color=colors[policy],
-            )
-            axes[2].plot(
-                x,
-                [row["oracle_tx_gap_mean"] for row in policy_rows],
-                marker="o",
-                linewidth=1.5,
-                label=policy,
-                color=colors[policy],
-            )
-
-        scenario_title = (
-            f"{mismatch_model}, rho={channel_rho:g}, delay={int(csi_delay_slots)}, "
-            f"decision error={decision_error_std:g}"
-        )
-        axes[0].set_title(f"Success, {scenario_title}")
-        axes[0].set_ylabel("Successful Nodes")
-        axes[0].set_ylim(0.0, args.num_nodes + 1)
-        axes[1].set_title("Failed Invited Nodes")
-        axes[1].set_ylabel("Failed Nodes / Episode")
-        axes[2].set_title("Per-Slot Execution Oracle Gap")
-        axes[2].set_ylabel("Missed Tx Count")
-        for ax in axes:
-            ax.set_xlabel("Execution Channel Error Std")
-            ax.grid(True, linestyle="--", alpha=0.35)
-            ax.legend(fontsize=7)
-        fig.tight_layout()
-        decision_suffix = format_float_for_suffix(decision_error_std)
-        rho_suffix = format_float_for_suffix(channel_rho)
-        path = (
-            f"{output_prefix}_{mismatch_model}_rho{rho_suffix}_"
-            f"delay{int(csi_delay_slots)}_decerr{decision_suffix}.png"
-        )
-        fig.savefig(path, dpi=300)
-        plt.close(fig)
-        print(f"Saved: {path}")
-
-
-def policy_configs(args):
-    """Expand selected policy aliases into concrete parameter configurations."""
-    configs = []
-    for alias in args.policies:
-        policy_name = POLICY_CHOICES[alias]
-        if policy_name == POLICY_EXECUTION_ORACLE:
-            configs.append({"policy_name": policy_name, "budget": args.num_codebook_states})
-        elif policy_name in {
-            limited.POLICY_NO_IRS,
-            limited.POLICY_FIXED_IRS,
-            limited.POLICY_EXACT_GREEDY,
-            limited.POLICY_EST_GREEDY,
-        }:
-            budget = args.num_codebook_states if policy_name in {
-                limited.POLICY_EXACT_GREEDY,
-                limited.POLICY_EST_GREEDY,
-            } else 0
-            configs.append({"policy_name": policy_name, "budget": budget})
-        elif policy_name == limited.POLICY_ROBUST_ROTATING_GRID:
-            for budget in args.probe_budgets:
-                for gain_margin in args.robust_gain_margins:
-                    for power_margin in args.robust_power_margins:
-                        configs.append(
-                            {
-                                "policy_name": policy_name,
-                                "budget": budget,
-                                "gain_margin": gain_margin,
-                                "power_margin": power_margin,
-                            }
-                        )
-        elif policy_name in {
-            limited.POLICY_RISK_AWARE_ROTATING_GRID,
-            POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-        }:
-            for budget in args.probe_budgets:
-                for risk_weight in args.risk_weights:
-                    for risk_power_weight in args.risk_power_weights:
-                        for risk_invite_threshold in args.risk_invite_thresholds:
-                            configs.append(
-                                {
-                                    "policy_name": policy_name,
-                                    "budget": budget,
-                                    "risk_weight": risk_weight,
-                                    "risk_power_weight": risk_power_weight,
-                                    "risk_invite_threshold": risk_invite_threshold,
-                                }
-                            )
-        elif policy_name in {
-            limited.POLICY_ADAPTIVE_RISK_AWARE_ROTATING_GRID,
-            POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-        }:
-            for budget in args.probe_budgets:
-                for adaptive_risk_base_weight in args.adaptive_risk_base_weights:
-                    for risk_power_weight in args.risk_power_weights:
-                        for risk_invite_threshold in args.risk_invite_thresholds:
-                            configs.append(
-                                {
-                                    "policy_name": policy_name,
-                                    "budget": budget,
-                                    "risk_weight": adaptive_risk_base_weight,
-                                    "adaptive_risk_base_weight": adaptive_risk_base_weight,
-                                    "risk_power_weight": risk_power_weight,
-                                    "risk_invite_threshold": risk_invite_threshold,
-                                }
-                            )
-        elif policy_name == POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID:
-            for budget in args.probe_budgets:
-                for opportunity_failure_cost in args.opportunity_failure_costs:
-                    for opportunity_missed_cost in args.opportunity_missed_costs:
-                        for opportunity_deadline_gain in args.opportunity_deadline_gains:
-                            for opportunity_backlog_gain in args.opportunity_backlog_gains:
-                                for risk_power_weight in args.risk_power_weights:
-                                    configs.append(
-                                        {
-                                            "policy_name": policy_name,
-                                            "budget": budget,
-                                            "risk_power_weight": risk_power_weight,
-                                            "opportunity_failure_cost": opportunity_failure_cost,
-                                            "opportunity_missed_cost": opportunity_missed_cost,
-                                            "opportunity_deadline_gain": opportunity_deadline_gain,
-                                            "opportunity_backlog_gain": opportunity_backlog_gain,
-                                        }
-                                    )
-        elif policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
-            for budget in args.probe_budgets:
-                configs.append({"policy_name": policy_name, "budget": budget})
-        elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
-            for budget in args.probe_budgets:
-                configs.append({"policy_name": policy_name, "budget": budget})
-        elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
-            for budget in args.probe_budgets:
-                configs.append({"policy_name": policy_name, "budget": budget})
-        elif policy_name == POLICY_TEMPORAL_DEVIATION_ORACLE_GRID:
-            for budget in args.probe_budgets:
-                configs.append({"policy_name": policy_name, "budget": budget})
-        elif policy_name == POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID:
-            for budget in args.probe_budgets:
-                for risk_weight in args.risk_weights:
-                    for risk_power_weight in args.risk_power_weights:
-                        for temporal_reliability_z in args.temporal_reliability_z_values:
-                            configs.append(
-                                {
-                                    "policy_name": policy_name,
-                                    "budget": budget,
-                                    "risk_weight": risk_weight,
-                                    "risk_power_weight": risk_power_weight,
-                                    "temporal_reliability_z": temporal_reliability_z,
-                                }
-                            )
-        else:
-            for budget in args.probe_budgets:
-                configs.append({"policy_name": policy_name, "budget": budget})
-    return configs
-
-
-def mismatch_scenarios(args):
-    """Yield concrete mismatch-model parameter tuples."""
-    for mismatch_model in args.mismatch_models:
-        if mismatch_model == MISMATCH_INDEPENDENT:
-            yield mismatch_model, 0.0, 0
-            continue
-        for channel_rho in args.channel_rho_values:
-            for csi_delay_slots in args.csi_delay_slots:
-                yield mismatch_model, float(channel_rho), int(csi_delay_slots)
 
 
 def main():
@@ -1946,7 +1011,20 @@ def main():
         f"Execution channel mismatch: episodes={args.episodes}, num_seeds={args.num_seeds}, "
         f"decision_errors={args.decision_error_std_values}, execution_errors={args.execution_error_std_values}, "
         f"models={args.mismatch_models}, rhos={args.channel_rho_values}, "
-        f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}"
+        f"delays={args.csi_delay_slots}, budgets={args.probe_budgets}, "
+        f"sparse_seed_multipliers={args.sparse_topk_seed_multipliers}, "
+        f"sparse_topk_fractions={args.sparse_topk_fractions}, "
+        f"coverage_sparse_weights={args.coverage_sparse_weights}, "
+        f"coverage_sparse_power_weights={args.coverage_sparse_power_weights}, "
+        f"adaptive_sparse_margins={args.adaptive_sparse_margin_thresholds}, "
+        f"adaptive_sparse_v2_preview_costs={args.adaptive_sparse_v2_preview_costs}, "
+        f"adaptive_sparse_v3_neighbor_radius={args.adaptive_sparse_v3_neighbor_radius}, "
+        f"adaptive_sparse_v3_neighbor_count={args.adaptive_sparse_v3_neighbor_count}, "
+        f"adaptive_sparse_v3_history_count={args.adaptive_sparse_v3_history_count}, "
+        f"learned_shortlist_extra_counts={args.learned_shortlist_extra_counts}, "
+        f"learned_set_extra_counts={args.learned_set_extra_counts}, "
+        f"learned_shortlist_model={args.learned_shortlist_model or 'none'}, "
+        f"learned_set_shortlist_model={args.learned_set_shortlist_model or 'none'}"
     )
     print(f"Output prefix: {output_prefix}")
     print("=" * 96)
