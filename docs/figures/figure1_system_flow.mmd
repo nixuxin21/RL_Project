@@ -1,0 +1,61 @@
+%% Figure 1 source: System and deployable feedback flow.
+%% This Mermaid file is a versioned concept figure source, not a generated result.
+%% Hidden current-channel information must remain evaluation-only.
+
+flowchart LR
+    subgraph panel_a["(a) System and mismatch"]
+        devices["K devices"]
+        irs["IRS codebook C"]
+        ap["AP / parameter server"]
+        stale["Stale CSI at t-d<br/>available for decision"]
+        drift["Temporal AR(1) drift"]
+        current["Current channel at t<br/>hidden during decision"]
+        oracle["Hidden current-channel oracle<br/>evaluation only"]
+
+        devices -->|"uplink signals"| irs
+        irs -->|"reflected AirComp signal"| ap
+        stale -.->|"CSI delay d"| drift
+        drift -.->|"execution mismatch"| current
+        current -.->|"not available to deployable method"| oracle
+        current -.->|"actual execution channel"| ap
+    end
+
+    subgraph panel_b["(b) Deployable feedback pipeline"]
+        stale_preview["Stale preview / ranking"]
+        candidates["Coverage-aware candidates"]
+        probes["B aggregate current probes"]
+        agg["Aggregate feedback count"]
+        confirmed["Confirmed IRS"]
+        stale_mask["Stale invitation mask"]
+        correction["Mask correction"]
+        corrected_mask["Corrected invitation mask"]
+        execution["Current-channel execution"]
+        metrics["Execution metrics<br/>failed / missed / gap"]
+
+        stale_preview -->|"stale seed pool"| candidates
+        candidates -->|"candidate IRS states"| probes
+        probes -->|"current aggregate scores"| agg
+        agg -->|"select IRS"| confirmed
+        confirmed -->|"stale invitation estimate"| stale_mask
+        agg ==>|target count| correction
+        stale_mask -->|"stale mask cardinality"| correction
+        correction -->|"corrected invited set"| corrected_mask
+        corrected_mask --> execution
+        execution --> metrics
+    end
+
+    stale -->|"stale decision information"| stale_preview
+    current -.->|"aggregate probe outcomes only"| probes
+    oracle -.->|"diagnostic upper bound only"| metrics
+
+    classDef deployable fill:#eef6ff,stroke:#2c5f8a,color:#111827,stroke-width:1px;
+    classDef correctionClass fill:#e8f7ef,stroke:#16703b,color:#111827,stroke-width:2px;
+    classDef hidden fill:#f3f4f6,stroke:#6b7280,color:#374151,stroke-dasharray: 5 5;
+    classDef mismatch fill:#fff3e6,stroke:#b45309,color:#111827,stroke-dasharray: 4 4;
+    classDef metricsClass fill:#f8fafc,stroke:#64748b,color:#111827;
+
+    class devices,irs,ap,stale_preview,candidates,probes,confirmed,stale_mask,corrected_mask,execution deployable;
+    class agg,correction correctionClass;
+    class current,oracle hidden;
+    class stale,drift mismatch;
+    class metrics metricsClass;

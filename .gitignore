@@ -1,6 +1,11 @@
 # 忽略 Python 缓存
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# 忽略 IDE 本地状态
+.idea/
+.vscode/
 
 # 忽略强化学习模型权重和归一化字典
 *.zip
@@ -10,5 +15,44 @@ rl_models/
 # 忽略 TensorBoard 训练日志
 rl_logs/
 
+# 忽略 Matplotlib 本地缓存
+.matplotlib/
+
+# 忽略本地虚拟环境
+.venv/
+venv/
+
 # 忽略 Mac 系统文件 (如果你用 Mac 的话)
 .DS_Store
+
+# 实验结果默认本地保留，不直接版本化；需要发布的关键 CSV/图可手动 force add。
+results/*
+!results/README.md
+
+# Paper-freeze artifacts required by make mainline-audit.
+!results/execution_mismatch/
+results/execution_mismatch/*
+!results/execution_mismatch/final_execution_baseline_summary.csv
+!results/execution_mismatch/main_frontier_analysis.csv
+!results/execution_mismatch/main_frontier_preview_gap.png
+!results/execution_mismatch/main_frontier_failed_missed.png
+!results/execution_mismatch/coverage_aware_ablation_analysis.csv
+!results/execution_mismatch/coverage_aware_weight_ablation.png
+!results/execution_mismatch/coverage_aware_power_ablation.png
+!results/execution_mismatch/coverage_b3_failure_diagnosis_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_summary.csv
+!results/execution_mismatch/coverage_b3_failure_diagnosis_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_trace.csv
+!results/execution_mismatch/invitation_mask_correction_formal_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_mc0-0p75-1.csv
+!results/execution_mismatch/invitation_mask_correction_noise_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_mc0-0p75-1_fbn0-0p02-0p05-0p1.csv
+!results/execution_mismatch/invitation_mask_correction_noise_aware_formal_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_mc0-0p75-1_clipinf-2_fbn0-0p02-0p05-0p1.csv
+!results/execution_mismatch/final_invitation_mask_analysis.csv
+!results/execution_mismatch/final_invitation_mask_gap_noise.png
+!results/execution_mismatch/final_invitation_mask_failed_missed_noise.png
+!results/paper/
+results/paper/*
+!results/paper/table1_main_results.csv
+!results/paper/figure2_figure3_points.csv
+!results/paper/figure2_preview_gap_frontier.png
+!results/paper/figure3_failed_missed_tradeoff.png
+!results/paper/figure4_invitation_mask_noise_points.csv
+!results/paper/figure4_invitation_mask_gap_noise.png
+!results/paper/figure4_invitation_mask_failed_missed_noise.png

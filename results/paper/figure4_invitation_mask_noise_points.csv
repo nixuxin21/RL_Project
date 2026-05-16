@@ -1,0 +1,13 @@
+Label,ShortLabel,Role,FeedbackNoiseStd,Gap,Failed,Missed,IsReliableFeedbackMain,IsHighNoiseVariant
+Coverage-Aware B=3,B3,uncorrected baseline,0,0.432,0.546,0.864,False,False
+Direct Mask Correction mc=1,Direct,reliable-feedback main method,0,0.292,0.333,0.333,True,False
+Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0,0.296,0.333,0.346,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.02,0.578,0.881,0.857,False,False
+Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.02,0.503,1.613,0.477,False,False
+Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.02,0.508,1.589,0.495,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.05,0.753,1.206,0.898,False,False
+Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.05,0.668,3.434,0.482,False,False
+Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.05,0.670,2.769,0.494,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.1,0.861,1.317,0.899,False,False
+Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.1,0.856,5.264,0.734,False,False
+Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.1,0.818,3.275,0.599,False,True

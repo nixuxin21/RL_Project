@@ -1,6 +1,24 @@
+"""
+完整 SAC 的蒙特卡洛批量评估脚本。
+
+相比 `evaluate_agent.py` 的单回合逐时隙打印，本脚本重复运行多个 episode，
+统计成功节点数、完美覆盖率和理论 MSE，并输出图像：
+
+1. 每个 episode 的成功节点数轨迹。
+2. 成功节点数 CDF。
+
+它主要用于早期评估完整 SAC 的稳定性。后续更完整的多策略对比请使用
+`evaluate_policy_comparison.py`。
+"""
+
 import os
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
+
+import matplotlib
+
+matplotlib.use("Agg")
 import numpy as np
-import gymnasium as gym
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack, VecNormalize
 import matplotlib.pyplot as plt
@@ -9,6 +27,13 @@ import matplotlib.pyplot as plt
 from test_env import MSAirCompEnv
 
 def run_batch_evaluation():
+    """
+    加载完整 SAC 模型并执行固定数量的 Monte Carlo episode。
+
+    这个函数刻意保持与训练时相同的环境包装顺序：
+    `MSAirCompEnv -> DummyVecEnv -> VecFrameStack -> VecNormalize`。
+    如果包装顺序或归一化统计不一致，模型输入维度或数值分布都会出错。
+    """
     # =====================================================================
     # 1. 路径与全局参数配置
     # =====================================================================
@@ -121,6 +146,11 @@ def run_batch_evaluation():
 def plot_results(data, k_total, num_episodes):
     """
     接收蒙特卡洛测试数据，使用 Matplotlib 绘制时序图和 CDF 图
+
+    Args:
+        data: 每个 episode 的最终成功节点数。
+        k_total: 节点总数，用于绘制满覆盖参考线。
+        num_episodes: episode 数量，用于设置横轴范围。
     """
     data = np.array(data)
     
@@ -152,7 +182,8 @@ def plot_results(data, k_total, num_episodes):
     ax2.grid(True, linestyle='--', alpha=0.7)
 
     plt.tight_layout()
-    save_path = "batch_evaluation_results.png"
+    save_path = os.path.join("results", "policy_comparison", "batch_evaluation_results.png")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300)
     print(f"\n📈 图表已保存至: {save_path}")
     
