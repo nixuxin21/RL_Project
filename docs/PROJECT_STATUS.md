@@ -1,0 +1,171 @@
+# Project Status
+
+本文件面向项目维护，不是论文草稿。它记录当前仓库哪些部分是 active mainline、哪些是 diagnostics/archive，以及继续实验前应跑哪些检查。
+
+## Current Focus
+
+当前主线是：
+
+> IRS-assisted multi-slot AirComp under stale/limited CSI and execution-channel mismatch, using low-cost IRS candidate generation plus current aggregate feedback.
+
+最重要的 active method 是 `Mask-Corrected Coverage-Aware B=3 mc=1`。它保持 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 的 IRS candidate generation 和 current aggregate confirmation 不变，只在 confirmed IRS 后用 aggregate current feedback count 修正 stale invitation mask cardinality。
+
+当前最重要的维护目标不是继续扩展普通 heuristic 数量，而是让这条主线更可靠、更可复现、更容易重构。
+
+论文撰写前的主线结果包已冻结在 `docs/PAPER_RESULT_PACKAGE.md`。章节、表图和附录位置已映射到 `docs/PAPER_STRUCTURE_MAP.md`，主图主表规格已统一固定在 `docs/PAPER_FIGURE_TABLE_SPECS.md`，附录最小集合已固定在 `docs/PAPER_APPENDIX_BOUNDARY.md`，正文最小写作骨架已固定在 `docs/PAPER_TEXT_OUTLINE.md`，投稿前资产缺口已固定在 `docs/PAPER_ASSET_GAP_CHECKLIST.md`，冻结 artifact 清单已固定在 `docs/PAPER_FREEZE_MANIFEST.md`。后续写论文、补图表或判断新实验是否进入正文时，优先以这些文件为准。
+
+## Active Code
+
+| 文件 | 状态 | 用途 |
+|---|---|---|
+| `test_env.py` | active core | `MSAirCompEnv` 物理环境、DFT codebook、slot 执行和 preview API |
+| `ms_aircomp/adaptive_sparse_policies.py` | active utility | Adaptive Sparse-TopK v1/v2/v3 gates、history/uncertainty helper 和 local-neighbor generation |
+| `ms_aircomp/channel_models.py` | active utility | execution drift、physical channel snapshot、temporal AR(1) stale CSI helpers |
+| `ms_aircomp/confirmation.py` | active utility | current aggregate-feedback IRS confirmation flow |
+| `ms_aircomp/experiment_utils.py` | active utility | seed、action mapping、energy 等无状态工具 |
+| `ms_aircomp/execution_candidates.py` | active utility | drifted execution candidates and hidden execution oracle helpers |
+| `ms_aircomp/execution_policies.py` | active utility | rotating/stale-topK/sparse/coverage feedback policy decision functions |
+| `ms_aircomp/execution_risk_policies.py` | active utility | execution-risk reliability re-scoring、adaptive execution-risk rotating 和 opportunity-cost policy helpers |
+| `ms_aircomp/feedback.py` | active utility | aggregate feedback scoring and confirmed-index selection helpers |
+| `ms_aircomp/learned_shortlist.py` | active utility | learned sparse/set shortlist features、model loading 和 feedback policy helpers |
+| `ms_aircomp/probe_sets.py` | active utility | ordered/diverse probe sets and coverage-aware sparse candidate selection |
+| `ms_aircomp/temporal_policies.py` | active utility | temporal-reliability rotating policy 和 temporal-deviation oracle diagnostic |
+| `evaluate_execution_channel_mismatch.py` | active mainline | temporal AR(1) stale CSI、execution mismatch、Sparse-TopK、Coverage-Aware、Adaptive V2、Stale-TopK、Temporal Deviation Oracle |
+| `evaluate_invitation_mask_correction.py` | active mainline | aggregate-feedback invitation-mask correction 与 noise-aware clipped correction |
+| `diagnose_coverage_b3_failures.py` | active diagnostic | 把 `Coverage-Aware B=3` residual gap 分解到 pool/selection/confirmation/invitation |
+| `summarize_execution_baselines.py` | active summary | 汇总当前 execution mismatch baseline |
+| `analyze_main_frontier.py` | active summary | 生成主线 frontier 分析和图 |
+| `analyze_coverage_aware.py` | active summary | 汇总 coverage-aware ablation 和 budget split |
+| `analyze_invitation_mask_final.py` | active summary | 汇总 final invitation-mask results |
+| `tests/smoke_checks.py` | active test | 行为不变量、预算、no-side-effect、seed stability |
+| `tests/dependency_boundary_checks.py` | active test | 防止从 evaluator 重新导入 reusable helper，固化 `ms_aircomp` 边界 |
+| `tests/mainline_artifact_checks.py` | active test | 不重跑实验，审计主线 CSV/PNG/MD artifact 证据链 |
+| `tests/mainline_regression_checks.py` | active test | 固定 seed 的主线数值趋势回归检查 |
+
+## Diagnostic Or Archive Code
+
+以下方向保留用于复现历史结论和解释负结果，但不应作为默认新增实验入口：
+
+- Full SAC / Codebook-Aware SAC: `train_agent.py`, `train_codebook_aware_agent.py`
+- Greedy imitation: `train_greedy_imitation_selector.py`
+- Basic bandit feedback and learned feedback selector: `evaluate_bandit_feedback_ms_aircomp.py`, `train_bandit_feedback_selector.py`
+- Temporal learned offset/window: `train_temporal_deviation_selector.py`
+- Learned sparse/set shortlist: `train_learned_sparse_shortlist.py`
+- Early learned probing and noisy feature sweeps: `experiments/archive/`
+
+更完整的停止投入边界见 `docs/DEPRECATED_DIRECTIONS.md`。
+
+## Module Boundary
+
+`ms_aircomp/` 是逐步稳定的 reusable experiment layer。新代码应优先从这些模块导入 channel、execution candidate、feedback、confirmation、probe-set、active policy、learned-shortlist、execution policy registry、result summary 和 plotting/output helpers。每个模块用 `__all__` 标明当前项目内希望稳定使用的函数。
+
+`evaluate_execution_channel_mismatch.py` 现在主要承担 CLI parsing/validation、temporal scenario orchestration、`evaluate_policy()` episode loop 和 legacy compatibility re-export surface。CSV 写出、plot/summary 输出、policy registry、metric summary、policy decision dispatch 和 invitation-mask correction 已移入 `ms_aircomp` helper 模块。新增代码不应使用 `from evaluate_execution_channel_mismatch import ...` 导入 helper。整体 import evaluator 只允许少数编排入口，例如 `train_temporal_deviation_selector.py` 和 `tests/mainline_regression_checks.py`。
+
+这个边界由 `tests/dependency_boundary_checks.py` 固化；如果后续有人重新从 evaluator 导入 helper、在 evaluator 中新增顶层 reusable helper、或让已拆出的 policy/output/result helper 回流进 evaluator，`make check` 会失败。
+
+后续继续拆其余 orchestration logic 时，应保持依赖方向为：
+
+```text
+experiment scripts -> ms_aircomp reusable modules
+```
+
+不要让 `ms_aircomp` 模块 import orchestration scripts。
+
+## Safe Maintenance Commands
+
+日常改代码后优先运行：
+
+```bash
+make test
+```
+
+涉及 current mainline、execution mismatch、coverage-aware 或 mask correction 的改动后运行：
+
+```bash
+make check
+```
+
+其中 `make check` 包含：
+
+- `make test`: py_compile + smoke checks
+- `make boundary-test`: evaluator dependency-boundary checks
+- `make regression-test`: fixed-seed mainline numerical checks
+
+需要更完整的一次性 smoke 时运行：
+
+```bash
+make smoke
+```
+
+`make smoke` 会跑多个小规模实验，比 `make check` 更慢。
+
+整理主线结果、论文表格或提交前运行：
+
+```bash
+make mainline-audit
+```
+
+`make mainline-audit` 不重跑实验，只检查当前主线结果文件、CSV 字段、`source_file` 链接、final invitation-mask 关系和 `docs/RESULTS_INDEX.md` 中引用的路径是否一致。
+
+## Main Result Entrypoints
+
+当前主线结果和分析入口：
+
+| Target | 输出 | 用途 |
+|---|---|---|
+| `docs/PAPER_RESULT_PACKAGE.md` | paper-facing frozen package | 冻结正文结果包、主表/图和 appendix 边界 |
+| `docs/PAPER_STRUCTURE_MAP.md` | paper-facing structure map | 映射论文章节、贡献、主表主图和附录位置 |
+| `docs/PAPER_FIGURE_TABLE_SPECS.md` | paper-facing figure/table specs | 固定 Figure 1、Table 1 和后续主图主表规格 |
+| `docs/PAPER_APPENDIX_BOUNDARY.md` | paper-facing appendix boundary | 固定 minimal appendix、supplement-only diagnostics 和禁入正文规则 |
+| `docs/PAPER_TEXT_OUTLINE.md` | paper-facing text outline | 固定每节 claim、证据、禁入内容和图表引用顺序 |
+| `docs/PAPER_ASSET_GAP_CHECKLIST.md` | paper-facing asset checklist | 固定投稿前表图资产完成度、缺口和后续包装任务 |
+| `docs/PAPER_FREEZE_MANIFEST.md` | paper-facing freeze manifest | 固定论文冻结 artifact 清单、验证命令和非冻结边界 |
+| `make paper-table1` | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv` | 从 frozen mainline CSV 生成论文 Table 1 |
+| `make paper-figures` | `results/paper/figure2_figure3_points.csv`, `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | 从 frozen mainline CSV 生成论文版 Figure 2/3/4 |
+| `make execution-baseline-summary` | `docs/EXECUTION_BASELINE_SUMMARY.md`, `results/execution_mismatch/final_execution_baseline_summary.csv` | 当前 baseline 主表 |
+| `make main-results-analysis` | `docs/MAIN_RESULTS_ANALYSIS.md`, frontier CSV/PNG | cost-quality frontier 和 failed/missed tradeoff |
+| `make coverage-aware-analysis` | `docs/COVERAGE_AWARE_ANALYSIS.md` | coverage-aware weight/power/budget split |
+| `make coverage-b3-failure-diagnosis` | diagnosis CSV/MD | B3 residual gap 分解 |
+| `make invitation-mask-correction-formal` | formal correction CSV/MD | reliable feedback 下的 main correction result |
+| `make invitation-mask-correction-noise-aware-formal` | noise-aware CSV/MD | high-noise clipped correction result |
+| `make final-invitation-mask-analysis` | final CSV/PNG/MD | final invitation-mask result package |
+
+## Results Boundaries
+
+`results/` 是生成物目录，不按物理移动方式区分 active/archive，因为文档和 Makefile target 仍直接引用历史路径。维护时按以下规则理解：
+
+- `results/execution_mismatch/`: 当前主线和主要 diagnostics。
+- `results/policy_comparison/`, `results/runtime/`, `results/parameter_sweep/`, `results/partial_probing/`, `results/channel_estimation/`, `results/limited_csi/`: 支撑背景结论。
+- `results/action_diagnostics/`, `results/imitation/`, `results/noisy_features/`, `results/learned_probing/`, `results/bandit_feedback/`, `results/probing_cost/`: diagnostic/archive。
+
+关键结果索引见 `docs/RESULTS_INDEX.md`。
+
+## Before Adding New Experiments
+
+新增实验应先满足下面至少一项：
+
+1. 直接解释或降低 invitation-mask mismatch。
+2. 在相同或更低 preview 下改善 `Coverage-Aware B=3 sm=4.1` 或 `Mask-Corrected Coverage-Aware B=3`。
+3. 提供对 failed/missed/oracle gap 的新诊断，而不只是新增一个策略名称。
+4. 改善 high-noise aggregate feedback robustness。
+
+新增实验默认应对比：
+
+- `Rotating B=8`
+- `Sparse-TopK B=4 sm=3`
+- `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0`
+- `Mask-Corrected Coverage-Aware B=3 mc=1`
+- `Stale-TopK B=4`
+- `Temporal Deviation Oracle B=4`
+
+## Refactor Readiness
+
+`evaluate_execution_channel_mismatch.py` 已从大型混合脚本收敛为较薄的主线 evaluator shell。当前已抽出的稳定边界包括：
+
+- `ms_aircomp/execution_policy_registry.py`: policy/mismatch 名称、label 和默认配置。
+- `ms_aircomp/execution_result_summary.py`: per-seed aggregation、CSV 字段和 summary statistics。
+- `ms_aircomp/execution_decision_dispatch.py`: policy name 到 reusable decision helper 的分发。
+- `ms_aircomp/execution_output.py`: output prefix、progress/summary print 和 plotting。
+- `ms_aircomp/invitation_mask_correction.py`: invitation-mask correction 的纯函数核心。
+
+后续不建议继续为了“变小”而拆分。只有在实际修改触碰对应区域时，再考虑把 CLI validation/schema 或 episode metric accumulator 抽成 helper。每次拆分后先跑 `make check`，再考虑扩大实验。
