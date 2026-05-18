@@ -1,10 +1,4 @@
-"""
-Train and evaluate a temporal deviation selector for stale-CSI probing.
-
-The model learns an offset relative to the rotating-grid probe window. Training
-uses hidden current-channel outcomes as supervised targets, but evaluation only
-uses observable episode state and history from previous probes/executions.
-"""
+"""训练 temporal-deviation selector，用隐藏 current outcome 诊断 stale-CSI offset/window 是否有可学习空间。"""
 
 import argparse
 import csv
@@ -55,7 +49,7 @@ DIAGNOSTIC_METADATA = {
 
 
 def parse_args():
-    """Parse temporal-deviation training and evaluation arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Train a learned temporal deviation selector for limited-CSI probing."
     )
@@ -101,7 +95,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate arguments and parse list-like values."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     for name in (
         "train_episodes",
         "val_episodes",
@@ -166,7 +160,7 @@ def validate_args(args):
 
 
 def build_eval_args(args, episodes=None, num_seeds=None):
-    """Build the namespace expected by execution-mismatch helpers."""
+    """构建eval、参数所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return argparse.Namespace(
         episodes=args.eval_episodes if episodes is None else int(episodes),
         seed=args.seed,
@@ -218,7 +212,7 @@ def build_eval_args(args, episodes=None, num_seeds=None):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for model, CSV, and diagnostics."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -252,7 +246,7 @@ def resolve_output_prefix(args):
 
 
 def learned_rng(episode_seed, salt=0):
-    """Create deterministic RNG streams for learned temporal deviation."""
+    """处理learned、随机数流相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if episode_seed is None:
         return np.random.default_rng()
     seed = (int(episode_seed) + LEARNED_TEMPORAL_OFFSET + int(salt) * 0x165667B1) % (2**32)
@@ -260,7 +254,7 @@ def learned_rng(episode_seed, salt=0):
 
 
 def split_episode_specs(seed, episodes, rhos, delays):
-    """Generate train/validation episode seeds and sampled temporal scenarios."""
+    """处理split、回合、specs相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rng = np.random.default_rng(seed)
     specs = []
     for episode_seed in rng.integers(0, 2**31 - 1, size=episodes):
@@ -275,7 +269,7 @@ def split_episode_specs(seed, episodes, rhos, delays):
 
 
 def set_training_seed(args):
-    """Seed torch-side model initialization and DataLoader shuffling."""
+    """处理set、training、随机种子相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if int(args.seed) >= 0:
         torch.manual_seed(int(args.seed))
         if torch.cuda.is_available():
@@ -283,14 +277,14 @@ def set_training_seed(args):
 
 
 def print_progress(name, current, total):
-    """Print progress at 10 percent intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(total // 10, 1)
     if current % interval == 0 or current == total:
         print(f"  {name}: [{current:04d}/{total:04d}]")
 
 
 def initialize_history(args):
-    """Initialize observable probe/execution history."""
+    """处理history相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     return {
         "counts": np.zeros(c_count, dtype=float),
@@ -310,12 +304,12 @@ def initialize_history(args):
 
 
 def offset_indices(args, budget, slot_idx, offset):
-    """Return the IRS probe indices for one relative rotating offset."""
+    """处理offset、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return limited.grid_indices(args.num_codebook_states, budget, offset=int(slot_idx) + int(offset))
 
 
 def history_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx):
-    """Build a feature vector from observable state and past probe history."""
+    """处理history、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     remaining_count = int(np.sum(~env.transmitted_flags))
     slots_left = max(int(args.num_slots) - int(slot_idx), 1)
@@ -366,7 +360,7 @@ def history_features(env, history, args, channel_rho, csi_delay_slots, budget, s
 
 
 def offset_window_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx, offsets):
-    """Build per-offset candidate-window features from observable history."""
+    """处理offset、window、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     base = history_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)[:14]
     counts = np.clip(np.asarray(history["counts"], dtype=float) / max(args.num_slots, 1), 0.0, 1.0)
@@ -410,7 +404,7 @@ def offset_window_features(env, history, args, channel_rho, csi_delay_slots, bud
 
 
 def policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx):
-    """Build policy features for the selected model architecture."""
+    """处理策略、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if getattr(args, "feature_mode", "global") == "window":
         return offset_window_features(
             env,
@@ -426,7 +420,7 @@ def policy_features(env, history, args, channel_rho, csi_delay_slots, budget, sl
 
 
 def update_history(history, args, indices, decision_candidates, selected_decision, info, chosen_offset):
-    """Update probe/execution history after one slot."""
+    """更新history相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     history["age"] += 1.0
     lr = float(getattr(args, "history_lr", 0.60))
     candidate_by_index = {int(candidate["irs_index"]): candidate for candidate in decision_candidates}
@@ -469,7 +463,7 @@ def update_history(history, args, indices, decision_candidates, selected_decisio
 
 
 def mask_metrics(env, args, decision, true_candidate):
-    """Compute execution metrics for a decision without mutating the environment."""
+    """处理mask、metrics相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     remaining = ~env.transmitted_flags
     scheduled = np.asarray(decision["valid_mask"], dtype=bool) & remaining
     true_valid = np.asarray(true_candidate["valid_mask"], dtype=bool) & remaining
@@ -481,7 +475,7 @@ def mask_metrics(env, args, decision, true_candidate):
 
 
 def estimated_window_decision(env, args, indices, decision_error_std, episode_seed, slot_idx, salt):
-    """Build stale/estimated candidates for a window and return the selected decision."""
+    """处理估计、window、决策相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rng = limited.stable_rng(
         episode_seed,
         decision_error_std,
@@ -513,7 +507,7 @@ def offset_target_scores(
     execution_state,
     offsets,
 ):
-    """Return hidden supervised utility scores for each candidate offset."""
+    """处理offset、target、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     snapshot = capture_channel_state(env)
     scores = []
     tx_values = []
@@ -550,14 +544,14 @@ def offset_target_scores(
 
 
 def choose_behavior_offset(target_scores, offsets, rng, random_prob):
-    """Choose a data-collection behavior offset."""
+    """按照behavior、offset规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if rng.random() < float(random_prob):
         return int(rng.choice(offsets))
     return int(offsets[int(np.argmax(target_scores))])
 
 
 def dagger_beta(args, iteration):
-    """Return expert-mixing probability for one DAgger iteration."""
+    """处理dagger、beta相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     total = int(args.dagger_iterations)
     if total <= 1:
         return float(args.dagger_beta_start)
@@ -566,7 +560,7 @@ def dagger_beta(args, iteration):
 
 
 def choose_dagger_offset(model, mean, std, feature, target_scores, args, beta, rng):
-    """Choose a rollout offset using an expert/model DAgger mixture."""
+    """按照dagger、offset规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if rng.random() < float(beta):
         return int(args.offsets[int(np.argmax(target_scores))])
     scores = predict_offset_scores(model, feature, mean, std, torch.device(args.device))
@@ -585,7 +579,7 @@ def execute_offset_slot(
     execution_state,
     offset,
 ):
-    """Execute one slot using a chosen relative rotating offset."""
+    """处理execute、offset、时隙相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     indices = offset_indices(args, budget, slot_idx, offset)
     apply_channel_state(env, decision_state)
     decision, candidates = estimated_window_decision(
@@ -612,7 +606,7 @@ def execute_offset_slot(
 
 
 def collect_dataset(args, episodes, seed, split_name):
-    """Collect temporal offset features and hidden supervised targets."""
+    """处理collect、dataset相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     eval_args = build_eval_args(args, episodes=episodes, num_seeds=1)
     eval_args.P_max = 1.0
     env = limited.make_env(eval_args)
@@ -709,7 +703,7 @@ def collect_dataset(args, episodes, seed, split_name):
 
 
 def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, beta):
-    """Collect on-policy DAgger states and hidden supervised targets."""
+    """处理collect、dagger、dataset相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     eval_args = build_eval_args(args, episodes=episodes, num_seeds=1)
     eval_args.P_max = 1.0
     eval_args.device = args.device
@@ -814,7 +808,7 @@ def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, be
 
 
 def normalize_features(train_x, val_x):
-    """Normalize features with train-split statistics."""
+    """处理normalize、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_dim = int(train_x.shape[-1])
     train_flat = train_x.reshape(-1, feature_dim)
     mean = train_flat.mean(axis=0).astype(np.float32)
@@ -832,7 +826,7 @@ def normalize_features(train_x, val_x):
 
 
 class OffsetSelector(nn.Module):
-    """MLP that predicts hidden temporal-deviation utility for each offset."""
+    """模型类 `OffsetSelector`：定义学习式选择器的网络或线性结构，把输入特征映射为候选评分。"""
 
     def __init__(self, input_dim, output_dim, hidden_size, hidden_layers):
         super().__init__()
@@ -846,12 +840,12 @@ class OffsetSelector(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x_input):
-        """Return one score per offset."""
+        """处理forward相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         return self.net(x_input)
 
 
 class WindowOffsetSelector(nn.Module):
-    """Shared scorer that ranks each candidate offset window."""
+    """模型类 `WindowOffsetSelector`：定义学习式选择器的网络或线性结构，把输入特征映射为候选评分。"""
 
     def __init__(self, input_dim, hidden_size, hidden_layers):
         super().__init__()
@@ -865,14 +859,14 @@ class WindowOffsetSelector(nn.Module):
         self.scorer = nn.Sequential(*layers)
 
     def forward(self, x_input):
-        """Return one score per candidate offset window."""
+        """处理forward相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         batch_size, offset_count, feature_dim = x_input.shape
         flat = x_input.reshape(batch_size * offset_count, feature_dim)
         return self.scorer(flat).reshape(batch_size, offset_count)
 
 
 def train_model(args, train_x, train_y, val_x, val_y):
-    """Train the offset selector."""
+    """处理train、模型相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     train_x_norm, val_x_norm, mean, std = normalize_features(train_x, val_x)
     device = torch.device(args.device)
     if getattr(args, "feature_mode", "global") == "window":
@@ -929,7 +923,7 @@ def train_model(args, train_x, train_y, val_x, val_y):
 
 
 def predict_offset_scores(model, feature, mean, std, device):
-    """Predict offset scores for one feature vector."""
+    """处理predict、offset、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_batch = feature.reshape((1,) + feature.shape).astype(np.float32)
     feature_norm = np.clip((feature_batch - mean) / std, -10.0, 10.0)
     model.eval()
@@ -939,7 +933,7 @@ def predict_offset_scores(model, feature, mean, std, device):
 
 
 def choose_offset_with_gate(scores, offsets, gate_margin):
-    """Choose the predicted offset, falling back to rotating if confidence is low."""
+    """按照offset、with、gate规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     best_idx = int(np.argmax(scores))
     if float(gate_margin) <= 0.0:
         return int(offsets[best_idx])
@@ -953,7 +947,7 @@ def choose_offset_with_gate(scores, offsets, gate_margin):
 
 
 def validation_metrics(predictions, target_scores, target_tx):
-    """Compute validation offset-selection diagnostics."""
+    """处理validation、metrics相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     chosen = np.argmax(predictions, axis=1)
     best_score = np.max(target_scores, axis=1)
     chosen_score = target_scores[np.arange(len(chosen)), chosen]
@@ -970,7 +964,7 @@ def validation_metrics(predictions, target_scores, target_tx):
 
 
 def learned_policy_name(args, gate_margin=0.0):
-    """Return the learned policy label for output tables."""
+    """处理learned、策略、name相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     is_dagger = int(getattr(args, "dagger_iterations", 0)) > 0
     is_window = getattr(args, "feature_mode", "global") == "window"
     is_gated = float(gate_margin) > 0.0
@@ -992,7 +986,7 @@ def learned_policy_name(args, gate_margin=0.0):
 
 
 def learned_result_name(args, budget, gate_margin=0.0):
-    """Return the display name for learned temporal deviation."""
+    """处理learned、result、name相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if float(gate_margin) > 0.0:
         return f"{learned_policy_name(args, gate_margin)} m={float(gate_margin):g} B={int(budget)}"
     return f"{learned_policy_name(args, gate_margin)} B={int(budget)}"
@@ -1009,7 +1003,7 @@ def evaluate_learned_policy(
     std,
     gate_margin=0.0,
 ):
-    """Evaluate learned temporal deviation for one scenario and run seed."""
+    """评估单个学习式策略配置，返回后续聚合和报告生成所需的指标。"""
     env = limited.make_env(args)
     device = torch.device(getattr(args, "device", "cpu"))
     success_nodes = []
@@ -1159,7 +1153,7 @@ def evaluate_learned_policy(
 
 
 def evaluate_suite(args, model, mean, std):
-    """Evaluate learned temporal deviation and diagnostic baselines."""
+    """评估suite对应的策略或实验配置，返回后续聚合和报告生成所需的指标。"""
     eval_args = build_eval_args(args)
     eval_args.P_max = 1.0
     eval_args.device = args.device
@@ -1252,7 +1246,7 @@ def evaluate_suite(args, model, mean, std):
 
 
 def write_train_history(path, rows):
-    """Write train/validation loss history."""
+    """写出train、history结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     rows = [dict(row, **DIAGNOSTIC_METADATA) for row in rows]
     fieldnames = ["epoch", "train_loss", "val_loss"]
@@ -1273,7 +1267,7 @@ def write_train_history(path, rows):
 
 
 def write_validation_metrics(path, rows):
-    """Write validation diagnostics."""
+    """写出validation、metrics结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     rows = [dict(row, **DIAGNOSTIC_METADATA) for row in rows]
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
@@ -1296,7 +1290,7 @@ def write_validation_metrics(path, rows):
 
 
 def save_checkpoint(path, model, mean, std, args):
-    """Save model and normalization state."""
+    """处理checkpoint相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     ensure_parent_dir(path)
     torch.save(
         {
@@ -1321,12 +1315,12 @@ def save_checkpoint(path, model, mean, std, args):
 
 
 def tag_train_history(rows, iteration):
-    """Add DAgger iteration metadata to training rows."""
+    """处理tag、train、history相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return [dict(row, iteration=int(iteration)) for row in rows]
 
 
 def print_best_rows(rows):
-    """Print compact learned-vs-baseline summary."""
+    """处理best、结果行相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 144)
     print("Learned Temporal Deviation Summary")
     print("=" * 144)
@@ -1359,7 +1353,7 @@ def print_best_rows(rows):
 
 
 def main():
-    """Train and evaluate the temporal deviation selector."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     set_training_seed(args)

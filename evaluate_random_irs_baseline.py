@@ -52,7 +52,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate the random-IRS baseline CLI arguments before building the environment."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     for name in ("num_nodes", "num_slots", "num_irs_elements"):

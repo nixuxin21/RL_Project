@@ -1,15 +1,4 @@
-"""
-Limited-CSI IRS-assisted multi-slot AirComp evaluation.
-
-This script separates what a policy can infer from limited/noisy CSI from what
-actually succeeds on the true channel. A policy first probes a subset of IRS
-codebook indices, builds an estimated schedulable-node mask, chooses an IRS
-index, and invites only those estimated-valid nodes. Execution is then verified
-against the true channel; nodes that were not invited are not auto-scheduled.
-
-The goal is to evaluate whether dynamic IRS selection still helps multi-slot
-AirComp when full per-codebook CSI/features are unavailable.
-"""
+"""评估有限 CSI 策略：决策使用估计信道，执行阶段只统计真实可成功的受邀节点。"""
 
 import argparse
 import csv
@@ -85,7 +74,7 @@ NUMERIC_RESULT_KEYS = (
 
 
 def parse_args():
-    """Parse limited-CSI evaluation arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Evaluate IRS-assisted MS-AirComp under limited/noisy CSI."
     )
@@ -118,7 +107,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate sizes, budgets, error levels, and robust margins."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -185,7 +174,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for CSVs and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -213,7 +202,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args):
-    """Create the base codebook environment used for limited-CSI evaluation."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -239,7 +228,7 @@ def evaluate_policy(
     adaptive_risk_deadline_relief=0.6,
     adaptive_risk_backlog_relief=0.8,
 ):
-    """Evaluate one limited-CSI policy for one error level and budget."""
+    """评估单个策略配置在当前场景下的表现，返回后续聚合和报告生成所需的指标。"""
     env = make_env(args)
     success_nodes = []
     avg_power = []
@@ -364,7 +353,7 @@ def evaluate_policy(
 
 
 def print_progress(name, error_std, budget, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10 percent intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -375,7 +364,7 @@ def print_progress(name, error_std, budget, ep, episodes, success_nodes, num_nod
 
 
 def policy_suite_for_error(args, episode_seeds, error_std):
-    """Run all policy/budget combinations for one error level and run seed."""
+    """处理策略、suite、for、error相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     results = [
         evaluate_policy(
             episode_seeds,
@@ -461,12 +450,12 @@ def policy_suite_for_error(args, episode_seeds, error_std):
 
 
 def seed_summary(result):
-    """Compress one run seed result to seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     return {key: float(np.mean(result[key])) for key in NUMERIC_RESULT_KEYS}
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate result lists across run seeds."""
+    """跨 run seed 聚合同一策略和同一场景的结果列表，形成最终统计输入。"""
     if not seed_result_sets:
         return []
 
@@ -492,7 +481,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95 percent CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -505,7 +494,7 @@ def metric_mean_ci(result, key):
 
 
 def safe_rate(numerator, denominator):
-    """Return a percentage rate with a zero-denominator guard."""
+    """处理safe、rate相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     total_denominator = float(np.sum(denominator))
     if total_denominator <= 0.0:
         return 0.0
@@ -513,7 +502,7 @@ def safe_rate(numerator, denominator):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results to CSV summary rows."""
+    """把聚合后的结果转换成 summary CSV 行，统一字段名和后续分析脚本的读取口径。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -568,7 +557,7 @@ def summarize_results(args, results):
 
 
 def write_csv(path, rows):
-    """Write limited-CSI summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     fieldnames = [
         "error_std",
@@ -612,7 +601,7 @@ def write_csv(path, rows):
 
 
 def policy_label(row):
-    """Build a compact plot/table label for one summary row."""
+    """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     label = row["policy"]
     if row["probe_budget"] not in {0, row.get("num_codebook_states", -1)}:
         label += f" B={int(row['probe_budget'])}"
@@ -628,7 +617,7 @@ def policy_label(row):
 
 
 def print_summary(rows):
-    """Print a compact limited-CSI summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 158)
     print("Limited-CSI MS-AirComp Summary")
     print("=" * 158)
@@ -651,7 +640,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot perfect coverage, latency, and execution failure vs CSI error."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     labels = []
     for row in rows:
         label = policy_label(row)
@@ -715,7 +704,7 @@ def plot_results(rows, args, output_prefix):
 
 
 def main():
-    """Run limited-CSI MS-AirComp evaluation."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

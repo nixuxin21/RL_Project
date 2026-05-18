@@ -1,14 +1,4 @@
-"""
-Evaluate MS-AirComp when the execution channel differs from decision CSI.
-
-Existing channel-estimation sweeps perturb only the decision preview while the
-data slot still executes on the same true channel. This script models a stricter
-setting: the policy decides from stale/estimated CSI, invites estimated-valid
-nodes, and the actual AirComp slot succeeds only under a drifted execution
-channel.
-
-The execution oracle is kept only as an offline upper bound.
-"""
+"""当前主线评估器，比较 stale 决策信道与 current 执行信道不一致时的多类策略。"""
 
 import argparse
 import os
@@ -88,12 +78,12 @@ from ms_aircomp.learned_shortlist import (
 
 
 def parse_csv_items(value):
-    """Parse comma-separated non-empty strings."""
+    """解析CSV、条目参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse execution mismatch arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Evaluate limited-CSI MS-AirComp with execution-stage channel mismatch."
     )
@@ -269,7 +259,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate arguments and parse list-like options."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     validate_common_experiment_args(args)
     args.probe_budgets = validate_probe_budget_values(
         limited.parse_int_list(args.probe_budgets),
@@ -482,7 +472,7 @@ def evaluate_policy(
     learned_shortlist_extra_count=1,
     adaptive_sparse_show_params=False,
 ):
-    """Evaluate one policy/config under decision and execution mismatch."""
+    """评估单个策略配置在当前场景下的表现，返回后续聚合和报告生成所需的指标。"""
     env = limited.make_env(args)
     display_name = policy_label(
         policy_name,
@@ -551,7 +541,7 @@ def evaluate_policy(
     )
     for ep, episode_seed in enumerate(episode_seeds, start=1):
         env.reset(seed=episode_seed)
-        env._last_seed = episode_seed  # local metadata for policy-independent execution drift
+        env._last_seed = episode_seed  # 记录本回合随机种子，供策略无关的执行侧信道漂移复现实验使用。
         temporal_history = None
         temporal_states = None
         if mismatch_model == MISMATCH_TEMPORAL_AR1:
@@ -1014,7 +1004,7 @@ def evaluate_policy(
 
 
 def main():
-    """Run execution-stage channel mismatch evaluation."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

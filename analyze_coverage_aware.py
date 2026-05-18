@@ -1,12 +1,4 @@
-"""
-Generate method-focused analysis for Coverage-Aware Sparse-TopK.
-
-The script reads existing CSV results only. It does not rerun simulations.
-Outputs:
-- per-scenario coverage ablation CSV with deltas vs Sparse-TopK
-- coverage-weight ablation plot
-- markdown method analysis note
-"""
+"""分析覆盖感知 Sparse-TopK 的消融结果，并把已有 CSV 汇总为论文前分析文档和图表。"""
 
 import argparse
 import csv
@@ -154,7 +146,7 @@ OUTPUT_FIELDS = [
 
 
 def parse_args():
-    """Parse CLI arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Analyze Coverage-Aware Sparse-TopK weight ablation."
     )
@@ -167,14 +159,14 @@ def parse_args():
 
 
 def ensure_parent_dir(path):
-    """Create the parent directory for a file path."""
+    """处理ensure、parent、dir相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
 
 
 def read_csv(path):
-    """Read a CSV file into dict rows."""
+    """读取CSV输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing required input CSV: {path}")
     with open(path, newline="", encoding="utf-8") as csvfile:
@@ -182,7 +174,7 @@ def read_csv(path):
 
 
 def to_float(row, field, default=0.0):
-    """Parse a floating-point CSV field."""
+    """处理to、浮点数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return float(default)
@@ -190,7 +182,7 @@ def to_float(row, field, default=0.0):
 
 
 def to_int(row, field, default=0):
-    """Parse an integer-like CSV field."""
+    """处理to、整数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return int(default)
@@ -198,26 +190,26 @@ def to_int(row, field, default=0):
 
 
 def format_float(value, digits=3):
-    """Format a float for markdown tables."""
+    """格式化浮点数，统一 Markdown 表格中的小数位和缺失值显示。"""
     if value == "":
         return ""
     return f"{float(value):.{digits}f}"
 
 
 def format_weight(value):
-    """Format a coverage weight compactly."""
+    """格式化weight显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):g}"
 
 
 def scenario_key(row):
-    """Return a stable rho/delay scenario key."""
+    """处理场景、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rho = to_float(row, "channel_rho")
     delay = to_int(row, "csi_delay_slots")
     return f"rho={rho:g}, delay={delay}"
 
 
 def mean(rows, field):
-    """Return the mean of a numeric field."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     values = [float(row[field]) for row in rows]
     if not values:
         raise ValueError(f"No values for {field}")
@@ -225,7 +217,7 @@ def mean(rows, field):
 
 
 def mean_optional(rows, field, default=0.0):
-    """Return the mean of an optional numeric field."""
+    """处理均值、optional相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     values = [
         to_float(row, field, default)
         for row in rows
@@ -237,7 +229,7 @@ def mean_optional(rows, field, default=0.0):
 
 
 def markdown_table(headers, rows):
-    """Render a simple markdown table."""
+    """处理markdown、table相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     output = []
     output.append("| " + " | ".join(headers) + " |")
     output.append("| " + " | ".join("---" for _ in headers) + " |")
@@ -247,7 +239,7 @@ def markdown_table(headers, rows):
 
 
 def load_analysis_rows(results_dir):
-    """Load coverage ablation rows and attach per-scenario sparse deltas."""
+    """读取analysis、结果行输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     sparse_path = os.path.join(results_dir, SPARSE_FRONTIER_FILE)
     coverage_path = os.path.join(results_dir, COVERAGE_ABLATION_FILE)
     sparse_source = [
@@ -305,7 +297,7 @@ def load_analysis_rows(results_dir):
 
 
 def aggregate_sparse(sparse_rows):
-    """Aggregate the Sparse-TopK baseline across scenarios."""
+    """聚合稀疏结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     first = sparse_rows[0]
     return {
         "label": "Sparse-TopK B=4 sm=3",
@@ -334,7 +326,7 @@ def aggregate_sparse(sparse_rows):
 
 
 def aggregate_coverage(analysis_rows):
-    """Aggregate coverage-aware rows by coverage weight."""
+    """聚合覆盖感知结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     groups = {}
     for row in analysis_rows:
         groups.setdefault(float(row["coverage_sparse_weight"]), []).append(row)
@@ -368,7 +360,7 @@ def aggregate_coverage(analysis_rows):
 
 
 def load_power_summaries(results_dir):
-    """Load and aggregate coverage sparse power penalty ablation rows."""
+    """读取功率、summaries输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     power_path = os.path.join(results_dir, POWER_ABLATION_FILE)
     if not os.path.exists(power_path):
         return []
@@ -404,7 +396,7 @@ def load_power_summaries(results_dir):
 
 
 def load_budget_split_summaries(results_dir):
-    """Load available formal near-preview-16 budget split results."""
+    """读取预算、split、summaries输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     summaries = []
     for label, file_name, policy in BUDGET_SPLIT_SPECS:
         budget_path = os.path.join(results_dir, file_name)
@@ -435,7 +427,7 @@ def load_budget_split_summaries(results_dir):
 
 
 def load_neighbor_coverage_summaries(results_dir):
-    """Load optional Neighbor-Coverage diagnostic pilot summaries."""
+    """读取邻域、覆盖感知、summaries输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     summaries = []
     for label, file_name, policy in NEIGHBOR_COVERAGE_SPECS:
         neighbor_path = os.path.join(results_dir, file_name)
@@ -474,7 +466,7 @@ def load_neighbor_coverage_summaries(results_dir):
 
 
 def write_analysis_csv(path, rows):
-    """Write per-scenario coverage ablation analysis rows."""
+    """写出analysis、CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=OUTPUT_FIELDS)
@@ -483,7 +475,7 @@ def write_analysis_csv(path, rows):
 
 
 def plot_weight_ablation(summaries, path):
-    """Plot coverage-weight effects on the key tradeoff metrics."""
+    """绘制weight、ablation图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     ensure_parent_dir(path)
     weights = [float(item["coverage_sparse_weight"]) for item in summaries]
     if not weights:
@@ -508,7 +500,7 @@ def plot_weight_ablation(summaries, path):
 
 
 def plot_power_ablation(summaries, path):
-    """Plot power penalty effects on key tradeoff metrics."""
+    """绘制功率、ablation图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     if not summaries:
         return
     ensure_parent_dir(path)
@@ -543,7 +535,7 @@ def write_markdown(
     budget_split_summaries,
     neighbor_coverage_summaries,
 ):
-    """Write Coverage-Aware method analysis markdown."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     best_gap = min(
         coverage_summaries,
@@ -838,7 +830,7 @@ The mechanism is narrow and useful: the method does not change stale/limited CSI
 
 
 def main():
-    """Run coverage-aware analysis generation."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     sparse_rows, analysis_rows = load_analysis_rows(args.results_dir)
     sparse_summary = aggregate_sparse(sparse_rows)

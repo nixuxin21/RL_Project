@@ -1,17 +1,4 @@
-"""
-MS-AirComp 强化学习环境。
-
-这个文件是整个项目的物理仿真核心，所有训练、评估、baseline 对比都会直接或间接调用
-`MSAirCompEnv`。环境抽象的是一个 IRS 辅助的多时隙 AirComp 调度问题：
-
-1. 每个 episode 生成一组新的 Rayleigh 衰落信道。
-2. 每个 step 对应一个通信时隙。
-3. 动作决定准入门限 `g_th`、AirComp 目标振幅 `alpha_th` 和 IRS 相位码本索引。
-4. 环境根据当前信道增益、功率约束和剩余未发送节点，判断本时隙哪些节点可以发送。
-5. 奖励主要鼓励覆盖更多节点，同时轻微惩罚平均发射功率，并在 episode 结束时惩罚遗漏节点。
-
-注意：这里的信道/功率/MSE 模型是论文实验用的可控仿真模型，不是完整通信系统链路级仿真。
-"""
+"""模块 `test_env.py`：封装本项目实验、分析或测试所需的代码逻辑。"""
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -81,13 +68,13 @@ class MSAirCompEnv(gym.Env):
         # ==========================================
         # 2. 强化学习大纲设定 (状态空间与动作空间)
         # ==========================================
-        # 状态空间 (Observation Space): 默认 7 个连续特征。
-        # include_codebook_features=True 时，额外追加 C 个码本候选的预计可调度节点比例。
+        # 状态空间：默认包含 7 个连续物理特征。
+        # 启用码本特征时，额外追加 C 个码本候选的预计可调度节点比例。
         obs_dim = 7 + (self.C if self.include_codebook_features else 0)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
         
-        # 动作空间 (Action Space): 告诉 AI 它能做什么
-        # 输出 3 个连续值，范围均被标准框架限制在 [-1.0, 1.0]，后续在 step 中会逆映射为物理真实值
+        # 动作空间：告诉策略网络它可以控制哪些物理量。
+        # 输出 3 个连续值，范围均被标准框架限制在 [-1.0, 1.0]，后续在环境步进中会逆映射为物理真实值。
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         
         # ==========================================
@@ -118,7 +105,7 @@ class MSAirCompEnv(gym.Env):
             # 无 IRS baseline：把级联链路直接置零，只保留直达链路 h_d。
             return np.zeros(self.M, dtype=np.complex128), -2
 
-        # codebook 模式：把连续动作线性映射到离散码本索引，再四舍五入。
+        # 码本模式：把连续动作线性映射到离散码本索引，再四舍五入。
         # 这样 SAC 仍可使用连续动作空间，但实际执行的是离散 IRS 波束。
         c_idx = int(np.clip(np.round((irs_action + 1) * 0.5 * (self.C - 1)), 0, self.C - 1))
         return self.codebook[c_idx], c_idx
@@ -138,13 +125,7 @@ class MSAirCompEnv(gym.Env):
         return g_th, alpha_th
 
     def _sanitize_action(self, action):
-        """
-        Convert an external action to the environment action range.
-
-        Gym/SB3 normally enforce the Box bounds, but many experiment scripts call
-        ``env.step`` directly. Clipping here keeps the public environment API
-        robust while preserving identical behavior for already valid actions.
-        """
+        """处理sanitize、action相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         action_array = np.asarray(action, dtype=np.float32)
         if action_array.shape != self.action_space.shape:
             raise ValueError(f"action must have shape {self.action_space.shape}")
@@ -171,7 +152,7 @@ class MSAirCompEnv(gym.Env):
             一个只读指标字典，包括本时隙可发送节点 mask、发送数量、所需功率、
             平均功率、接收能量和剩余节点平均信道增益。
         """
-        # IRS 级联链路：节点->IRS 信道 h_r、IRS->BS 信道 h_bs_r、IRS 相位向量三者逐单元相乘后求和。
+        # 智能反射面级联链路：节点到 IRS 信道 h_r、IRS 到基站信道 h_bs_r、IRS 相位向量三者逐单元相乘后求和。
         # `/sqrt(M)` 用于控制 IRS 单元数变化时的尺度，`0.05` 是当前实验中的级联链路缩放因子。
         cascade_channel = np.sum(self.h_r * self.h_bs_r * irs_vector, axis=1)
         cascade_channel = (cascade_channel / np.sqrt(self.M)) * 0.05
@@ -183,7 +164,7 @@ class MSAirCompEnv(gym.Env):
         # 第一层筛选：信道增益超过门限，且节点此前还没有发送成功。
         tx_mask = (h_gain >= g_th) & (~self.transmitted_flags)
 
-        # AirComp 对齐要求每个参与节点的接收振幅接近 alpha_th，
+        # 空中计算对齐要求每个参与节点的接收振幅接近 alpha_th，
         # 因此需要的发射功率近似为 alpha_th^2 / |h|^2。
         required_power = (alpha_th**2) / (h_gain + 1e-12)
         valid_power_mask = required_power <= self.P_max
@@ -273,7 +254,7 @@ class MSAirCompEnv(gym.Env):
         self.current_slot = 0                                 # 时间清零
         self.transmitted_flags = np.zeros(self.K, dtype=bool) # 所有节点重新处于“未发送”状态
         
-        # 模拟真实的瑞利衰落信道 (Rayleigh Fading)，包含实部和虚部的复高斯分布
+        # 模拟真实的瑞利衰落信道，包含实部和虚部的复高斯分布。
         # 1. 节点直达基站的信道 h_d (乘以 0.1 表示直达路径信号通常较弱)
         hd_rayleigh = (self.np_random.normal(size=self.K) + 1j * self.np_random.normal(size=self.K)) / np.sqrt(2)
         self.h_d = 0.1 * hd_rayleigh 
@@ -311,7 +292,7 @@ class MSAirCompEnv(gym.Env):
         # 准入门限 g_th 与 AirComp 目标对齐振幅 alpha_th
         g_th, alpha_th = self._decode_action(action)
         
-        # IRS 相位向量：默认选择 DFT 码本，baseline 可切换为独立随机相位
+        # 智能反射面相位向量：默认选择 DFT 码本，基础对照可切换为独立随机相位。
         irs_vector, c_idx = self._select_irs_vector(action[2])
         
         # ==========================================

@@ -1,4 +1,4 @@
-"""Current aggregate-feedback confirmation flow."""
+"""封装当前聚合反馈的 IRS confirmation 流程，从少量 probe 中确认最终 IRS 索引。"""
 
 import ms_aircomp.limited_csi as limited
 from ms_aircomp.channel_models import apply_channel_state, capture_channel_state
@@ -18,7 +18,7 @@ def confirm_index_with_current_feedback(
     execution_state=None,
     feedback_salt=41,
 ):
-    """Select one IRS index from selected candidates using current aggregate feedback."""
+    """处理确认、索引、with、当前、聚合反馈相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     decision_snapshot = capture_channel_state(env)
     try:
         if execution_state is not None:

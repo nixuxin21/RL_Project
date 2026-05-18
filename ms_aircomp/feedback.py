@@ -1,4 +1,4 @@
-"""Aggregate feedback helpers for execution-mismatch experiments."""
+"""封装聚合反馈打分和 confirmed-index 选择，避免策略直接读取节点级 current CSI。"""
 
 import numpy as np
 
@@ -6,7 +6,7 @@ __all__ = ["confirmation_feedback", "confirmed_index_from_feedback"]
 
 
 def confirmation_feedback(candidate, args, feedback_noise_std, feedback_power_weight, rng):
-    """Return noisy aggregate feedback for one current execution candidate."""
+    """处理确认、聚合反馈相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     observed_tx_fraction = float(candidate["tx_this_slot"]) / float(max(args.num_nodes, 1))
     if float(feedback_noise_std) > 0.0:
         observed_tx_fraction += float(rng.normal(0.0, float(feedback_noise_std)))
@@ -24,7 +24,7 @@ def confirmation_feedback(candidate, args, feedback_noise_std, feedback_power_we
 
 
 def confirmed_index_from_feedback(selected_indices, feedbacks):
-    """Select an IRS index from aggregate feedback records."""
+    """处理confirmed、索引、from、聚合反馈相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
     return int(
         max(

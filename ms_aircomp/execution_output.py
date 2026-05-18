@@ -1,4 +1,4 @@
-"""Output naming, progress, summary, and plots for execution mismatch runs."""
+"""管理执行信道错配实验的输出命名、进度打印、摘要表和图像绘制。"""
 
 import os
 
@@ -32,7 +32,7 @@ __all__ = [
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for CSV and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -140,7 +140,7 @@ def resolve_output_prefix(args):
 
 
 def print_progress(name, decision_error_std, execution_error_std, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10 percent intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -151,7 +151,7 @@ def print_progress(name, decision_error_std, execution_error_std, ep, episodes, 
 
 
 def print_summary(rows):
-    """Print a compact execution mismatch summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 184)
     print("Execution Channel Mismatch Summary")
     print("=" * 184)
@@ -174,7 +174,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot success, failed invitations, and oracle gap vs execution error."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     policies = []
     for row in rows:
         if row["policy"] not in policies:

@@ -1,11 +1,4 @@
-"""
-Lightweight dependency-boundary checks for the refactored experiment layer.
-
-The reusable helpers should live under ``ms_aircomp``. Top-level orchestration
-scripts may call the execution-mismatch evaluator as a runner, but new code
-should not import helper symbols from it or reuse the limited-CSI evaluator as
-a helper module.
-"""
+"""检查实验脚本和可复用 helper 的依赖方向，防止 evaluator 重新膨胀。"""
 
 import ast
 from pathlib import Path
@@ -63,7 +56,7 @@ SKIPPED_DIRS = {
 
 
 def project_python_files():
-    """Yield Python files that belong to the checked project surface."""
+    """处理project、python、files相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for path in sorted(PROJECT_ROOT.rglob("*.py")):
         relative = path.relative_to(PROJECT_ROOT)
         if any(part in SKIPPED_DIRS for part in relative.parts):
@@ -72,7 +65,7 @@ def project_python_files():
 
 
 def import_violations(path):
-    """Return dependency-boundary violations found in one Python file."""
+    """处理import、violations相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     relative = path.relative_to(PROJECT_ROOT)
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(relative))
     violations = []
@@ -131,7 +124,7 @@ def import_violations(path):
 
 
 def evaluator_import_reason(module_name):
-    """Return the evaluator-boundary reason for a forbidden import."""
+    """处理evaluator、import、reason相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if module_name in FORBIDDEN_EVALUATOR_MODULE_IMPORTS:
         return (
             "output serialization/plotting belongs in "
@@ -146,7 +139,7 @@ def evaluator_import_reason(module_name):
 
 
 def evaluator_surface_violations():
-    """Return violations of the execution-mismatch evaluator's thin surface."""
+    """处理evaluator、surface、violations相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     path = PROJECT_ROOT / EVALUATOR_PATH
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(EVALUATOR_PATH))
@@ -194,7 +187,7 @@ def evaluator_surface_violations():
 
 
 def main():
-    """Check evaluator dependency boundaries."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     violations = []
     for path in project_python_files():
         for line, reason in import_violations(path):

@@ -1,14 +1,4 @@
-"""
-Codebook-Aware IRS selector 训练入口。
-
-和 `train_agent.py` 不同，本脚本把 `g_th/alpha_th` 固定在稳定实验参数上，
-只让 SAC 学习 IRS 码本选择。这样可以把“传输参数选择失败”和“IRS 选择失败”
-两个问题拆开，单独诊断 IRS selector 是否能学到有效规则。
-
-`--disable-codebook-features` 会训练同样的 IRS-only selector，但不把 C 维码本质量特征
-放入观测。这个 ablation 用于判断性能提升究竟来自学习能力，还是来自环境直接提供了
-强可解释特征。
-"""
+"""训练 IRS-only SAC selector，固定传输参数，只让 agent 学习码本索引。"""
 
 import argparse
 import os
@@ -42,12 +32,7 @@ class FixedTransmissionActionWrapper(gym.ActionWrapper):
     """
 
     def __init__(self, env, g_th=0.001, alpha_th=0.05):
-        """
-        Args:
-            env: 原始三维动作环境。
-            g_th: 固定的信道增益门限。
-            alpha_th: 固定的 AirComp 目标振幅。
-        """
+        """处理init相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         super().__init__(env)
         self.g_action = physical_to_action(g_th, low=0.001, scale=0.05)
         self.alpha_action = physical_to_action(alpha_th, low=0.05, scale=0.05)
@@ -101,7 +86,7 @@ def parse_args():
     args = parser.parse_args()
 
     if args.disable_codebook_features:
-        # no-feature ablation 使用单独的模型/统计文件名，避免覆盖 codebook-aware 模型。
+        # 无码本特征消融使用单独的模型/统计文件名，避免覆盖码本感知模型。
         if args.model_name == "sac_codebook_aware_irs_selector":
             args.model_name = "sac_irs_selector_no_codebook_features"
         if args.stats_name == "vec_normalize_codebook_aware_irs_selector.pkl":
@@ -113,7 +98,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate training and environment sizes before launching SB3 workers."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     for name in (
         "total_timesteps",
         "num_envs",
@@ -174,7 +159,7 @@ def main():
 
     env = build_vec_env(args)
     checkpoint_callback = CheckpointCallback(
-        # 多环境下 SB3 的总 step 是所有环境合计值，因此 checkpoint 间隔按环境数缩放。
+        # 多环境训练时总步数是所有环境的合计值，因此检查点保存间隔需要按环境数量缩放。
         save_freq=max(10000 // max(args.num_envs, 1), 1),
         save_path=args.model_dir,
         name_prefix=args.checkpoint_prefix,

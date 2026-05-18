@@ -62,12 +62,12 @@ BEST_FIXED_VALIDATION_SEED_OFFSET = 0x5BF15ED
 
 
 def codebook_feature_preview_cost(args, include_codebook_features=True):
-    """Return the per-slot preview cost of exact codebook-quality features."""
+    """处理码本、特征、预览、cost相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return float(args.num_codebook_states) if include_codebook_features else 0.0
 
 
 def make_best_fixed_validation_seeds(args, run_seed):
-    """Generate held-out seeds used only to select the Best Fixed IRS index."""
+    """构建best、固定、validation、随机种子所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     if run_seed is None or int(run_seed) < 0:
         return make_episode_seed_list(None, args.episodes)
     return make_episode_seed_list(int(run_seed) + BEST_FIXED_VALIDATION_SEED_OFFSET, args.episodes)
@@ -397,7 +397,7 @@ def evaluate_sac_policy(episode_seeds, args, fixed_action_prefix=None, name="SAC
     if not os.path.exists(stats_path):
         raise FileNotFoundError(f"VecNormalize stats not found: {stats_path}")
 
-    # 评估管线必须复刻训练时的包装顺序：DummyVecEnv -> VecFrameStack -> VecNormalize。
+    # 评估管线必须复刻训练时的包装顺序：先构造向量环境，再做帧堆叠，最后加载归一化统计量。
     raw_venv = DummyVecEnv([lambda: make_env(args, "codebook")])
     stacked_venv = VecFrameStack(raw_venv, n_stack=4)
     venv = VecNormalize.load(stats_path, stacked_venv)
@@ -429,7 +429,7 @@ def evaluate_sac_policy(episode_seeds, args, fixed_action_prefix=None, name="SAC
             for _slot in range(args.num_slots):
                 action, _states = model.predict(obs, deterministic=True)
                 if fixed_action_prefix is not None:
-                    # SAC Fixed g/a：只测试 SAC 学到的 IRS 维度，排除传输参数偏移的影响。
+                    # 固定传输参数的 SAC 对照：只测试 SAC 学到的 IRS 维度，排除传输参数偏移的影响。
                     action = action.copy()
                     action[0, 0] = fixed_action_prefix[0]
                     action[0, 1] = fixed_action_prefix[1]
@@ -677,7 +677,7 @@ def evaluate_greedy_irs_policy(episode_seeds, args, base_action):
             ]
 
             def candidate_key(candidate):
-                """Greedy 排序键：调度数量优先，其次低功率，最后剩余平均增益。"""
+                """贪心排序键：先比较调度数量，再用低功率和剩余增益打破并列。"""
                 tx_count = int(candidate["tx_this_slot"])
                 power_avg = float(candidate["power_avg"])
                 mean_gain = float(candidate["mean_gain_remaining"])
@@ -771,7 +771,7 @@ def feature_argmax_power_tie_index(env, args, obs):
     ]
 
     def candidate_key(candidate):
-        """PowerTie 排序键：调度数量优先，其次低功率，最后剩余平均增益。"""
+        """功率并列排序键：先比较调度数量，再用低功率和剩余增益打破并列。"""
         tx_count = int(candidate["tx_this_slot"])
         power_avg = float(candidate["power_avg"])
         mean_gain = float(candidate["mean_gain_remaining"])
@@ -1044,7 +1044,7 @@ def evaluate_episode_random_fixed_irs_policy(episode_seeds, args, base_action):
 
 
 def select_best_fixed_irs_index(validation_episode_seeds, args, base_action):
-    """Select a fixed IRS index on held-out validation seeds."""
+    """按照best、固定、IRS、索引规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     print("Running Best Fixed IRS validation search...")
     candidate_results = []
     for irs_index in range(args.num_codebook_states):
@@ -1062,7 +1062,7 @@ def select_best_fixed_irs_index(validation_episode_seeds, args, base_action):
         candidate_results.append(result)
 
     def candidate_key(result):
-        """Best Fixed IRS 排序键：覆盖率优先，其次时延和能耗。"""
+        """最佳固定 IRS 排序键：覆盖率优先，其次比较完成时延和总能耗。"""
         success = float(np.mean(result["success_nodes"]))
         perfect_rate = float(np.mean(result["success_nodes"] == args.num_nodes))
         latency = float(np.mean(result["slots_used"]))
@@ -1074,13 +1074,7 @@ def select_best_fixed_irs_index(validation_episode_seeds, args, base_action):
 
 
 def evaluate_best_fixed_irs_policy(episode_seeds, args, base_action, validation_episode_seeds=None):
-    """
-    Select and evaluate a fixed IRS codebook index.
-
-    The index is selected on held-out validation seeds, then evaluated on the
-    provided episode seeds. This avoids tuning the static baseline on the same
-    test episodes used for reporting.
-    """
+    """评估最佳固定 IRS 策略，返回后续聚合和报告生成所需的指标。"""
     if validation_episode_seeds is None:
         validation_episode_seeds = make_best_fixed_validation_seeds(args, args.seed)
     best_index, validation_result = select_best_fixed_irs_index(

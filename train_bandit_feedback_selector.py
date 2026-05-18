@@ -1,11 +1,4 @@
-"""
-Train and evaluate a feedback-conditioned IRS probing selector.
-
-Training may use offline oracle labels, but evaluation stays in the strict
-bandit-feedback setting: the policy sees only the base environment observation,
-past noisy aggregate probe feedback, and its own probing history. It never sees
-full CSI, node-level masks, or full codebook features at decision time.
-"""
+"""训练反馈条件化 probing 选择器，用聚合反馈历史预测候选 IRS 价值。"""
 
 import argparse
 import csv
@@ -39,12 +32,12 @@ LEARNED_OFFSET = 0x94D049BB
 
 
 def parse_csv_items(value):
-    """Parse a comma-separated list of non-empty strings."""
+    """解析CSV、条目参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse training and evaluation arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Train a feedback-conditioned selector for aggregate-feedback IRS probing."
     )
@@ -88,7 +81,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate training, feedback, and scenario parameters."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     for name in (
         "train_episodes",
         "val_episodes",
@@ -136,7 +129,7 @@ def validate_args(args):
 
 
 def build_bandit_args(args):
-    """Build the namespace expected by the aggregate-feedback evaluator."""
+    """构建bandit、参数所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     config = stress.scenario_config(args.scenario)
     bandit_args = argparse.Namespace(
         episodes=args.eval_episodes,
@@ -166,7 +159,7 @@ def build_bandit_args(args):
 
 
 def resolve_output_prefix(args, bandit_args):
-    """Resolve output prefix for model, CSV, and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -186,13 +179,13 @@ def resolve_output_prefix(args, bandit_args):
 
 
 def split_seeds(seed, episodes):
-    """Generate deterministic episode seeds for a dataset split."""
+    """处理split、随机种子相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rng = np.random.default_rng(seed)
     return [int(value) for value in rng.integers(0, 2**31 - 1, size=episodes)]
 
 
 def learned_rng(episode_seed, feedback_noise_std, budget, salt=0):
-    """Create deterministic RNG streams for learned probing evaluation."""
+    """处理learned、随机数流相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if episode_seed is None:
         return np.random.default_rng()
     noise_tag = int(round(float(feedback_noise_std) * 1_000_000))
@@ -207,7 +200,7 @@ def learned_rng(episode_seed, feedback_noise_std, budget, salt=0):
 
 
 def initialize_history(args):
-    """Initialize observable aggregate-feedback history."""
+    """处理history相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     return {
         "counts": np.zeros(c_count, dtype=float),
@@ -223,7 +216,7 @@ def initialize_history(args):
 
 
 def update_history(history, feedbacks, args):
-    """Update observable aggregate-feedback history after a probing slot."""
+    """更新history相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     history["age"] += 1.0
     lr = float(getattr(args, "history_lr", 0.60))
     for feedback in feedbacks:
@@ -255,7 +248,7 @@ def update_history(history, feedbacks, args):
 
 
 def history_features(obs, history, args):
-    """Build model features from base observation and observable feedback history."""
+    """处理history、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     base = np.asarray(obs[:7], dtype=np.float32)
     counts = np.clip(history["counts"] / max(args.num_slots, 1), 0.0, 1.0)
@@ -304,7 +297,7 @@ def history_features(obs, history, args):
 
 
 def target_scores(candidates, args):
-    """Build supervised targets from hidden oracle candidate metrics."""
+    """处理target、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     scores = np.zeros(args.num_codebook_states, dtype=np.float32)
     tx = np.zeros(args.num_codebook_states, dtype=np.float32)
     for candidate in candidates:
@@ -317,7 +310,7 @@ def target_scores(candidates, args):
 
 
 def behavior_indices(args, bandit_args, budget, slot_idx, rng):
-    """Choose behavior probe indices used only for collecting training histories."""
+    """处理behavior、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(bandit_args.num_codebook_states)
     budget = min(int(budget), c_count)
     if budget >= c_count:
@@ -332,12 +325,7 @@ def behavior_indices(args, bandit_args, budget, slot_idx, rng):
 
 
 def collect_dataset(args, bandit_args, episodes, seed, split_name):
-    """
-    Collect offline supervised data.
-
-    The feature vector contains only observable history. Full candidate previews
-    are used only to create training targets and are not exposed at evaluation.
-    """
+    """处理collect、dataset相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     env = bandit.make_env(bandit_args)
     base_action = bandit.make_base_action(bandit_args)
     episode_seeds = split_seeds(seed, episodes)
@@ -390,14 +378,14 @@ def collect_dataset(args, bandit_args, episodes, seed, split_name):
 
 
 def print_progress(name, current, total):
-    """Print progress at 10 percent intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(total // 10, 1)
     if current % interval == 0 or current == total:
         print(f"  {name}: [{current:04d}/{total:04d}]")
 
 
 def normalize_features(train_x, val_x):
-    """Normalize features using train-split statistics."""
+    """处理normalize、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     mean = train_x.mean(axis=0, keepdims=True).astype(np.float32)
     std = train_x.std(axis=0, keepdims=True).astype(np.float32)
     std = np.maximum(std, 1e-6)
@@ -410,7 +398,7 @@ def normalize_features(train_x, val_x):
 
 
 class FeedbackSelector(nn.Module):
-    """MLP that predicts codebook aggregate value from feedback history."""
+    """模型类 `FeedbackSelector`：定义学习式选择器的网络或线性结构，把输入特征映射为候选评分。"""
 
     def __init__(self, input_dim, output_dim, hidden_size, hidden_layers):
         super().__init__()
@@ -424,12 +412,12 @@ class FeedbackSelector(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x_input):
-        """Predict per-codebook aggregate scores."""
+        """处理forward相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         return self.net(x_input)
 
 
 def train_model(args, train_x, train_y, val_x, val_y):
-    """Train the feedback-conditioned selector."""
+    """处理train、模型相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     train_x_norm, val_x_norm, mean, std = normalize_features(train_x, val_x)
     device = torch.device(args.device)
     model = FeedbackSelector(
@@ -479,7 +467,7 @@ def train_model(args, train_x, train_y, val_x, val_y):
 
 
 def predict_scores(model, feature, mean, std, device):
-    """Predict score vector for one feature row."""
+    """处理predict、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_norm = np.clip(
         (feature.reshape(1, -1).astype(np.float32) - mean) / std,
         -10.0,
@@ -492,7 +480,7 @@ def predict_scores(model, feature, mean, std, device):
 
 
 def validation_topk_metrics(predictions, target_tx, budgets, num_nodes):
-    """Compute top-k oracle-hit and missed-tx metrics on validation states."""
+    """处理validation、TopK、metrics相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     oracle_tx = np.max(target_tx, axis=1)
     rows = []
     for budget in budgets:
@@ -515,7 +503,7 @@ def validation_topk_metrics(predictions, target_tx, budgets, num_nodes):
 
 
 def top_indices(scores, budget, args, rng):
-    """Select top-scoring codebook indices with tiny deterministic jitter."""
+    """处理top、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     budget = min(int(budget), c_count)
     if budget >= c_count:
@@ -526,7 +514,7 @@ def top_indices(scores, budget, args, rng):
 
 
 def evaluate_learned_policy(episode_seeds, args, feedback_noise_std, budget, model, mean, std, base_action):
-    """Evaluate learned feedback probing for one run seed."""
+    """评估单个学习式策略配置，返回后续聚合和报告生成所需的指标。"""
     env = bandit.make_env(args)
     device = torch.device(getattr(args, "device", "cpu"))
     success_nodes = []
@@ -634,7 +622,7 @@ def evaluate_learned_policy(episode_seeds, args, feedback_noise_std, budget, mod
 
 
 def evaluate_suite(args, bandit_args, model, mean, std, feedback_noise_std):
-    """Evaluate learned and selected baseline policies for one noise level."""
+    """评估suite对应的策略或实验配置，返回后续聚合和报告生成所需的指标。"""
     base_action = bandit.make_base_action(bandit_args)
     run_seeds = make_run_seeds(bandit_args)
     episode_seed_sets = [make_episode_seeds(bandit_args, run_seed) for run_seed in run_seeds]
@@ -691,7 +679,7 @@ def evaluate_suite(args, bandit_args, model, mean, std, feedback_noise_std):
 
 
 def write_train_history(path, rows):
-    """Write training loss history."""
+    """写出train、history结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=["epoch", "train_loss", "val_loss"])
@@ -701,7 +689,7 @@ def write_train_history(path, rows):
 
 
 def write_validation_metrics(path, rows):
-    """Write validation top-k metrics."""
+    """写出validation、metrics结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
@@ -714,7 +702,7 @@ def write_validation_metrics(path, rows):
 
 
 def save_checkpoint(path, model, mean, std, args, bandit_args):
-    """Save model and normalization state."""
+    """处理checkpoint相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     ensure_parent_dir(path)
     torch.save(
         {
@@ -736,7 +724,7 @@ def save_checkpoint(path, model, mean, std, args, bandit_args):
 
 
 def policy_label(row):
-    """Return compact plot labels."""
+    """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     policy = row["policy"]
     if policy in bandit.PROBE_POLICIES or policy == POLICY_LEARNED_FEEDBACK:
         return f"{policy} B={int(row['probe_budget'])}"
@@ -744,7 +732,7 @@ def policy_label(row):
 
 
 def plot_results(rows, output_prefix):
-    """Plot utility and perfect coverage vs feedback noise."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     labels = []
     for row in rows:
         label = policy_label(row)
@@ -803,7 +791,7 @@ def plot_results(rows, output_prefix):
 
 
 def print_best_rows(rows):
-    """Print best non-oracle rows for quick inspection."""
+    """处理best、结果行相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 132)
     print("Learned Feedback Probe Summary")
     print("=" * 132)
@@ -823,7 +811,7 @@ def print_best_rows(rows):
 
 
 def main():
-    """Train and evaluate the learned feedback-conditioned selector."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     bandit_args = build_bandit_args(args)

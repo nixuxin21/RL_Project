@@ -1,4 +1,4 @@
-"""Decision dispatch for execution-mismatch evaluation policies."""
+"""根据 policy config 分发到具体策略 helper，让 evaluator 只负责实验编排。"""
 
 import ms_aircomp.limited_csi as limited
 
@@ -77,7 +77,7 @@ def choose_decision(
     adaptive_risk_deadline_relief=0.6,
     adaptive_risk_backlog_relief=0.8,
 ):
-    """Choose a limited-CSI decision from the stale/estimated decision channel."""
+    """按照决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     choice_policy_name = policy_name
     if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
         choice_policy_name = limited.POLICY_ROTATING_GRID
@@ -140,7 +140,7 @@ def choose_execution_mismatch_decision(
     adaptive_sparse_v3_history_count=1,
     learned_shortlist_extra_count=1,
 ):
-    """Choose a policy decision and its execution-channel counterpart."""
+    """按照执行阶段、mismatch、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if policy_name == POLICY_EXECUTION_ORACLE:
         decision, preview_calls, candidate_count = choose_execution_oracle(
             env,

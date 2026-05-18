@@ -1,12 +1,4 @@
-"""
-Noisy codebook feature robustness sweep.
-
-This experiment keeps the physical channel and exact greedy oracle unchanged, but
-adds Gaussian observation noise to the C-dimensional codebook quality features
-seen by feature-based policies. It is intended to test whether the current
-Feature Argmax / PowerTie advantage survives when those features are no longer
-exact previews.
-"""
+"""归档实验：评估码本特征加噪后基础特征基线的鲁棒性。"""
 
 import argparse
 import csv
@@ -43,12 +35,12 @@ from evaluate_policy_comparison import (
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list such as '0,0.05,0.1'."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse noisy feature sweep parameters."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Sweep Gaussian noise levels on codebook quality features."
     )
@@ -77,7 +69,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate positive sizes and non-negative noise levels."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -95,7 +87,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve the shared output prefix for CSV and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -110,7 +102,7 @@ def resolve_output_prefix(args):
 
 
 def make_actions(args):
-    """Build fixed transmission actions shared by the baseline policies."""
+    """构建actions所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     fixed_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
     args.fixed_irs_index = fixed_index
     g_action = physical_to_action(args.g_th, low=0.001, scale=0.05)
@@ -122,7 +114,7 @@ def make_actions(args):
 
 
 def run_policy_suite_for_noise(args, episode_seeds, fixed_action, random_action):
-    """Run the noisy-feature policy subset for one noise level and one run seed."""
+    """运行策略、suite、for、noise流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     results = []
     if args.include_codebook_aware_sac:
         results.append(evaluate_codebook_aware_sac_policy(episode_seeds, args))
@@ -136,7 +128,7 @@ def run_policy_suite_for_noise(args, episode_seeds, fixed_action, random_action)
 
 
 def seed_summary(result):
-    """Summarize a policy result within one run seed."""
+    """处理随机种子、摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     keys = (
         "success_nodes",
         "avg_mse",
@@ -151,7 +143,7 @@ def seed_summary(result):
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate policy results across run seeds."""
+    """跨 run seed 聚合同一策略的结果，得到可写入 CSV 的稳定统计量。"""
     if not seed_result_sets:
         return []
 
@@ -170,7 +162,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def summarize_noise_results(args, noise_std, results):
-    """Convert one noise level's aggregated results into CSV rows."""
+    """聚合noise、results结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -202,7 +194,7 @@ def summarize_noise_results(args, noise_std, results):
 
 
 def write_csv(path, rows):
-    """Write the noisy sweep summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     fieldnames = [
         "noise_std",
@@ -230,7 +222,7 @@ def write_csv(path, rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot success rate, latency, and energy against feature noise std."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     policies = []
     for row in rows:
         if row["policy"] not in policies:
@@ -293,7 +285,7 @@ def plot_results(rows, args, output_prefix):
 
 
 def print_summary(rows):
-    """Print a compact noisy sweep summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 126)
     print("Noisy Codebook Feature Sweep Summary")
     print("=" * 126)
@@ -313,7 +305,7 @@ def print_summary(rows):
 
 
 def main():
-    """Run the noisy codebook feature sweep."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

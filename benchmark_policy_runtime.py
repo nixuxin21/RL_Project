@@ -1,17 +1,4 @@
-"""
-Runtime benchmark for MS-AirComp IRS policies.
-
-The benchmark separates policy decision time from environment step time:
-
-- decision time: choosing an action or IRS codebook from the current observation;
-- env step time: applying the action and producing the next observation.
-
-For feature-based policies, env step time includes the current implementation cost
-of generating the next observation's codebook features. The
-decision_preview_calls_per_slot metric follows the project convention: it counts
-extra preview calls made during policy decision after codebook features are
-already available.
-"""
+"""测量规则策略、学习策略和环境执行步骤的运行时间，用于判断方法的部署成本。"""
 
 import argparse
 import csv

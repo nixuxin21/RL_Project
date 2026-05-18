@@ -1,18 +1,4 @@
-"""
-Diagnose residual failures for the current Coverage-Aware B=3 main setting.
-
-This script does not introduce a new policy. It replays the selected
-Coverage-Aware Sparse-TopK configuration and records where the remaining oracle
-gap comes from:
-
-- pool gap: the sparse stale pool misses the best current IRS candidate quality
-- selection gap: the pool contains a better current candidate, but final B
-  selection drops it
-- confirmation gap: final B contains a better current candidate, but aggregate
-  feedback confirms another one
-- invitation gap: the confirmed IRS index is good under current CSI, but the
-  stale invitation mask misses or falsely invites devices
-"""
+"""诊断覆盖感知 B=3 的残余 oracle 差距，把误差分解到候选池、选择、确认和邀请掩码。"""
 
 import argparse
 import csv
@@ -120,7 +106,7 @@ SUMMARY_FIELDS = [
 
 
 def parse_args():
-    """Parse command-line arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Trace residual gap sources for Coverage-Aware B=3 sm=4.1."
     )
@@ -151,22 +137,22 @@ def parse_args():
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item) for item in str(value).split(",") if str(item).strip()]
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item) for item in str(value).split(",") if str(item).strip()]
 
 
 def json_compact(value):
-    """Return compact JSON for CSV cells."""
+    """处理json、compact相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return json.dumps(value, separators=(",", ":"))
 
 
 def resolve_output_prefix(args):
-    """Return the output prefix for trace and summary files."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -187,7 +173,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args):
-    """Create the MS-AirComp environment used by the diagnostic."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -197,7 +183,7 @@ def make_env(args):
 
 
 def best_current_candidate(current_by_index, indices):
-    """Return the best current-channel candidate among given indices."""
+    """处理best、当前、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return max(
         (current_by_index[int(index)] for index in indices),
         key=limited.candidate_key,
@@ -205,7 +191,7 @@ def best_current_candidate(current_by_index, indices):
 
 
 def primary_gap_type(pool_gap, selection_gap, confirmation_gap, invitation_gap, total_gap):
-    """Classify the dominant residual gap source."""
+    """处理primary、差距、type相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if int(total_gap) <= 0:
         return "none"
     components = {
@@ -231,7 +217,7 @@ def trace_one_slot(
     temporal_states,
     slot_idx,
 ):
-    """Run one diagnostic slot and return a trace row plus done flag."""
+    """处理轨迹、one、时隙相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
     stale_state = delayed_channel_state(
         temporal_states,
@@ -403,7 +389,7 @@ def trace_one_slot(
 
 
 def run_trace(args):
-    """Run the full diagnostic trace."""
+    """运行轨迹流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     rows = []
     run_seeds = make_run_seeds(args)
     episode_seed_sets = [make_episode_seeds(args, run_seed) for run_seed in run_seeds]
@@ -441,14 +427,14 @@ def run_trace(args):
 
 
 def mean(rows, field):
-    """Return mean over a numeric row field."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not rows:
         return 0.0
     return float(sum(float(row[field]) for row in rows) / len(rows))
 
 
 def summarize_group(label, rows):
-    """Summarize trace rows for one scenario or the full run."""
+    """聚合group结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     total_gap_sum = sum(float(row["total_gap"]) for row in rows)
     slot_count = len(rows)
     slots_with_gap = sum(int(float(row["total_gap"]) > 0.0) for row in rows)
@@ -510,7 +496,7 @@ def summarize_group(label, rows):
 
 
 def summarize_rows(rows):
-    """Build overall and per-scenario summaries."""
+    """聚合结果行结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     summaries = [summarize_group("overall", rows)]
     groups = {}
     for row in rows:
@@ -522,7 +508,7 @@ def summarize_rows(rows):
 
 
 def write_csv(path, rows, fields):
-    """Write rows to CSV."""
+    """按固定字段顺序写出 CSV，保证后续报告和测试读取稳定。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fields)
@@ -531,12 +517,12 @@ def write_csv(path, rows, fields):
 
 
 def format_float(value, digits=3):
-    """Format a numeric value for markdown."""
+    """格式化浮点数显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):.{digits}f}"
 
 
 def markdown_table(headers, rows):
-    """Render a markdown table."""
+    """渲染 Markdown 表格，把表头和结果行转换成文档可直接引用的表格文本。"""
     output = ["| " + " | ".join(headers) + " |"]
     output.append("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
@@ -545,7 +531,7 @@ def markdown_table(headers, rows):
 
 
 def write_markdown(path, args, trace_path, summary_path, summaries):
-    """Write the diagnosis report."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     overall = summaries[0]
     component_shares = {
@@ -684,7 +670,7 @@ The next algorithmic step should target the dominant component above rather than
 
 
 def main():
-    """Run the diagnostic."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     args.channel_rho_values = parse_float_list(args.channel_rho_values)
     args.csi_delay_slots = parse_int_list(args.csi_delay_slots)

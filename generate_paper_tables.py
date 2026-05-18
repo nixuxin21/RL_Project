@@ -1,4 +1,4 @@
-"""Generate paper-facing table artifacts from existing result CSVs."""
+"""从冻结结果 CSV 生成论文表 1、表 2、表 3 及不确定性 companion。"""
 
 import argparse
 import csv
@@ -221,7 +221,7 @@ def average_rows(rows, fields):
 
 
 def build_table2_rows(source_rows, coverage_rows):
-    """Build compact coverage-aware ablation and budget-split rows."""
+    """构建table2、结果行所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     output_rows = []
     baseline = row_by_label(source_rows, "Sparse-TopK B=4 sm=3")
     coverage_b4 = row_by_label(source_rows, "Coverage-Aware B=4 cw=0.5 cpw=0")
@@ -330,7 +330,7 @@ def build_table2_rows(source_rows, coverage_rows):
 
 
 def build_table3_rows(diagnosis_rows):
-    """Build compact failure-diagnosis rows from the existing summary CSV."""
+    """构建table3、结果行所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     output_rows = []
     for row in diagnosis_rows:
         shares = {

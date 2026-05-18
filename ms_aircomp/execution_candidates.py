@@ -1,4 +1,4 @@
-"""Execution-stage candidate builders for MS-AirComp mismatch experiments."""
+"""构造执行阶段候选和隐藏 current-channel oracle，用于比较决策信道与执行信道的偏差。"""
 
 import numpy as np
 
@@ -14,7 +14,7 @@ __all__ = [
 
 
 def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_idx=0, no_irs=False):
-    """Build drifted execution candidates for selected indices or no-IRS."""
+    """处理执行阶段、候选集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     episode_seed = getattr(env, "_last_seed", None)
     if no_irs:
         rng = execution_rng(
@@ -44,7 +44,7 @@ def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_
 
 
 def execution_candidate_for_decision(env, args, decision_candidate, execution_error_std, slot_idx):
-    """Return drifted execution candidate matching a decision."""
+    """处理执行阶段、候选、for、决策相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     irs_index = int(decision_candidate["irs_index"])
     if irs_index == -2:
         return execution_candidates(
@@ -64,7 +64,7 @@ def execution_candidate_for_decision(env, args, decision_candidate, execution_er
 
 
 def execution_oracle_candidate(env, args, execution_error_std, slot_idx):
-    """Return hidden oracle candidate under the drifted execution channel."""
+    """处理执行阶段、oracle 诊断上界、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     candidates = execution_candidates(
         env,
         args,
@@ -76,6 +76,6 @@ def execution_oracle_candidate(env, args, execution_error_std, slot_idx):
 
 
 def choose_execution_oracle(env, args, execution_error_std, slot_idx):
-    """Choose and invite using the hidden execution channel."""
+    """按照执行阶段、oracle 诊断上界规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
     return oracle, args.num_codebook_states, args.num_codebook_states

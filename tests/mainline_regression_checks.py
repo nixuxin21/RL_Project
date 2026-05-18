@@ -1,14 +1,4 @@
-"""
-Lightweight numerical regression checks for the active execution-mismatch line.
-
-These checks are intentionally smaller than the formal sweeps. They use fixed
-seeds and broad trend assertions so future refactors catch obvious regressions
-without turning every local check into a long experiment.
-
-Run with:
-
-    ./.venv/bin/python tests/mainline_regression_checks.py
-"""
+"""模块 `tests/mainline_regression_checks.py`：封装本项目实验、分析或测试所需的代码逻辑。"""
 
 from argparse import Namespace
 import contextlib

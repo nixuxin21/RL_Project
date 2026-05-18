@@ -1,4 +1,4 @@
-"""Learned sparse-shortlist features, model loading, and policies."""
+"""实现 learned sparse/set shortlist 的特征构造、模型加载和闭环策略选择。"""
 
 import itertools
 
@@ -74,7 +74,7 @@ __all__ = [
 ]
 
 def load_learned_shortlist_model(path):
-    """Load a saved linear learned-shortlist ranker."""
+    """读取learned、候选短名单、模型输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     data = np.load(path, allow_pickle=False)
     model = {
         "weights": np.asarray(data["weights"], dtype=float),
@@ -99,7 +99,7 @@ def load_learned_shortlist_model(path):
 
 
 def load_learned_set_shortlist_model(path):
-    """Load a saved linear set-level shortlist ranker."""
+    """读取learned、set、候选短名单、模型输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     data = np.load(path, allow_pickle=False)
     model = {
         "weights": np.asarray(data["weights"], dtype=float),
@@ -136,7 +136,7 @@ def learned_shortlist_context(
     channel_rho=1.0,
     csi_delay_slots=0,
 ):
-    """Build observable state used by learned sparse shortlist scoring."""
+    """处理learned、候选短名单、context相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     budget = min(int(budget), args.num_codebook_states)
     base_seed_budget = min(
         args.num_codebook_states,
@@ -184,7 +184,7 @@ def learned_shortlist_context(
 
 
 def normalized_codebook_distance(index, other_indices, num_codebook_states):
-    """Circular codebook distance normalized to [0, 1]."""
+    """处理normalized、码本、distance相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not other_indices:
         return 1.0
     max_distance = max(float(num_codebook_states) / 2.0, 1.0)
@@ -196,7 +196,7 @@ def normalized_codebook_distance(index, other_indices, num_codebook_states):
 
 
 def learned_shortlist_feature_vector(args, candidate_index, slot_idx, context):
-    """Return one observable feature vector for learned shortlist scoring."""
+    """处理learned、候选短名单、特征、vector相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     num_codebook_states = int(args.num_codebook_states)
     index = int(candidate_index) % num_codebook_states
     phase = 2.0 * np.pi * float(index) / max(float(num_codebook_states), 1.0)
@@ -244,7 +244,7 @@ def learned_shortlist_feature_vector(args, candidate_index, slot_idx, context):
 
 
 def learned_shortlist_feature_matrix(args, candidate_indices, slot_idx, context):
-    """Return feature matrix for candidate indices."""
+    """处理learned、候选短名单、特征、matrix相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not candidate_indices:
         return np.zeros((0, len(LEARNED_SHORTLIST_FEATURE_NAMES)), dtype=float)
     return np.vstack(
@@ -253,7 +253,7 @@ def learned_shortlist_feature_matrix(args, candidate_indices, slot_idx, context)
 
 
 def score_learned_shortlist_candidates(model, features):
-    """Score feature rows with a saved standardized linear model."""
+    """对learned、候选短名单、候选集合进行打分或排序，为候选选择、诊断归因或学习标签提供比较依据。"""
     if features.size == 0:
         return np.zeros((0,), dtype=float)
     scale = np.maximum(np.asarray(model["feature_scale"], dtype=float), 1e-12)
@@ -262,7 +262,7 @@ def score_learned_shortlist_candidates(model, features):
 
 
 def learned_set_shortlist_variants(args, context, max_extra_count):
-    """Enumerate deployable final-set variants for learned set-level scoring."""
+    """处理learned、set、候选短名单、variants相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     budget = min(int(context["budget"]), int(args.num_codebook_states))
     max_extra_count = max(0, min(int(max_extra_count), max(budget - 1, 0)))
     ranked_indices = list(context["ranked_indices"])
@@ -311,7 +311,7 @@ def learned_set_shortlist_variants(args, context, max_extra_count):
 
 
 def learned_set_pairwise_distance_features(selected_indices, num_codebook_states):
-    """Return mean/min normalized circular distances inside one selected set."""
+    """处理learned、set、pairwise、distance、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected = [int(index) for index in selected_indices]
     if len(selected) < 2:
         return 1.0, 1.0
@@ -324,7 +324,7 @@ def learned_set_pairwise_distance_features(selected_indices, num_codebook_states
 
 
 def learned_set_shortlist_feature_vector(args, variant, slot_idx, context):
-    """Return observable set-level features for one final confirmation set."""
+    """处理learned、set、候选短名单、特征、vector相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected_indices = [
         int(np.clip(index, 0, args.num_codebook_states - 1))
         for index in variant["selected_indices"]
@@ -390,7 +390,7 @@ def learned_set_shortlist_feature_vector(args, variant, slot_idx, context):
 
 
 def learned_set_shortlist_feature_matrix(args, variants, slot_idx, context):
-    """Return set-level feature rows for final-set variants."""
+    """处理learned、set、候选短名单、特征、matrix相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not variants:
         return np.zeros((0, len(LEARNED_SET_SHORTLIST_FEATURE_NAMES)), dtype=float)
     return np.vstack(
@@ -415,7 +415,7 @@ def choose_learned_sparse_shortlist_feedback_decision(
     extra_count=None,
     model=None,
 ):
-    """Use a learned linear ranker to add a few nonuniform shortlist candidates."""
+    """按照learned、稀疏、候选短名单、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -534,7 +534,7 @@ def choose_learned_set_shortlist_feedback_decision(
     extra_count=None,
     model=None,
 ):
-    """Choose the final confirmation set with a learned set-level ranker."""
+    """按照learned、set、候选短名单、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)

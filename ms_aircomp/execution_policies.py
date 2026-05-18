@@ -1,4 +1,4 @@
-"""Execution-mismatch policy decision functions for active probe sets."""
+"""实现 rotating、stale-topK、sparse-topK、coverage-aware 等执行信道错配主线策略。"""
 
 import numpy as np
 
@@ -25,7 +25,7 @@ __all__ = [
 
 
 def choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed):
-    """Return the no-IRS fallback used when a probe budget is empty."""
+    """构造无 IRS 的直接链路 fallback 决策，用于预算为零或需要基础对照的场景。"""
     return limited.choose_policy_candidate(
         env,
         args,
@@ -47,13 +47,7 @@ def choose_rotating_feedback_confirm_decision(
     episode_seed,
     execution_state=None,
 ):
-    """
-    Confirm the standard rotating probe set using current aggregate feedback.
-
-    This is the low-cost counterpart to stale-topK confirmation: it keeps the
-    same rotating B indices, builds invitation masks from stale CSI, and uses
-    current aggregate feedback only to choose among those B candidates.
-    """
+    """按轮换网格选择少量 IRS probe，用当前聚合反馈确认最终索引，并返回决策候选及成本。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -101,13 +95,7 @@ def choose_stale_topk_feedback_decision(
     episode_seed,
     execution_state=None,
 ):
-    """
-    Pick an active stale-CSI probe set, then confirm it with current feedback.
-
-    The top half of the budget comes from a full stale-codebook ranking and the
-    rest preserves rotating-grid coverage. The final IRS index is selected from
-    B aggregate current-channel feedback probes, not from full execution CSI.
-    """
+    """先完整预览 stale 信道下的码本排序，再取 top-k 与轮换候选组合进行当前反馈确认。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -168,15 +156,7 @@ def choose_active_diverse_feedback_decision(
     episode_seed,
     execution_state=None,
 ):
-    """
-    Build a low-cost active probe set from sparse stale CSI and diversity.
-
-    The policy first previews a rotating seed set under stale/estimated CSI,
-    uses the best seed candidates as anchors, fills the final set with
-    codebook-diverse indices, and then selects among the final set using current
-    aggregate feedback. It never ranks all C codebooks, so its preview cost is
-    bounded by the seed previews, new final-set previews, and B confirmations.
-    """
+    """先用 stale seed 候选找锚点，再用码本距离补齐多样 probe 集合，最后用当前反馈确认。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -259,15 +239,7 @@ def choose_sparse_topk_feedback_decision(
     seed_multiplier=None,
     topk_fraction=None,
 ):
-    """
-    Rank a sparse stale-CSI probe pool, then confirm the final B candidates.
-
-    This is a lower-cost approximation to stale-topK feedback. Instead of
-    ranking all C codebooks, it previews a configurable sparse pool of evenly
-    spaced stale candidates, keeps the best stale candidates plus a rotating
-    coverage set, and selects the final IRS index using current aggregate
-    feedback.
-    """
+    """用少量 stale preview 生成 seed pool，从中取 top 候选并混入轮换覆盖项，降低完整预览成本。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -365,13 +337,7 @@ def choose_coverage_sparse_topk_feedback_decision(
     coverage_weight=None,
     power_weight=None,
 ):
-    """
-    Sparse-TopK variant that fills non-anchor probes by device coverage gain.
-
-    It uses the same sparse stale preview pool as Sparse-TopK, but replaces the
-    rotating fill step with marginal device-coverage selection within that pool.
-    Final IRS selection still uses current aggregate feedback over B candidates.
-    """
+    """在稀疏 top-k 基础上加入节点覆盖增量，让 probe 集合减少重复覆盖并降低 missed opportunities。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -460,7 +426,7 @@ def choose_coverage_sparse_topk_feedback_decision(
 
 
 def neighbor_pool_indices(center_indices, num_codebook_states, radius, max_count, exclude_indices):
-    """Return wrapped local neighbors excluding already previewed indices."""
+    """处理邻域、pool、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if max_count <= 0 or radius <= 0:
         return []
     selected = []
@@ -482,7 +448,7 @@ def neighbor_pool_indices(center_indices, num_codebook_states, radius, max_count
 
 
 def fill_unpreviewed_indices(prefix_indices, num_codebook_states, max_count, exclude_indices):
-    """Fill a preview list with unpreviewed codebook indices."""
+    """处理补齐、unpreviewed、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected = []
     seen = {int(index) for index in exclude_indices}
     for raw_index in list(prefix_indices) + list(range(int(num_codebook_states))):
@@ -512,16 +478,7 @@ def choose_neighbor_coverage_sparse_topk_feedback_decision(
     neighbor_radius=None,
     neighbor_count=None,
 ):
-    """
-    Coverage-Aware Sparse-TopK with nonuniform stale neighbor previews.
-
-    The total stale preview budget follows ``seed_multiplier * B`` as in the
-    main Coverage-Aware setting. A base evenly spaced stale pool is previewed
-    first, then a small number of stale previews is reallocated to local
-    neighbors around the best base stale candidates. Final B-candidate
-    selection still uses the same coverage-aware fill and current aggregate
-    feedback confirmation.
-    """
+    """按照邻域、覆盖感知、稀疏、TopK、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)

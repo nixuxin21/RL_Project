@@ -1,15 +1,4 @@
-"""
-Stress-scenario sweep for bandit-feedback IRS-assisted MS-AirComp.
-
-This wrapper reuses the strict aggregate-feedback evaluator while varying the
-physical task difficulty. It reports both raw scheduling metrics and a simple
-node-equivalent utility that charges for latency and probe calls:
-
-    utility = success - slot_cost * slots - probe_cost * total_probes
-
-The goal is to expose settings where limited-feedback IRS selection creates a
-clearer tradeoff than the default environment.
-"""
+"""在多种困难场景中压力测试 bandit feedback 策略，并输出场景级对比结果。"""
 
 import argparse
 import csv
@@ -130,12 +119,12 @@ CSV_FIELDS = [
 
 
 def parse_csv_items(value):
-    """Parse a comma-separated list, preserving non-empty strings."""
+    """解析CSV、条目参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse stress-sweep arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Run stress scenarios for aggregate-feedback IRS probing."
     )
@@ -165,7 +154,7 @@ def parse_args():
 
 
 def validate_stress_args(args):
-    """Validate stress-sweep specific arguments."""
+    """校验压力测试专用参数，确保场景、噪声、策略列表和输出配置合法。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -195,7 +184,7 @@ def validate_stress_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for stress CSVs and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -217,7 +206,7 @@ def resolve_output_prefix(args):
 
 
 def scenario_config(name):
-    """Return merged physical parameters for a scenario preset."""
+    """处理场景、config相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     preset = SCENARIO_PRESETS[name]
     config = dict(BASE_SCENARIO)
     config.update(preset["overrides"])
@@ -225,7 +214,7 @@ def scenario_config(name):
 
 
 def build_bandit_args(args, scenario_name):
-    """Build the argument namespace expected by the bandit evaluator."""
+    """构建bandit、参数所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     config = scenario_config(scenario_name)
     bandit_args = argparse.Namespace(
         episodes=args.episodes,
@@ -255,7 +244,7 @@ def build_bandit_args(args, scenario_name):
 
 
 def evaluate_selected_suite(args, bandit_args, episode_seed_sets, feedback_noise_std, base_action):
-    """Run the selected baseline and probe policies for one scenario/noise pair."""
+    """评估selected、suite对应的策略或实验配置，返回后续聚合和报告生成所需的指标。"""
     seed_result_sets = []
     baseline_policy_names = [BASELINE_POLICIES[name] for name in args.baseline_policies]
     probe_policy_names = [PROBE_POLICIES[name] for name in args.probe_policies]
@@ -300,7 +289,7 @@ def evaluate_selected_suite(args, bandit_args, episode_seed_sets, feedback_noise
 
 
 def attach_stress_metadata(rows, args, scenario_name, bandit_args):
-    """Add scenario metadata and utility columns to bandit summary rows."""
+    """处理attach、stress、元数据相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     preset = SCENARIO_PRESETS[scenario_name]
     for row in rows:
         total_probe_calls = float(row["probe_calls_per_slot_mean"]) * float(row["slots_mean"])
@@ -330,7 +319,7 @@ def attach_stress_metadata(rows, args, scenario_name, bandit_args):
 
 
 def write_csv(path, rows):
-    """Write the stress summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)
@@ -340,18 +329,18 @@ def write_csv(path, rows):
 
 
 def is_oracle(row):
-    """Return whether a row is an offline oracle diagnostic."""
+    """返回is、oracle 诊断上界对应的判断结果或派生值，用于封装重复出现的条件逻辑。"""
     return row["policy"] == bandit.POLICY_ORACLE_FULL
 
 
 def compact_policy_label(row):
-    """Return compact labels for console and plots."""
+    """处理compact、策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     label = bandit.policy_label(row)
     return label.replace(" Feedback Probe", "").replace(" Feedback", "")
 
 
 def print_stress_summary(rows):
-    """Print best non-oracle policy per scenario and feedback noise level."""
+    """处理stress、摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 132)
     print("Bandit-Feedback Stress Summary")
     print("=" * 132)
@@ -379,7 +368,7 @@ def print_stress_summary(rows):
 
 
 def plot_results(rows, output_prefix):
-    """Plot latency/probe tradeoffs for each stress scenario."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     scenarios = [name for name in SCENARIO_PRESETS if any(row["scenario"] == name for row in rows)]
     if not scenarios:
         return
@@ -444,7 +433,7 @@ def plot_results(rows, output_prefix):
 
 
 def main():
-    """Run stress scenarios for aggregate-feedback IRS probing."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_stress_args(args)
     output_prefix = resolve_output_prefix(args)

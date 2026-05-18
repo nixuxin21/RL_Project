@@ -1,24 +1,4 @@
-"""
-K/N/M/C 参数扫描脚本。
-
-这个脚本用于验证 rule-based IRS 策略在不同系统规模下是否稳定：
-
-- K: 节点数量。
-- N: episode 内可用时隙数量。
-- M: IRS 反射单元数量。
-- C: IRS 离散码本大小。
-
-脚本采用“一因子变化”设计：每次只改变一个参数，其余参数保持 base 配置。
-这样可以更清楚地判断性能变化来自哪个维度。当前比较的策略包括：
-
-1. Feature Argmax IRS：直接选择 codebook quality feature 最大的码本。
-2. Feature Argmax PowerTie IRS：在最大 feature 并列候选中选择平均功率更低的码本。
-3. Greedy IRS：每个时隙 preview 全部 C 个码本，按调度数量、功率、剩余增益排序。
-4. Random IRS：每个时隙随机 IRS 相位。
-5. No IRS：关闭 IRS 级联链路。
-
-输出包括 summary CSV、episode 级 CSV、slot 级 CSV，以及 success/latency/energy 三张图。
-"""
+"""对节点数、时隙数、IRS 单元数和码本大小做一因子参数扫描。"""
 
 import argparse
 import csv
@@ -206,7 +186,7 @@ def make_sweep_configs(args):
     seen = set()
     for sweep_name, key, values in dimensions:
         for value in values:
-            # 从 base 复制一份，只覆盖当前 sweep 维度，确保是一因子实验。
+            # 从基础配置复制一份，只覆盖当前扫描维度，确保每组实验只改变一个因素。
             config = dict(base)
             config[key] = value
             config["sweep"] = sweep_name
@@ -235,7 +215,7 @@ def greedy_candidate(env, args, config):
     ]
 
     def candidate_key(candidate):
-        """Greedy 排序键：调度数量优先，其次低功率，最后剩余平均增益。"""
+        """贪心排序键：先比较本时隙调度节点数，再用低功率和剩余增益打破并列。"""
         tx_count = int(candidate["tx_this_slot"])
         power_avg = float(candidate["power_avg"])
         mean_gain = float(candidate["mean_gain_remaining"])
@@ -264,19 +244,7 @@ def feature_argmax_candidates(obs, config):
 
 
 def feature_argmax_power_tie_index(env, args, config, obs):
-    """
-    Feature Argmax 的低复杂度能耗改进版本。
-
-    先使用已经存在的 codebook features 找到 max-count 候选集合；
-    只有当存在多个并列候选时，才对这些候选调用 `preview_codebook_index`
-    读取平均功率，并选择 Greedy tie-break 下最优的候选。
-
-    Returns:
-        `(irs_index, preview_calls, tie_count)`：
-        - `irs_index`: 最终选择的 IRS 码本索引；
-        - `preview_calls`: 决策阶段额外 preview 的候选数量；
-        - `tie_count`: max-count 并列候选数量。
-    """
+    """处理特征、argmax、功率、tie、索引相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     candidate_indices = feature_argmax_candidates(obs, config)
     tie_count = int(len(candidate_indices))
     if tie_count <= 1:
@@ -288,7 +256,7 @@ def feature_argmax_power_tie_index(env, args, config, obs):
     ]
 
     def candidate_key(candidate):
-        """PowerTie 排序键，与 Greedy 的 tie-break 规则保持一致。"""
+        """功率并列排序键：与贪心规则一样先比调度数，再比功率和剩余增益。"""
         tx_count = int(candidate["tx_this_slot"])
         power_avg = float(candidate["power_avg"])
         mean_gain = float(candidate["mean_gain_remaining"])
@@ -348,7 +316,7 @@ def evaluate_policy(args, config, policy, episode_seeds):
                 preview_calls = config["num_codebook_states"]
                 tie_candidates = config["num_codebook_states"]
             else:
-                # Random IRS 和 No IRS 不使用动作中的码本索引；这里填 0 只是占位。
+                # 随机 IRS 和无 IRS 对照不使用动作中的码本索引；这里填 0 只是占位。
                 irs_index = 0
                 preview_calls = 0
                 tie_candidates = 0
@@ -374,7 +342,7 @@ def evaluate_policy(args, config, policy, episode_seeds):
                 break
 
         for remaining_slot in range(slots_used + 1, config["num_slots"] + 1):
-            # 如果 episode 提前完成，后续时隙补零，便于 slot 级平均曲线长度一致。
+            # 如果回合提前完成，后续时隙补零，便于按时隙求平均时保持曲线长度一致。
             slot_tx[remaining_slot - 1].append(0)
             slot_total[remaining_slot - 1].append(total_tx)
             slot_preview_calls[remaining_slot - 1].append(0)

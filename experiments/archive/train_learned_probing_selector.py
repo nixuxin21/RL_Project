@@ -1,11 +1,4 @@
-"""
-Train and evaluate a learned partial probing selector.
-
-The model does not observe full codebook quality features. It sees only the
-base 7-dimensional environment observation plus a compact encoding of the
-previous selected IRS index, predicts the C codebook tx-count fractions, and
-probes only the top-B predicted candidates at evaluation time.
-"""
+"""归档实验：训练早期 learned partial probing selector，保留历史负结果复现入口。"""
 
 import argparse
 import csv
@@ -60,12 +53,12 @@ POLICY_LEARNED = "Learned Probe"
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list such as '1,2,4,8'."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse learned probing training and evaluation parameters."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Train a supervised low-state IRS probing selector and compare against Rotating Grid."
     )
@@ -97,7 +90,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate sizes, budgets, and training hyperparameters."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     positive_ints = {
         "--train-episodes": args.train_episodes,
         "--val-episodes": args.val_episodes,
@@ -129,7 +122,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve shared output prefix for model, CSVs, and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -147,18 +140,13 @@ def resolve_output_prefix(args):
 
 
 def make_split_seeds(seed, episodes):
-    """Generate deterministic episode seeds for a dataset split."""
+    """构建split、随机种子所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     rng = np.random.default_rng(seed)
     return [int(value) for value in rng.integers(0, 2**31 - 1, size=episodes)]
 
 
 def state_features(obs, previous_index, args):
-    """
-    Build low-dimensional model features.
-
-    The model receives no per-codebook quality features. Previous IRS is encoded
-    both linearly and circularly so the network can learn simple probing schedules.
-    """
+    """处理状态、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     base = obs[:7].astype(np.float32)
     if previous_index is None:
         previous_known = 0.0
@@ -184,7 +172,7 @@ def state_features(obs, previous_index, args):
 
 
 def full_candidate_ranking(env, args):
-    """Preview all codebooks and return candidates sorted by the Greedy key."""
+    """处理full、候选、ranking相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     candidates = [
         env.preview_codebook_index(index, args.g_th, args.alpha_th)
         for index in range(args.num_codebook_states)
@@ -193,7 +181,7 @@ def full_candidate_ranking(env, args):
 
 
 def behavior_policy_name(args):
-    """Return the partial probing policy name used for behavior collection."""
+    """处理behavior、策略、name相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.behavior_policy == "rotating-grid":
         return POLICY_ROTATING_GRID
     if args.behavior_policy == "random":
@@ -202,7 +190,7 @@ def behavior_policy_name(args):
 
 
 def choose_behavior_candidate(env, args, ranking, slot_idx, previous_index, rng):
-    """Choose the action used to advance dataset collection."""
+    """按照behavior、候选规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if args.behavior_policy == "greedy":
         return ranking[0]
 
@@ -222,13 +210,7 @@ def choose_behavior_candidate(env, args, ranking, slot_idx, previous_index, rng)
 
 
 def collect_dataset(args, episodes, seed, split_name):
-    """
-    Collect low-state observations and full codebook tx-count fraction targets.
-
-    Targets are the C-dimensional normalized tx-counts produced by exact preview.
-    They are used for supervised distillation, but they are not available to the
-    learned probing policy at evaluation time.
-    """
+    """处理collect、dataset相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     env = make_env(args)
     base_action = make_base_action(args)
     states = []
@@ -274,14 +256,14 @@ def collect_dataset(args, episodes, seed, split_name):
 
 
 def print_progress(name, current, total):
-    """Print progress at 10% intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(total // 10, 1)
     if current % interval == 0 or current == total:
         print(f"  {name}: [{current:04d}/{total:04d}]")
 
 
 def normalize_features(train_x, val_x):
-    """Normalize state features with train-split statistics."""
+    """处理normalize、特征相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     mean = train_x.mean(axis=0, keepdims=True).astype(np.float32)
     std = train_x.std(axis=0, keepdims=True).astype(np.float32)
     std = np.maximum(std, 1e-6)
@@ -289,7 +271,7 @@ def normalize_features(train_x, val_x):
 
 
 class ProbingRegressor(nn.Module):
-    """MLP that predicts normalized tx-count quality for all codebook indices."""
+    """模型类 `ProbingRegressor`：定义学习式选择器的网络或线性结构，把输入特征映射为候选评分。"""
 
     def __init__(self, input_dim, output_dim, hidden_size, hidden_layers):
         super().__init__()
@@ -303,17 +285,12 @@ class ProbingRegressor(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, obs):
-        """Predict C codebook quality scores."""
+        """处理forward相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
         return self.net(obs)
 
 
 def topk_target_metrics(predictions, targets, budgets, num_nodes):
-    """
-    Compute validation metrics for selecting top-k predicted candidates.
-
-    `oracle_hit_rate` is true if at least one predicted candidate reaches the
-    max target tx-count among all codebooks for that state.
-    """
+    """处理TopK、target、metrics相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rows = []
     oracle_values = np.max(targets, axis=1)
     for budget in budgets:
@@ -333,7 +310,7 @@ def topk_target_metrics(predictions, targets, budgets, num_nodes):
 
 
 def train_model(args, train_x, train_y, val_x, val_y):
-    """Train the tx-count regressor."""
+    """处理train、模型相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     train_x_norm, val_x_norm, mean, std = normalize_features(train_x, val_x)
     device = torch.device(args.device)
     model = ProbingRegressor(
@@ -385,7 +362,7 @@ def train_model(args, train_x, train_y, val_x, val_y):
 
 
 def predict_scores(model, feature, mean, std, device):
-    """Predict C codebook scores for one low-state feature vector."""
+    """处理predict、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_norm = ((feature.reshape(1, -1).astype(np.float32) - mean) / std).astype(np.float32)
     model.eval()
     with torch.no_grad():
@@ -395,7 +372,7 @@ def predict_scores(model, feature, mean, std, device):
 
 
 def evaluate_learned_probe_policy(episode_seeds, args, budget, model, mean, std, base_action):
-    """Evaluate the learned probing policy at one preview budget."""
+    """评估单个学习式 probing 策略配置，返回后续聚合和报告生成所需的指标。"""
     env = make_env(args)
     device = torch.device(args.device)
     success_nodes = []
@@ -486,7 +463,7 @@ def evaluate_learned_probe_policy(episode_seeds, args, budget, model, mean, std,
 
 
 def print_eval_progress(name, budget, ep, episodes, success_nodes, num_nodes):
-    """Print evaluation progress at 10% intervals."""
+    """处理eval、progress相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -494,7 +471,7 @@ def print_eval_progress(name, budget, ep, episodes, success_nodes, num_nodes):
 
 
 def write_train_history(path, history):
-    """Write training loss history."""
+    """写出train、history结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=["epoch", "train_loss", "val_loss"])
@@ -504,7 +481,7 @@ def write_train_history(path, history):
 
 
 def write_validation_metrics(path, rows):
-    """Write validation top-k target metrics."""
+    """写出validation、metrics结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
@@ -517,7 +494,7 @@ def write_validation_metrics(path, rows):
 
 
 def save_checkpoint(path, model, mean, std, args):
-    """Save learned probing regressor and normalization statistics."""
+    """处理checkpoint相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     ensure_parent_dir(path)
     torch.save(
         {
@@ -537,7 +514,7 @@ def save_checkpoint(path, model, mean, std, args):
 
 
 def plot_eval_results(rows, args, output_prefix):
-    """Plot learned probing against Rotating Grid and Random probing."""
+    """绘制eval、results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     policies = []
     for row in rows:
         if row["policy"] not in policies:
@@ -598,7 +575,7 @@ def plot_eval_results(rows, args, output_prefix):
 
 
 def run_eval_suite(args, model, mean, std, output_prefix):
-    """Evaluate learned probing and key non-learning baselines."""
+    """运行eval、suite流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     base_action = make_base_action(args)
     eval_args = argparse.Namespace(**vars(args))
     eval_args.episodes = args.eval_episodes
@@ -640,7 +617,7 @@ def run_eval_suite(args, model, mean, std, output_prefix):
 
 
 def main():
-    """Train and evaluate learned probing."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

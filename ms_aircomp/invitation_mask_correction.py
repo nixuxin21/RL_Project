@@ -1,4 +1,4 @@
-"""Invitation-mask correction helpers for aggregate current feedback."""
+"""实现邀请掩码修正的纯函数核心，包括 target count、rerank mode 和 mask 更新。"""
 
 import numpy as np
 
@@ -21,7 +21,7 @@ VALID_MASK_CORRECTION_RERANK_MODES = (
 
 
 def validate_mask_correction_rerank_mode(rerank_mode):
-    """Return a normalized rerank mode or raise ValueError."""
+    """校验邀请掩码修正的 rerank mode，并把合法模式归一化为内部字符串。"""
     mode = str(rerank_mode).strip()
     if mode not in VALID_MASK_CORRECTION_RERANK_MODES:
         valid = ", ".join(VALID_MASK_CORRECTION_RERANK_MODES)
@@ -32,7 +32,7 @@ def validate_mask_correction_rerank_mode(rerank_mode):
 
 
 def rank_remaining_by_stale_gain(candidate, remaining_mask):
-    """Rank remaining nodes from strongest to weakest stale gain."""
+    """对remaining、by、过时、增益进行打分或排序，为候选选择、诊断归因或学习标签提供比较依据。"""
     h_gain = np.asarray(candidate["h_gain"], dtype=float)
     required_power = np.asarray(candidate["required_power"], dtype=float)
     indices = [int(index) for index in np.flatnonzero(remaining_mask)]
@@ -56,7 +56,7 @@ def corrected_target_count(
     deadband_z,
     max_delta,
 ):
-    """Return noise-aware target count for invitation-mask correction."""
+    """处理corrected、target、count相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     raw_delta = float(feedback_count - stale_count)
     noise_count_std = float(args.confirmation_feedback_noise_std) * float(args.num_nodes)
     deadband = max(0.0, float(deadband_z) * noise_count_std)
@@ -88,17 +88,7 @@ def apply_invitation_mask_correction(
     max_delta,
     rerank_mode=MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN,
 ):
-    """
-    Correct a confirmed candidate's stale invitation mask with aggregate feedback.
-
-    `strength=0` leaves the original stale mask unchanged. Direct correction
-    uses `deadband_z=0` and `max_delta=-1`; noise-aware variants shrink the
-    count delta by a feedback-noise deadband and optionally clip the correction.
-    The default reranking mode preserves the original implementation: when the
-    target count changes, all remaining nodes are reranked by stale gain. The
-    `prune_only` ablation only removes nodes from the stale-valid set and never
-    adds nodes that stale CSI marked invalid.
-    """
+    """处理apply、invitation、mask、correction相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rerank_mode = validate_mask_correction_rerank_mode(rerank_mode)
     adjusted = dict(candidate)
     stale_mask = np.asarray(candidate["valid_mask"], dtype=bool).copy()

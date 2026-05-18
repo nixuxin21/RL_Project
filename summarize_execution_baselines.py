@@ -1,9 +1,4 @@
-"""
-Build compact execution-mismatch baseline tables from existing CSV results.
-
-The script intentionally aggregates only the current reportable frontier and
-the learned-shortlist diagnostics. It does not rerun simulations.
-"""
+"""从执行信道错配 CSV 中抽取主线基线和诊断方法，生成紧凑汇总表。"""
 
 import argparse
 import csv
@@ -83,7 +78,7 @@ FIELDNAMES = [
 
 
 def parse_args():
-    """Parse CLI arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Summarize final execution-mismatch baselines."
     )
@@ -94,13 +89,13 @@ def parse_args():
 
 
 def read_rows(path):
-    """Read CSV rows from path."""
+    """从给定路径读取 CSV 文件并返回字典行，供后续筛选、聚合和绘图使用。"""
     with open(path, newline="", encoding="utf-8") as csvfile:
         return list(csv.DictReader(csvfile))
 
 
 def select_policy(rows, policy):
-    """Return rows exactly matching a policy label."""
+    """按照策略规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     selected = [row for row in rows if row.get("policy") == policy]
     if not selected:
         raise ValueError(f"No rows found for policy: {policy}")
@@ -108,7 +103,7 @@ def select_policy(rows, policy):
 
 
 def mean(rows, key, default=0.0):
-    """Return mean numeric field value."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     values = []
     for row in rows:
         value = row.get(key, "")
@@ -120,7 +115,7 @@ def mean(rows, key, default=0.0):
 
 
 def first_int(rows, key):
-    """Return first int-like field value."""
+    """处理first、整数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for row in rows:
         value = row.get(key, "")
         if value != "":
@@ -129,7 +124,7 @@ def first_int(rows, key):
 
 
 def summary_row(section, label, role, source_file, policy, rows):
-    """Aggregate one policy into a compact row."""
+    """处理摘要、结果行相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return {
         "section": section,
         "label": label,
@@ -161,7 +156,7 @@ def summary_row(section, label, role, source_file, policy, rows):
 
 
 def add_policy(summary, section, label, role, results_dir, file_name, policy):
-    """Read one result file and append one summarized policy."""
+    """更新策略相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     path = os.path.join(results_dir, file_name)
     rows = read_rows(path)
     summary.append(
@@ -177,7 +172,7 @@ def add_policy(summary, section, label, role, results_dir, file_name, policy):
 
 
 def build_summary(results_dir):
-    """Build all final and diagnostic summary rows."""
+    """构建摘要所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     rows = []
     add_policy(
         rows,
@@ -325,7 +320,7 @@ def build_summary(results_dir):
 
 
 def write_csv(path, rows):
-    """Write compact summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=FIELDNAMES, lineterminator="\n")
@@ -335,12 +330,12 @@ def write_csv(path, rows):
 
 
 def format_num(value, digits=3):
-    """Format numeric values for markdown."""
+    """格式化num显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):.{digits}f}"
 
 
 def markdown_table(rows):
-    """Return a compact markdown table for rows."""
+    """处理markdown、table相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     header = (
         "| Label | Role | Slots | Perfect % | Failed | Missed | Preview | "
         "Gap | Expansion | Extra |\n"
@@ -367,7 +362,7 @@ def markdown_table(rows):
 
 
 def write_markdown(path, rows):
-    """Write report-ready markdown summary."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     sections = defaultdict(list)
     for row in rows:
@@ -403,7 +398,7 @@ def write_markdown(path, rows):
 
 
 def main():
-    """Entry point."""
+    """脚本入口，负责串联参数解析、数据处理和结果写出。"""
     args = parse_args()
     rows = build_summary(args.results_dir)
     write_csv(args.csv_output, rows)

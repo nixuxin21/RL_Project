@@ -1,4 +1,4 @@
-"""Channel-state and mismatch helpers for MS-AirComp experiments."""
+"""封装执行信道错配所需的信道快照、信道漂移、temporal AR(1) trace 和 stale CSI 工具。"""
 
 import numpy as np
 
@@ -24,11 +24,7 @@ def execution_rng(
     no_irs=False,
     candidate_index=None,
 ):
-    """Create a policy-independent RNG for execution channel drift.
-
-    `candidate_index` makes execution drift stable for a specific IRS candidate
-    regardless of whether it is built alone or inside a larger candidate batch.
-    """
+    """根据 episode seed、执行误差、时隙和候选索引生成确定性随机数流，保证执行漂移可复现。"""
     if episode_seed is None:
         return np.random.default_rng()
     error_tag = int(round(float(execution_error_std) * 1_000_000))
@@ -46,7 +42,7 @@ def execution_rng(
 
 
 def drift_channels(h_total, execution_error_std, rng):
-    """Apply per-slot execution drift to equivalent channels."""
+    """在等效信道上加入按信道尺度归一化的复高斯扰动，用来模拟执行阶段信道漂移。"""
     clean = np.asarray(h_total, dtype=np.complex128)
     if float(execution_error_std) <= 0.0:
         return clean.copy()
@@ -56,7 +52,7 @@ def drift_channels(h_total, execution_error_std, rng):
 
 
 def capture_channel_state(env):
-    """Copy the current physical channels from the environment."""
+    """复制环境当前的物理信道快照，后续可以在 stale/current 信道之间切换。"""
     return {
         "h_d": np.asarray(env.h_d, dtype=np.complex128).copy(),
         "h_r": np.asarray(env.h_r, dtype=np.complex128).copy(),
@@ -65,7 +61,7 @@ def capture_channel_state(env):
 
 
 def apply_channel_state(env, state):
-    """Apply a copied physical-channel state to the environment."""
+    """把保存的物理信道快照写回环境，并同步更新观测中使用的大尺度统计量。"""
     env.h_d = np.asarray(state["h_d"], dtype=np.complex128).copy()
     env.h_r = np.asarray(state["h_r"], dtype=np.complex128).copy()
     env.h_bs_r = np.asarray(state["h_bs_r"], dtype=np.complex128).copy()
@@ -73,7 +69,7 @@ def apply_channel_state(env, state):
 
 
 def temporal_rng(episode_seed, channel_rho):
-    """Create a policy-independent RNG for temporal channel evolution."""
+    """根据 episode seed 和 AR(1) 相关系数生成时序信道专用随机数流。"""
     if episode_seed is None:
         return np.random.default_rng()
     rho_tag = int(round(float(channel_rho) * 1_000_000))
@@ -82,12 +78,12 @@ def temporal_rng(episode_seed, channel_rho):
 
 
 def complex_normal(rng, shape, scale=1.0):
-    """Return circular complex Gaussian samples with the requested scale."""
+    """生成复高斯噪声矩阵，实部和虚部按相同尺度独立采样。"""
     return float(scale) * (rng.normal(size=shape) + 1j * rng.normal(size=shape)) / np.sqrt(2.0)
 
 
 def next_temporal_channel_state(prev, rho, innovation_weight, rng):
-    """Generate the next AR(1) physical-channel state."""
+    """根据 AR(1) 递推公式生成下一时刻信道状态，保持信道相关性和创新噪声。"""
     return {
         "h_d": rho * prev["h_d"]
         + innovation_weight * complex_normal(rng, prev["h_d"].shape, scale=0.1),
@@ -99,7 +95,7 @@ def next_temporal_channel_state(prev, rho, innovation_weight, rng):
 
 
 def build_temporal_channel_trace(env, args, episode_seed, channel_rho, prehistory_slots=0):
-    """Generate AR(1) history states and execution states for an episode."""
+    """构造包含 prehistory 和执行时隙的时序信道轨迹，用于 stale CSI 延迟场景。"""
     rho = float(channel_rho)
     innovation_weight = np.sqrt(max(0.0, 1.0 - rho**2))
     rng = temporal_rng(episode_seed, rho)
@@ -115,7 +111,7 @@ def build_temporal_channel_trace(env, args, episode_seed, channel_rho, prehistor
 
 
 def build_temporal_channel_states(env, args, episode_seed, channel_rho):
-    """Generate one AR(1) physical-channel state per execution slot."""
+    """构造不含 prehistory 的执行时序信道状态列表，供普通 temporal 场景使用。"""
     _history_states, execution_states = build_temporal_channel_trace(
         env,
         args,
@@ -127,7 +123,7 @@ def build_temporal_channel_states(env, args, episode_seed, channel_rho):
 
 
 def delayed_channel_state(states, slot_idx, csi_delay_slots, history_states=None):
-    """Return the stale CSI state visible to the decision policy."""
+    """按 CSI delay 取出策略可见的 stale 信道；delay 超过当前时隙时从 prehistory 中补足。"""
     slot_idx = int(slot_idx)
     delay = max(0, int(csi_delay_slots))
     if delay > slot_idx:
@@ -141,7 +137,7 @@ def delayed_channel_state(states, slot_idx, csi_delay_slots, history_states=None
 
 
 def ar1_predict_channel_state(delayed_state, channel_rho, csi_delay_slots):
-    """Predict the current channel mean from delayed AR(1) CSI."""
+    """用 AR(1) 相关系数把 delayed CSI 预测到当前时隙，作为预测型 stale CSI。"""
     delay = max(int(csi_delay_slots), 0)
     rho = float(channel_rho)
     direct_factor = rho**delay
@@ -153,7 +149,7 @@ def ar1_predict_channel_state(delayed_state, channel_rho, csi_delay_slots):
 
 
 def temporal_uncertainty_std(channel_rho, csi_delay_slots, use_ar1_prediction=False):
-    """Return relative CSI uncertainty induced by temporal delay."""
+    """根据相关系数和 delay 估计 stale CSI 不确定性，供风险和 temporal 策略使用。"""
     delay = max(int(csi_delay_slots), 0)
     if delay == 0:
         return 0.0

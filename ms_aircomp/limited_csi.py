@@ -1,9 +1,4 @@
-"""Reusable limited-CSI policy helpers for MS-AirComp experiments.
-
-This module contains the policy constants and candidate-construction helpers
-shared by limited-CSI, execution-mismatch, and learned-shortlist experiments.
-Top-level scripts keep CLI parsing, orchestration, and reporting.
-"""
+"""提供有限 CSI 评估复用工具，包括候选构造、风险过滤、probe index 选择和执行统计。"""
 
 import numpy as np
 
@@ -35,17 +30,17 @@ POLICY_OFFSETS = {
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list such as '1,2,4,8'."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list such as '0,0.05,0.1'."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def unique_fill(indices, budget, num_codebook_states):
-    """Return up to budget unique indices, filling deterministically when needed."""
+    """按输入优先级去重选择码本索引；候选不足时用未出现过的索引确定性补齐预算。"""
     selected = []
     seen = set()
     for index in indices:
@@ -66,7 +61,7 @@ def unique_fill(indices, budget, num_codebook_states):
 
 
 def grid_indices(num_codebook_states, budget, offset=0):
-    """Select roughly evenly spaced codebook indices with a circular offset."""
+    """在离散码本环上近似均匀抽取索引，并用 offset 实现随时隙轮换。"""
     budget = min(int(budget), num_codebook_states)
     if budget >= num_codebook_states:
         return list(range(num_codebook_states))
@@ -75,7 +70,7 @@ def grid_indices(num_codebook_states, budget, offset=0):
 
 
 def stable_rng(episode_seed, error_std, policy_name, budget, salt=0, gain_margin=1.0, power_margin=1.0):
-    """Create deterministic RNG streams for CSI errors and random probing."""
+    """结合 seed、误差、策略名和预算生成稳定随机数流，使不同策略的随机性互不污染。"""
     if episode_seed is None:
         return np.random.default_rng()
     error_tag = int(round(float(error_std) * 1_000_000))
@@ -94,7 +89,7 @@ def stable_rng(episode_seed, error_std, policy_name, budget, salt=0, gain_margin
 
 
 def make_env(args):
-    """Create the base codebook environment used for limited-CSI evaluation."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -105,7 +100,7 @@ def make_env(args):
 
 
 def print_progress(name, error_std, budget, ep, episodes, success_nodes, num_nodes):
-    """Print limited-CSI policy progress at 10 percent intervals."""
+    """处理progress相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -116,11 +111,7 @@ def print_progress(name, error_std, budget, ep, episodes, success_nodes, num_nod
 
 
 def effective_channels(env, indices=None, no_irs=False):
-    """
-    Compute true equivalent channels for codebook indices or the no-IRS link.
-
-    Returns an array with shape (num_candidates, K).
-    """
+    """计算给定 IRS 索引集合下的等效信道；无 IRS 时只返回直达链路。"""
     if no_irs:
         return env.h_d[np.newaxis, :]
 
@@ -132,18 +123,13 @@ def effective_channels(env, indices=None, no_irs=False):
 
 
 def success_gain_threshold(env, args):
-    """Return the true gain threshold implied by channel and power constraints."""
+    """合并增益门限和功率上限约束，得到节点可成功传输所需的最小信道增益。"""
     power_limited_gain = (float(args.alpha_th) ** 2) / max(float(env.P_max), 1e-12)
     return max(float(args.g_th), power_limited_gain)
 
 
 def estimate_success_reliability(env, args, h_total, error_scale):
-    """
-    Estimate per-node success probability from noisy equivalent-channel distance.
-
-    This is a heuristic posterior: nodes far above the feasibility amplitude
-    threshold receive reliability close to one; borderline nodes remain risky.
-    """
+    """根据估计信道幅度和误差尺度，把节点是否可成功传输转换成软可靠性。"""
     h_abs = np.abs(h_total)
     amp_threshold = np.sqrt(success_gain_threshold(env, args))
     if float(error_scale) <= 1e-12:
@@ -164,7 +150,7 @@ def build_candidate(
     no_irs=False,
     error_scale=0.0,
 ):
-    """Build a schedulability candidate from one equivalent channel vector."""
+    """从等效信道构造候选，包括邀请掩码、预计成功节点数、平均功率和剩余增益等字段。"""
     h_gain = np.abs(h_total) ** 2
     required_power = (args.alpha_th**2) / (h_gain + 1e-12)
     remaining = ~env.transmitted_flags
@@ -190,7 +176,7 @@ def build_candidate(
 
 
 def true_preview_candidates(env, args, indices=None, no_irs=False):
-    """Preview candidates with the true channel."""
+    """处理真实、预览、候选集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if no_irs:
         return [build_candidate(env, args, -2, effective_channels(env, no_irs=True)[0], no_irs=True)]
 
@@ -212,7 +198,7 @@ def estimated_preview_candidates(
     power_margin=1.0,
     no_irs=False,
 ):
-    """Preview candidates with noisy estimated equivalent channels."""
+    """处理估计、预览、候选集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if rng is None:
         rng = np.random.default_rng()
 
@@ -247,7 +233,7 @@ def estimated_preview_candidates(
 
 
 def candidate_key(candidate):
-    """Greedy ranking key: scheduled nodes first, then lower power, then gain."""
+    """处理候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     tx_count = int(candidate["tx_this_slot"])
     power_avg = float(candidate["power_avg"])
     mean_gain = float(candidate["mean_gain_remaining"])
@@ -256,17 +242,12 @@ def candidate_key(candidate):
 
 
 def best_candidate(candidates):
-    """Return the best candidate by the project greedy ranking rule."""
+    """处理best、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return max(candidates, key=candidate_key)
 
 
 def effective_risk_invite_threshold(args, slot_idx, risk_invite_threshold):
-    """
-    Lower the reliability cutoff as the deadline approaches.
-
-    Early slots can avoid borderline nodes; late slots should become less
-    conservative because unserved nodes have fewer future chances.
-    """
+    """处理等效、风险、invite、门限相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.num_slots <= 1:
         return min(float(risk_invite_threshold), 0.5)
     progress = float(slot_idx) / float(max(args.num_slots - 1, 1))
@@ -284,13 +265,7 @@ def adaptive_risk_weight(
     deadline_relief=0.6,
     backlog_relief=0.8,
 ):
-    """
-    Adapt risk aversion to CSI uncertainty and multi-slot urgency.
-
-    Higher CSI error increases risk aversion. As the episode approaches the
-    deadline, or the remaining-node backlog is high for the available slots,
-    the policy becomes less conservative to avoid missed opportunities.
-    """
+    """处理adaptive、风险、weight相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if float(base_weight) <= 0.0:
         return 0.0
 
@@ -320,7 +295,7 @@ def risk_aware_candidate(
     risk_power_weight=0.1,
     risk_invite_threshold=0.5,
 ):
-    """Convert an estimated candidate into a risk-aware invitation decision."""
+    """处理风险、aware、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
     reliability = np.asarray(candidate["success_reliability"], dtype=float)
     threshold = effective_risk_invite_threshold(args, slot_idx, risk_invite_threshold)
@@ -348,7 +323,7 @@ def risk_aware_candidate(
 
 
 def risk_aware_candidate_key(candidate):
-    """Rank risk-aware candidates by expected reliable progress."""
+    """处理风险、aware、候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return (
         float(candidate["risk_score"]),
         float(candidate["expected_success"]),
@@ -366,7 +341,7 @@ def best_risk_aware_candidate(
     risk_power_weight=0.1,
     risk_invite_threshold=0.5,
 ):
-    """Return the best candidate after reliability-aware invitation filtering."""
+    """处理best、风险、aware、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     adjusted = [
         risk_aware_candidate(
             candidate,
@@ -382,7 +357,7 @@ def best_risk_aware_candidate(
 
 
 def select_indices(policy_name, args, budget, slot_idx, rng):
-    """Select codebook indices to probe for one limited-CSI policy."""
+    """按照索引集合规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if policy_name in {POLICY_EXACT_GREEDY, POLICY_EST_GREEDY}:
         return list(range(args.num_codebook_states))
@@ -418,12 +393,7 @@ def choose_policy_candidate(
     adaptive_risk_deadline_relief=0.6,
     adaptive_risk_backlog_relief=0.8,
 ):
-    """
-    Choose an IRS/no-IRS candidate and return decision metadata.
-
-    The returned candidate supplies the scheduled mask. True execution is handled
-    separately by execute_limited_csi_slot().
-    """
+    """按照策略、候选规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if policy_name == POLICY_NO_IRS:
         rng = stable_rng(episode_seed, error_std, policy_name, 0, salt=1 + slot_idx)
         estimated = estimated_preview_candidates(env, args, error_std=error_std, rng=rng, no_irs=True)
@@ -492,12 +462,7 @@ def choose_policy_candidate(
 
 
 def execute_limited_csi_slot(env, args, decision_candidate, true_candidate):
-    """
-    Execute a limited-CSI decision against the true channel.
-
-    Only nodes invited by decision_candidate["valid_mask"] may transmit. A node
-    is successful only if it is also valid under true_candidate["valid_mask"].
-    """
+    """处理execute、有限、CSI、时隙相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     remaining = ~env.transmitted_flags
     scheduled_mask = decision_candidate["valid_mask"] & remaining
     true_valid_mask = true_candidate["valid_mask"] & remaining
@@ -545,12 +510,12 @@ def execute_limited_csi_slot(env, args, decision_candidate, true_candidate):
 
 
 def oracle_candidate(env, args):
-    """Return the true full-CSI greedy candidate for diagnostics."""
+    """处理oracle 诊断上界、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return best_candidate(true_preview_candidates(env, args, range(args.num_codebook_states)))
 
 
 def true_candidate_for_decision(env, args, decision_candidate):
-    """Return the true candidate corresponding to a chosen IRS/no-IRS decision."""
+    """处理真实、候选、for、决策相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     irs_index = int(decision_candidate["irs_index"])
     if irs_index == -2:
         return true_preview_candidates(env, args, no_irs=True)[0]

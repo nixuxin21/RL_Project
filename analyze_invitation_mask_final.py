@@ -1,13 +1,4 @@
-"""
-Generate final invitation-mask correction analysis artifacts.
-
-The script reads existing CSV results only. It does not rerun simulations.
-Outputs:
-- final invitation-mask summary CSV
-- gap-vs-feedback-noise plot
-- failed/missed-vs-feedback-noise plot
-- markdown analysis note
-"""
+"""整理邀请掩码修正的最终结果，生成噪声扫描图、汇总 CSV 和论文级分析文档。"""
 
 import argparse
 import csv
@@ -127,7 +118,7 @@ OUTPUT_FIELDS = [
 
 
 def parse_args():
-    """Parse CLI arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Analyze final invitation-mask correction results."
     )
@@ -140,14 +131,14 @@ def parse_args():
 
 
 def ensure_parent_dir(path):
-    """Create the parent directory for a path if needed."""
+    """处理ensure、parent、dir相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
 
 
 def read_csv(path):
-    """Read CSV rows."""
+    """读取 CSV 文件并返回字典行，供后续筛选、聚合和绘图使用。"""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing required input CSV: {path}")
     with open(path, newline="", encoding="utf-8") as csvfile:
@@ -155,7 +146,7 @@ def read_csv(path):
 
 
 def to_float(row, field, default=0.0):
-    """Parse a numeric field."""
+    """处理to、浮点数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return float(default)
@@ -163,7 +154,7 @@ def to_float(row, field, default=0.0):
 
 
 def to_int(row, field, default=0):
-    """Parse an integer-like field."""
+    """处理to、整数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return int(default)
@@ -171,14 +162,14 @@ def to_int(row, field, default=0):
 
 
 def mean(rows, field, default=0.0):
-    """Return the mean of a numeric field."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not rows:
         return float(default)
     return sum(to_float(row, field, default) for row in rows) / len(rows)
 
 
 def first_int(rows, field):
-    """Return the first int-like field from rows."""
+    """处理first、整数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for row in rows:
         value = row.get(field, "")
         if value != "":
@@ -187,17 +178,17 @@ def first_int(rows, field):
 
 
 def format_float(value, digits=3):
-    """Format a float for markdown."""
+    """格式化浮点数显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):.{digits}f}"
 
 
 def format_noise(value):
-    """Format a feedback-noise value compactly."""
+    """格式化noise显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):g}"
 
 
 def markdown_table(headers, rows):
-    """Render a markdown table."""
+    """渲染 Markdown 表格，把表头和结果行转换成文档可直接引用的表格文本。"""
     output = ["| " + " | ".join(headers) + " |"]
     output.append("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
@@ -206,7 +197,7 @@ def markdown_table(headers, rows):
 
 
 def aggregate_method(rows, spec, noise_level):
-    """Aggregate one method at one feedback-noise level."""
+    """聚合method结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     selected = [
         row
         for row in rows
@@ -236,7 +227,7 @@ def aggregate_method(rows, spec, noise_level):
 
 
 def add_deltas(summary):
-    """Add deltas against B3 and direct mask correction at each noise level."""
+    """更新deltas相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     by_noise_label = {
         (float(item["feedback_noise_std"]), item["label"]): item
         for item in summary
@@ -267,7 +258,7 @@ def add_deltas(summary):
 
 
 def load_summary(results_dir):
-    """Load and aggregate the final invitation-mask methods."""
+    """读取摘要输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     source_path = os.path.join(results_dir, NOISE_AWARE_FILE)
     rows = read_csv(source_path)
     policies = {spec["policy"] for spec in METHOD_SPECS}
@@ -287,7 +278,7 @@ def load_summary(results_dir):
 
 
 def write_summary_csv(path, summary):
-    """Write aggregated summary CSV."""
+    """写出摘要、CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=OUTPUT_FIELDS)
@@ -297,7 +288,7 @@ def write_summary_csv(path, summary):
 
 
 def series_by_label(summary, label):
-    """Return summary items for a label ordered by feedback-noise level."""
+    """处理series、by、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return sorted(
         [item for item in summary if item["label"] == label],
         key=lambda item: item["feedback_noise_std"],
@@ -305,7 +296,7 @@ def series_by_label(summary, label):
 
 
 def plot_gap_vs_noise(summary, path):
-    """Plot oracle gap against feedback noise."""
+    """绘制差距、vs、noise图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     ensure_parent_dir(path)
     colors = {
         "Coverage-Aware B=3": "#7f7f7f",
@@ -341,7 +332,7 @@ def plot_gap_vs_noise(summary, path):
 
 
 def plot_failed_missed_vs_noise(summary, path):
-    """Plot failed invitations and missed opportunities against feedback noise."""
+    """绘制failed、missed、vs、noise图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     ensure_parent_dir(path)
     colors = {
         "Coverage-Aware B=3": "#7f7f7f",
@@ -382,7 +373,7 @@ def plot_failed_missed_vs_noise(summary, path):
 
 
 def best_by_noise(summary):
-    """Return the lowest-gap method at each feedback-noise level."""
+    """处理best、by、noise相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     noise_levels = sorted({item["feedback_noise_std"] for item in summary})
     best = []
     for noise in noise_levels:
@@ -401,7 +392,7 @@ def best_by_noise(summary):
 
 
 def find_item(summary, label, noise_level):
-    """Find one summary item."""
+    """处理find、item相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for item in summary:
         if item["label"] == label and abs(item["feedback_noise_std"] - noise_level) < 1e-12:
             return item
@@ -409,7 +400,7 @@ def find_item(summary, label, noise_level):
 
 
 def write_markdown(path, source_path, csv_path, gap_plot, failed_missed_plot, summary):
-    """Write final invitation-mask markdown analysis."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     reliable = find_item(summary, "Direct Mask Correction mc=1", 0.0)
     high_noise_direct = find_item(summary, "Direct Mask Correction mc=1", 0.1)
@@ -560,7 +551,7 @@ The final contribution should be stated more narrowly as invitation-mask correct
 
 
 def main():
-    """Run final invitation-mask analysis."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     summary, source_path = load_summary(args.results_dir)
     write_summary_csv(args.csv_output, summary)

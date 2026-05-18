@@ -1,4 +1,4 @@
-"""Pytest entry points for the existing script-style project checks."""
+"""测试入口包装层，把现有脚本式检查统一接入标准 pytest 测试入口。"""
 
 from tests import (
     dependency_boundary_checks,
@@ -10,7 +10,7 @@ from tests import (
 
 
 def assert_success(status):
-    """Treat script-style ``None`` and shell-style ``0`` as success."""
+    """处理assert、成功相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     assert status in (None, 0)
 
 

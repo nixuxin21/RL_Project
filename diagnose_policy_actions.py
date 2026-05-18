@@ -218,7 +218,7 @@ def local_greedy_candidate(env, g_th, alpha_th, args):
     ]
 
     def candidate_key(candidate):
-        """Greedy 排序键：调度数量优先，其次低功率，最后剩余平均增益。"""
+        """贪心排序键：先比较调度节点数，再用低功率和剩余增益打破并列。"""
         tx_count = int(candidate["tx_this_slot"])
         power_avg = float(candidate["power_avg"])
         mean_gain = float(candidate["mean_gain_remaining"])

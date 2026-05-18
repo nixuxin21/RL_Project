@@ -1,4 +1,4 @@
-"""Generate paper-facing Figure 2/3/4 artifacts from existing summary CSVs."""
+"""从冻结结果 CSV 生成论文图 2、图 3 和图 4 所需的绘图点与 PNG。"""
 
 import argparse
 import csv

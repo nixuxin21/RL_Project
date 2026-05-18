@@ -1,4 +1,4 @@
-"""Adaptive sparse feedback policies for execution-mismatch experiments."""
+"""实现 Adaptive Sparse-TopK 系列策略，结合 margin、历史反馈、deadline 和邻域候选调节 preview 成本。"""
 
 import numpy as np
 
@@ -21,7 +21,7 @@ __all__ = [
 
 
 def sparse_topk_count_margin(seed_candidates, topk_budget, num_nodes):
-    """Normalized stale tx-count margin between best and kth sparse candidate."""
+    """处理稀疏、TopK、count、margin相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not seed_candidates:
         return 0.0
     ranked = sorted(seed_candidates, key=limited.candidate_key, reverse=True)
@@ -45,14 +45,7 @@ def choose_adaptive_sparse_topk_feedback_decision(
     topk_fraction=None,
     margin_threshold=None,
 ):
-    """
-    Adaptive sparse top-k: expand stale preview only when sparse ranking is flat.
-
-    The low-cost pass previews roughly 2B stale codebooks. If the stale tx-count
-    gap between the best and kth retained sparse candidate is below a threshold,
-    the policy previews only the missing codebooks needed to approximate a 3B
-    stale seed pool before the usual current-feedback confirmation.
-    """
+    """按照adaptive、稀疏、TopK、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -189,7 +182,7 @@ def choose_adaptive_sparse_topk_feedback_decision(
 
 
 def adaptive_sparse_history_signal(confirmed_history, window):
-    """Return the most frequent recent IRS index and its frequency."""
+    """处理adaptive、稀疏、history、signal相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not confirmed_history:
         return None, 0.0
     tail = [int(index) for index in confirmed_history[-max(int(window), 1) :]]
@@ -203,7 +196,7 @@ def adaptive_sparse_history_signal(confirmed_history, window):
 
 
 def adaptive_sparse_deadline_urgency(env, args, slot_idx, base_candidates):
-    """Estimate whether the base sparse pool is behind the remaining deadline pace."""
+    """处理adaptive、稀疏、deadline、urgency相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     remaining_nodes = int(args.num_nodes) - int(np.sum(env.transmitted_flags))
     remaining_slots = max(int(args.num_slots) - int(slot_idx), 1)
     required_per_slot = float(remaining_nodes) / float(remaining_slots)
@@ -212,7 +205,7 @@ def adaptive_sparse_deadline_urgency(env, args, slot_idx, base_candidates):
 
 
 def adaptive_sparse_stale_uncertainty(channel_rho, csi_delay_slots):
-    """Rho/delay stale-CSI uncertainty proxy in [0, 1]."""
+    """处理adaptive、稀疏、过时、uncertainty相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     delay = max(int(csi_delay_slots), 0)
     if delay <= 0:
         return 0.0
@@ -243,14 +236,7 @@ def choose_adaptive_sparse_topk_v2_feedback_decision(
     history_window=None,
     history_prior_threshold=None,
 ):
-    """
-    Adaptive Sparse-TopK v2 with utility-aware expansion.
-
-    Compared with v1, this gate changes the effective expansion threshold using
-    stale rho/delay uncertainty, deadline/backlog urgency, recent IRS stability,
-    and an explicit per-preview cost penalty. It still confirms only B selected
-    candidates with current aggregate feedback.
-    """
+    """按照adaptive、稀疏、TopK、v2、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)
@@ -438,7 +424,7 @@ def choose_adaptive_sparse_topk_v2_feedback_decision(
 
 
 def adaptive_sparse_history_indices(confirmed_history, window, threshold, max_count):
-    """Return stable recent IRS winners sorted by frequency."""
+    """处理adaptive、稀疏、history、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if max_count <= 0 or not confirmed_history:
         return [], 0.0
     tail = [int(index) for index in confirmed_history[-max(int(window), 1) :]]
@@ -458,7 +444,7 @@ def adaptive_sparse_history_indices(confirmed_history, window, threshold, max_co
 
 
 def local_codebook_neighbor_indices(center_indices, num_codebook_states, radius=1, max_count=2):
-    """Return wrapped local codebook neighbors around center indices."""
+    """处理local、码本、邻域、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if max_count <= 0 or radius <= 0:
         return []
     indices = []
@@ -488,14 +474,7 @@ def choose_adaptive_sparse_topk_v3_feedback_decision(
     neighbor_radius=None,
     neighbor_count=None,
 ):
-    """
-    Adaptive Sparse-TopK v3 with history/local-neighbor candidate generation.
-
-    v3 does not expand an evenly spaced sparse grid. It previews a 2B stale
-    sparse pool, then spends at most a few extra stale previews on stable recent
-    winners and local neighbors around the current sparse stale leaders before
-    B current aggregate-feedback confirmations.
-    """
+    """按照adaptive、稀疏、TopK、v3、聚合反馈、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     if budget <= 0:
         return choose_no_irs_fallback(env, args, slot_idx, decision_error_std, episode_seed)

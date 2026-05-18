@@ -1,17 +1,4 @@
-"""
-Greedy IRS 监督模仿学习脚本。
-
-本脚本用于回答一个诊断问题：
-如果把 Greedy IRS 的逐时隙选择当作监督标签，一个简单 MLP 是否能学会接近 Greedy 的
-IRS selector？同时脚本还评估一个无需训练的 `Feature Argmax` 规则，用来判断
-“学习 Greedy 标签”是否真的必要。
-
-主要流程：
-1. 使用当前环境和固定 `g_th/alpha_th` 收集 Greedy IRS 标签数据。
-2. 训练一个多层感知机分类器，输入为环境观测，输出为 IRS 码本 index。
-3. 在独立 eval seeds 上比较 Greedy Imitation、Feature Argmax 和 Greedy IRS。
-4. 输出训练曲线、混淆矩阵、episode/step/slot 级 CSV 和时延曲线。
-"""
+"""训练监督学习模型模仿贪心 IRS 索引，并评估 imitation 基线的闭环表现。"""
 
 import argparse
 import csv
@@ -219,7 +206,7 @@ def greedy_candidate(env, args):
     ]
 
     def candidate_key(candidate):
-        """Greedy 标签排序键：调度数量优先，其次低功率，最后剩余平均增益。"""
+        """贪心标签排序键：先比较调度节点数，再用低功率和剩余增益打破并列。"""
         tx_count = int(candidate["tx_this_slot"])
         power_avg = float(candidate["power_avg"])
         mean_gain = float(candidate["mean_gain_remaining"])

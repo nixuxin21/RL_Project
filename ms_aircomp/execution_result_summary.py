@@ -1,4 +1,4 @@
-"""Result aggregation and CSV summaries for execution-mismatch runs."""
+"""聚合执行信道错配多 seed 结果，统一 CSV 字段、置信区间和 paper-boundary metadata。"""
 
 import csv
 
@@ -188,12 +188,12 @@ CSV_FIELDS = [
 
 
 def seed_summary(result):
-    """Compress one run seed result into seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     return {key: float(np.mean(result_array(result, key))) for key in NUMERIC_RESULT_KEYS}
 
 
 def result_array(result, key):
-    """Return a result metric array, defaulting optional diagnostics to zeros."""
+    """处理result、array相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if key in result:
         return np.asarray(result[key], dtype=float)
     if key == "failure_slot_fraction" and "failure_slots" in result:
@@ -203,12 +203,12 @@ def result_array(result, key):
 
 
 def result_value(result, key):
-    """Return a scalar metadata field with defaults for nonapplicable diagnostics."""
+    """处理result、value相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return result.get(key, OPTIONAL_RESULT_DEFAULTS[key])
 
 
 def result_metadata(result):
-    """Return paper-boundary metadata for one execution result."""
+    """处理result、元数据相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     name = str(result.get("policy", result.get("name", "")))
     metadata = dict(DEFAULT_METADATA)
     if any(marker in name for marker in HIDDEN_INFERENCE_MARKERS):
@@ -234,7 +234,7 @@ def result_metadata(result):
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate matching result lists across run seeds."""
+    """跨 run seed 聚合配置完全一致的结果列表，避免不同策略或场景被错误合并。"""
     if not seed_result_sets:
         return []
     aggregated_results = []
@@ -289,7 +289,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95 percent CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -302,7 +302,7 @@ def metric_mean_ci(result, key):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results into CSV rows."""
+    """把聚合后的结果转换成 CSV 行，统一字段名和后续分析脚本的读取口径。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -414,7 +414,7 @@ def summarize_results(args, results):
 
 
 def write_csv(path, rows):
-    """Write execution mismatch summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)

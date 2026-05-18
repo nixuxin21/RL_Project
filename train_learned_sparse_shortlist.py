@@ -1,11 +1,4 @@
-"""
-Train a learned sparse-shortlist ranker for temporal execution mismatch.
-
-Training labels use hidden current-channel outcomes, but the saved model only
-scores features available to the deployable shortlist policy: sparse stale
-preview summaries, codebook geometry, recent confirmed IRS history, rho/delay,
-and slot/deadline context.
-"""
+"""训练 learned sparse/set shortlist 线性模型，用隐藏标签诊断候选集合是否有改进空间。"""
 
 import argparse
 import csv
@@ -50,7 +43,7 @@ DIAGNOSTIC_METADATA = {
 
 
 def parse_args():
-    """Parse training arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Train a linear learned sparse-shortlist ranker."
     )
@@ -104,7 +97,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate and parse list-like options."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     for name in (
         "train_episodes",
         "val_episodes",
@@ -155,7 +148,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for model and diagnostics."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -178,7 +171,7 @@ def resolve_output_prefix(args):
 
 
 def split_episode_specs(args, episodes, seed_offset):
-    """Return deterministic episode seeds and scenario choices."""
+    """处理split、回合、specs相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rng = np.random.default_rng(int(args.seed) + int(seed_offset))
     specs = []
     for _ in range(int(episodes)):
@@ -193,7 +186,7 @@ def split_episode_specs(args, episodes, seed_offset):
 
 
 def hidden_scores_for_indices(env, args, indices, execution_state, slot_idx):
-    """Compute hidden current-channel labels for candidate indices."""
+    """处理隐藏、scores、for、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     snapshot = capture_channel_state(env)
     try:
         apply_channel_state(env, execution_state)
@@ -217,20 +210,20 @@ def hidden_scores_for_indices(env, args, indices, execution_state, slot_idx):
 
 
 def hidden_score_by_index(env, args, execution_state, slot_idx):
-    """Return hidden current-channel score for every codebook index."""
+    """处理隐藏、score、by、索引相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     indices = list(range(args.num_codebook_states))
     scores = hidden_scores_for_indices(env, args, indices, execution_state, slot_idx)
     return {int(index): float(score) for index, score in zip(indices, scores)}
 
 
 def selected_hidden_value(indices, score_by_index):
-    """Return the hidden best-confirmation value for a candidate set."""
+    """处理selected、隐藏、value相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     values = [float(score_by_index[int(index)]) for index in indices if int(index) in score_by_index]
     return max(values) if values else 0.0
 
 
 def marginal_labels(args, context, candidate_indices, score_by_index):
-    """Label each extra candidate by marginal hidden value after forced insertion."""
+    """处理marginal、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     budget = int(context["budget"])
     topk_budget = int(context["topk_budget"])
     ranked_indices = list(context["ranked_indices"])
@@ -260,7 +253,7 @@ def marginal_labels(args, context, candidate_indices, score_by_index):
 
 
 def set_value_labels(variants, score_by_index):
-    """Label each final-set variant by hidden best-confirmation value."""
+    """处理set、value、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return np.asarray(
         [
             selected_hidden_value(variant["selected_indices"], score_by_index)
@@ -271,7 +264,7 @@ def set_value_labels(variants, score_by_index):
 
 
 def decision_candidates_for_selected_indices(env, args, context, selected_indices, slot_idx, episode_seed):
-    """Return stale/estimated decision candidates for all selected indices."""
+    """处理决策、候选集合、for、selected、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     candidate_by_index = dict(context["candidate_by_index"])
     missing_indices = [
         int(index)
@@ -298,7 +291,7 @@ def decision_candidates_for_selected_indices(env, args, context, selected_indice
 
 
 def execution_candidate_for_index(env, args, index, execution_state, slot_idx):
-    """Return hidden execution candidate for one IRS index without changing decision CSI."""
+    """处理执行阶段、候选、for、索引相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     snapshot = capture_channel_state(env)
     try:
         apply_channel_state(env, execution_state)
@@ -314,7 +307,7 @@ def execution_candidate_for_index(env, args, index, execution_state, slot_idx):
 
 
 def execution_value_for_variant(env, args, context, variant, execution_state, slot_idx, episode_seed):
-    """Label one final set by closed-loop confirmation and execution outcome."""
+    """处理执行阶段、value、for、variant相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected_indices = [int(index) for index in variant["selected_indices"]]
     if not selected_indices:
         return 0.0
@@ -363,7 +356,7 @@ def execution_value_for_variant(env, args, context, variant, execution_state, sl
 
 
 def execution_value_labels(env, args, context, variants, execution_state, slot_idx, episode_seed):
-    """Label final-set variants by closed-loop execution value."""
+    """处理执行阶段、value、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return np.asarray(
         [
             execution_value_for_variant(
@@ -382,7 +375,7 @@ def execution_value_labels(env, args, context, variants, execution_state, slot_i
 
 
 def variant_extra_preview_counts(context, variants):
-    """Return deploy-time extra stale preview counts for final-set variants."""
+    """处理variant、extra、预览、counts相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     candidate_indices = set(int(index) for index in context["candidate_by_index"])
     return np.asarray(
         [
@@ -400,7 +393,7 @@ def variant_extra_preview_counts(context, variants):
 
 
 def cost_aware_scores(args, context, variants, scores):
-    """Apply optional per-extra-preview cost to variant utility labels."""
+    """处理cost、aware、scores相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if float(args.label_preview_cost) <= 0.0:
         return np.asarray(scores, dtype=float)
     return (
@@ -410,7 +403,7 @@ def cost_aware_scores(args, context, variants, scores):
 
 
 def append_episode_rows(env, args, spec, feature_rows, labels, group_ids):
-    """Collect training rows from one temporally correlated episode."""
+    """更新回合、结果行相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     episode_seed = int(spec["episode_seed"])
     channel_rho = float(spec["rho"])
     csi_delay_slots = int(spec["delay"])
@@ -531,7 +524,7 @@ def append_episode_rows(env, args, spec, feature_rows, labels, group_ids):
 
 
 def build_dataset(args, episodes, seed_offset):
-    """Build feature matrix, labels, and group ids for one split."""
+    """构建dataset所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     env = limited.make_env(args)
     feature_rows = []
     labels = []
@@ -548,7 +541,7 @@ def build_dataset(args, episodes, seed_offset):
 
 
 def fit_ridge_linear(features, labels, ridge):
-    """Fit a standardized linear ridge regressor."""
+    """处理fit、ridge、linear相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_mean = np.mean(features, axis=0)
     feature_scale = np.std(features, axis=0)
     feature_scale = np.where(feature_scale < 1e-12, 1.0, feature_scale)
@@ -567,7 +560,7 @@ def fit_ridge_linear(features, labels, ridge):
 
 
 def pairwise_difference_dataset(features, labels, group_ids, min_gap=1e-12):
-    """Build best-vs-rest feature differences for pairwise utility training."""
+    """处理pairwise、difference、dataset相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     diff_rows = []
     diff_labels = []
     for group_id in np.unique(group_ids):
@@ -600,7 +593,7 @@ def pairwise_difference_dataset(features, labels, group_ids, min_gap=1e-12):
 
 
 def fit_pairwise_ridge_linear(features, labels, group_ids, ridge):
-    """Fit a linear ranker from pairwise utility differences."""
+    """处理fit、pairwise、ridge、linear相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_mean = np.mean(features, axis=0)
     feature_scale = np.std(features, axis=0)
     feature_scale = np.where(feature_scale < 1e-12, 1.0, feature_scale)
@@ -626,12 +619,12 @@ def fit_pairwise_ridge_linear(features, labels, group_ids, ridge):
 
 
 def predict(model, features):
-    """Predict labels from model and features."""
+    """处理predict相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return score_learned_shortlist_candidates(model, features)
 
 
 def grouped_top1_regret(labels, predictions, group_ids):
-    """Mean per-state regret from picking the predicted top extra candidate."""
+    """处理grouped、top1、regret相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     regrets = []
     for group_id in np.unique(group_ids):
         mask = group_ids == group_id
@@ -644,7 +637,7 @@ def grouped_top1_regret(labels, predictions, group_ids):
 
 
 def metrics(model, features, labels, group_ids):
-    """Compute split diagnostics."""
+    """处理metrics相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     predictions = predict(model, features)
     return {
         "rows": int(len(labels)),
@@ -655,7 +648,7 @@ def metrics(model, features, labels, group_ids):
 
 
 def write_diagnostics(path, train_metrics, val_metrics):
-    """Write train/validation diagnostics."""
+    """写出diagnostics结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     rows = []
     for split, values in (("train", train_metrics), ("val", val_metrics)):
         row = {"split": split, **DIAGNOSTIC_METADATA}
@@ -682,7 +675,7 @@ def write_diagnostics(path, train_metrics, val_metrics):
 
 
 def save_model(path, args, model):
-    """Save model arrays and metadata."""
+    """处理模型相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     feature_names = (
         LEARNED_SET_SHORTLIST_FEATURE_NAMES
         if args.target_mode in {"set_value", "execution_value", "pairwise_execution"}
@@ -717,7 +710,7 @@ def save_model(path, args, model):
 
 
 def main():
-    """Train and save the learned sparse shortlist ranker."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

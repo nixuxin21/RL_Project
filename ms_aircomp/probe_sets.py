@@ -1,4 +1,4 @@
-"""Probe-set and coverage-aware candidate selection helpers."""
+"""提供 probe-set 构造和 coverage-aware candidate selection 工具，控制候选多样性和预算。"""
 
 import numpy as np
 
@@ -14,7 +14,7 @@ __all__ = [
 
 
 def ordered_unique_prefix(indices, budget, num_codebook_states):
-    """Return a clipped unique prefix preserving priority order."""
+    """处理ordered、去重、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected = []
     seen = set()
     for raw_index in indices:
@@ -29,7 +29,7 @@ def ordered_unique_prefix(indices, budget, num_codebook_states):
 
 
 def circular_codebook_distance(index, other, num_codebook_states):
-    """Circular distance between two DFT codebook indices."""
+    """处理circular、码本、distance相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if num_codebook_states <= 1:
         return 0
     diff = abs(int(index) - int(other)) % int(num_codebook_states)
@@ -37,13 +37,7 @@ def circular_codebook_distance(index, other, num_codebook_states):
 
 
 def fill_diverse_codebook_indices(priority_indices, budget, num_codebook_states):
-    """
-    Fill a probe set with codebook-diverse indices after priority candidates.
-
-    Diversity uses only codebook geometry, not hidden execution CSI. This keeps
-    the candidate-generation step cheap while avoiding probe sets that cluster
-    around one stale-CSI winner.
-    """
+    """处理补齐、多样性、码本、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     selected = ordered_unique_prefix(priority_indices, budget, num_codebook_states)
     if not selected and num_codebook_states > 0:
         selected.append(0)
@@ -63,7 +57,7 @@ def fill_diverse_codebook_indices(priority_indices, budget, num_codebook_states)
 
 
 def coverage_increment_stats(candidates_by_index, selected_indices, num_nodes):
-    """Return average marginal coverage and overlap for selected stale candidates."""
+    """处理覆盖感知、increment、stats相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     covered_mask = np.zeros(int(num_nodes), dtype=bool)
     marginal_fractions = []
     overlap_fractions = []
@@ -90,14 +84,7 @@ def coverage_aware_sparse_indices(
     coverage_weight,
     power_weight,
 ):
-    """
-    Select sparse stale candidates with marginal device-coverage awareness.
-
-    The highest stale-score candidates are kept as anchors. Remaining probe
-    slots are filled greedily from the same sparse stale pool by combining stale
-    tx fraction, marginal device coverage over the already selected anchors,
-    and a small stale power penalty.
-    """
+    """处理覆盖感知、aware、稀疏、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     ranked_candidates = sorted(seed_candidates, key=limited.candidate_key, reverse=True)
     if not ranked_candidates:
         return [], 0, 0.0, 0.0

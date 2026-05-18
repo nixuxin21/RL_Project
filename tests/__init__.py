@@ -1,1 +1,1 @@
-"""Project test package."""
+"""测试包入口，使 pytest 能稳定发现脚本式项目检查。"""

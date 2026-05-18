@@ -43,7 +43,7 @@ def evaluate():
     # =====================================================================
     # 2. 一比一复原测试环境 (极其关键的工程步骤)
     # =====================================================================
-    # 训练时用了 SubprocVecEnv 开了 8 个分身，测试时只需要 1 个，所以用 DummyVecEnv 包装
+    # 训练时使用子进程向量环境并行采样 8 份环境；评估只需要 1 份环境，所以改用轻量的单进程向量环境包装。
     venv = DummyVecEnv([lambda: MSAirCompEnv(num_nodes=50, num_slots=10, num_irs_elements=64, num_codebook_states=16)])
 
     # 【关键修复】：赋予 AI 短期记忆。
@@ -71,7 +71,7 @@ def evaluate():
         
     model = SAC.load(model_path, env=venv)
 
-    # 初始化评估环境。`venv.reset()` 返回的 obs 已经经过 VecFrameStack 和 VecNormalize 处理。
+    # 初始化评估环境；重置后拿到的观测已经完成帧堆叠和归一化，可直接输入策略网络。
     obs = venv.reset()
     mse_list = []
     

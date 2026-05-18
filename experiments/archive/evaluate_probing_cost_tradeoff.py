@@ -1,16 +1,4 @@
-"""
-Post-hoc probing cost tradeoff analysis.
-
-The partial probing experiments report coverage, latency, and preview budget.
-This script converts those results into a cost-aware utility:
-
-    utility = success_mean - slot_cost * slots_mean - preview_cost * total_preview_calls_mean
-
-where total_preview_calls_mean is approximated as
-decision_preview_calls_per_slot_mean * slots_mean. The goal is to identify when
-full Greedy's latency advantage is worth its extra preview calls, and when
-lower-budget probing policies are preferable.
-"""
+"""归档实验：对早期 probing CSV 做成本权衡和 frontier 后处理。"""
 
 import argparse
 import csv
@@ -66,12 +54,12 @@ NUMERIC_COLUMNS = {
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list such as '0,0.001,0.01'."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse cost tradeoff analysis parameters."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Analyze probing policy utility under explicit slot and preview costs."
     )
@@ -100,7 +88,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate cost lists and input CSV paths."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.summary_csv is None:
         args.summary_csv = [DEFAULT_PARTIAL_SUMMARY, DEFAULT_LEARNED_SUMMARY]
     args.slot_cost_values = parse_float_list(args.slot_cost_values)
@@ -119,7 +107,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve shared output prefix for CSVs and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -136,7 +124,7 @@ def resolve_output_prefix(args):
 
 
 def read_summary_csv(path):
-    """Read and type-convert one probing summary CSV."""
+    """读取摘要、CSV输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     rows = []
     with open(path, newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -152,13 +140,7 @@ def read_summary_csv(path):
 
 
 def merge_candidate_rows(paths):
-    """
-    Merge candidate rows from multiple summaries.
-
-    Duplicate policy-budget rows are kept from the first CSV. Learned Probe rows
-    are added from the learned summary while Random/Rotating/Greedy duplicates
-    remain from the partial probing summary.
-    """
+    """处理merge、候选、结果行相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     merged = {}
     for path in paths:
         for row in read_summary_csv(path):
@@ -171,7 +153,7 @@ def merge_candidate_rows(paths):
 
 
 def enrich_candidate_row(row):
-    """Add cost-relevant derived metrics to one candidate row."""
+    """处理enrich、候选、结果行相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     enriched = dict(row)
     slots = float(enriched["slots_mean"])
     preview_per_slot = float(enriched["decision_preview_calls_per_slot_mean"])
@@ -184,10 +166,7 @@ def enrich_candidate_row(row):
 
 
 def is_dominated(row, others):
-    """
-    Return True if another candidate is no worse on all main dimensions and
-    strictly better on at least one.
-    """
+    """返回is、dominated对应的判断结果或派生值，用于封装重复出现的条件逻辑。"""
     for other in others:
         if other is row:
             continue
@@ -209,7 +188,7 @@ def is_dominated(row, others):
 
 
 def utility(row, slot_cost, preview_cost):
-    """Compute cost-aware node-equivalent utility for one candidate row."""
+    """处理utility相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return (
         float(row["success_mean"])
         - slot_cost * float(row["slots_mean"])
@@ -218,12 +197,12 @@ def utility(row, slot_cost, preview_cost):
 
 
 def candidate_label(row):
-    """Compact policy-budget label for tables and plots."""
+    """处理候选、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return f"{row['policy']} B={int(row['probe_budget'])}"
 
 
 def rank_key(row):
-    """Tie-break utility winners by coverage, then latency, then preview calls."""
+    """对排序键进行打分或排序，为候选选择、诊断归因或学习标签提供比较依据。"""
     return (
         float(row["utility"]),
         float(row["perfect_rate"]),
@@ -233,7 +212,7 @@ def rank_key(row):
 
 
 def build_tradeoff_rows(candidates, slot_cost_values, preview_cost_values):
-    """Build all candidate-cost utility rows and one winner row per cost pair."""
+    """构建tradeoff、结果行所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     utility_rows = []
     winner_rows = []
     for slot_cost in slot_cost_values:
@@ -255,7 +234,7 @@ def build_tradeoff_rows(candidates, slot_cost_values, preview_cost_values):
 
 
 def candidate_fieldnames():
-    """Candidate CSV field order."""
+    """处理候选、fieldnames相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return [
         "probe_budget",
         "policy",
@@ -273,7 +252,7 @@ def candidate_fieldnames():
 
 
 def utility_fieldnames():
-    """Utility CSV field order."""
+    """处理utility、fieldnames相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return [
         "slot_cost",
         "preview_cost",
@@ -292,7 +271,7 @@ def utility_fieldnames():
 
 
 def winner_fieldnames():
-    """Winner CSV field order."""
+    """处理winner、fieldnames相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return [
         "slot_cost",
         "preview_cost",
@@ -310,7 +289,7 @@ def winner_fieldnames():
 
 
 def write_csv(path, rows, fieldnames):
-    """Write rows to CSV."""
+    """按固定字段顺序写出 CSV，保证后续报告和测试读取稳定。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
@@ -320,7 +299,7 @@ def write_csv(path, rows, fieldnames):
 
 
 def print_winners(winner_rows):
-    """Print a compact winner table."""
+    """处理winners相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 132)
     print("Probing Cost Tradeoff Winners")
     print("=" * 132)
@@ -338,7 +317,7 @@ def print_winners(winner_rows):
 
 
 def plot_frontier(candidates, output_prefix):
-    """Plot latency vs total preview calls with candidate labels."""
+    """绘制frontier图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     fig, ax = plt.subplots(figsize=(11, 7))
     pareto = [row for row in candidates if row["is_pareto"]]
     dominated = [row for row in candidates if not row["is_pareto"]]
@@ -380,7 +359,7 @@ def plot_frontier(candidates, output_prefix):
 
 
 def short_label(label):
-    """Shorten policy labels for heatmap cells."""
+    """处理short、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     replacements = {
         "Rotating Grid Probe": "RotGrid",
         "Random Probe": "Random",
@@ -397,7 +376,7 @@ def short_label(label):
 
 
 def plot_winner_heatmap(winner_rows, slot_cost_values, preview_cost_values, output_prefix):
-    """Plot categorical winner heatmap over slot/preview costs."""
+    """绘制winner、heatmap图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     labels = sorted({row["label"] for row in winner_rows})
     label_to_id = {label: idx for idx, label in enumerate(labels)}
     matrix = np.zeros((len(slot_cost_values), len(preview_cost_values)), dtype=int)
@@ -433,7 +412,7 @@ def plot_winner_heatmap(winner_rows, slot_cost_values, preview_cost_values, outp
 
 
 def main():
-    """Run probing cost tradeoff analysis."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

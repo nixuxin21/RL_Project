@@ -1,15 +1,4 @@
-"""
-Evaluate adaptive rotating backup probing under aggregate bandit feedback.
-
-The policy uses Rotating Feedback Probe B=1 as the default action. After the
-primary rotating probe is observed, it spends one extra probe only when the
-observed feasible-node count is below the required remaining completion rate:
-
-    observed_tx_count < gate_ratio * remaining_nodes / remaining_slots
-
-This tests whether conditional backup probing has value before adding a learned
-gate or learned backup selector.
-"""
+"""评估自适应轮换备份 probe 策略，研究是否应根据当前聚合反馈追加备选 IRS。"""
 
 import argparse
 import csv
@@ -98,12 +87,12 @@ NUMERIC_RESULT_KEYS = bandit.NUMERIC_RESULT_KEYS + ("adaptive_trigger_rate",)
 
 
 def parse_csv_items(value):
-    """Parse a comma-separated list, preserving non-empty strings."""
+    """解析CSV、条目参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse adaptive probing arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Evaluate adaptive rotating backup probing under noisy aggregate feedback."
     )
@@ -135,7 +124,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate CLI arguments and parse comma-separated options."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -186,7 +175,7 @@ def validate_args(args):
 
 
 def build_bandit_args(args, scenario_name):
-    """Build the namespace expected by the aggregate-feedback evaluator."""
+    """构建bandit、参数所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     config = stress.scenario_config(scenario_name)
     bandit_args = argparse.Namespace(
         episodes=args.episodes,
@@ -218,7 +207,7 @@ def build_bandit_args(args, scenario_name):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for CSVs and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -240,7 +229,7 @@ def resolve_output_prefix(args):
 
 
 def adaptive_rng(episode_seed, feedback_noise_std, gate_ratio, backup_strategy, salt=0):
-    """Create deterministic RNG streams for adaptive probing."""
+    """处理adaptive、随机数流相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if episode_seed is None:
         return np.random.default_rng()
     noise_tag = int(round(float(feedback_noise_std) * 1_000_000))
@@ -257,7 +246,7 @@ def adaptive_rng(episode_seed, feedback_noise_std, gate_ratio, backup_strategy, 
 
 
 def initialize_adaptive_state(args):
-    """Initialize observable per-codebook feedback history."""
+    """处理adaptive、状态相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     c_count = int(args.num_codebook_states)
     return {
         "counts": np.zeros(c_count, dtype=float),
@@ -267,7 +256,7 @@ def initialize_adaptive_state(args):
 
 
 def update_adaptive_state(state, feedbacks, args):
-    """Update observable feedback history after one decision slot."""
+    """更新adaptive、状态相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     state["age"] += 1.0
     lr = float(args.bandit_lr)
     for feedback in feedbacks:
@@ -285,12 +274,12 @@ def update_adaptive_state(state, feedbacks, args):
 
 
 def rotating_primary_index(args, slot_idx):
-    """Return the B=1 rotating codebook index for this slot."""
+    """处理轮换、primary、索引相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return int(bandit.grid_indices(args.num_codebook_states, 1, offset=slot_idx)[0])
 
 
 def best_excluding(values, excluded_index, prefer_high=True):
-    """Return the best index by value while excluding one index."""
+    """处理best、excluding相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     best_index = None
     best_value = None
     for index, value in enumerate(values):
@@ -313,7 +302,7 @@ def best_excluding(values, excluded_index, prefer_high=True):
 
 
 def choose_backup_index(args, state, primary_index, backup_strategy):
-    """Choose one backup codebook using only past aggregate feedback history."""
+    """按照backup、索引规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     c_count = int(args.num_codebook_states)
     primary_index = int(primary_index)
 
@@ -347,7 +336,7 @@ def choose_backup_index(args, state, primary_index, backup_strategy):
 
 
 def should_probe_backup(env, args, primary_feedback, gate_ratio):
-    """Return whether the primary rotating feedback is too weak for the deadline."""
+    """处理should、probe、backup相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     remaining_nodes = int(args.num_nodes - np.sum(env.transmitted_flags))
     remaining_slots = max(int(args.num_slots - env.current_slot), 1)
     required_tx_per_slot = float(remaining_nodes) / float(remaining_slots)
@@ -365,7 +354,7 @@ def choose_adaptive_candidate(
     gate_ratio,
     backup_strategy,
 ):
-    """Probe rotating first, then conditionally probe one backup codebook."""
+    """按照adaptive、候选规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     primary_index = rotating_primary_index(args, slot_idx)
     primary_candidate = bandit.preview_codebook_candidate(env, args, primary_index)
     primary_feedback = bandit.observe_probe_feedback(
@@ -404,7 +393,7 @@ def evaluate_adaptive_policy(
     backup_strategy,
     base_action,
 ):
-    """Evaluate one adaptive rotating backup configuration."""
+    """评估单个自适应策略配置，返回后续聚合和报告生成所需的指标。"""
     env = bandit.make_env(args, irs_phase_mode="codebook")
     policy_name = adaptive_policy_name(backup_strategy, gate_ratio)
     success_nodes = []
@@ -527,12 +516,12 @@ def evaluate_adaptive_policy(
 
 
 def adaptive_policy_name(backup_strategy, gate_ratio):
-    """Return a stable display name for one adaptive configuration."""
+    """处理adaptive、策略、name相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return f"{POLICY_ADAPTIVE_ROTATING_BACKUP} {backup_strategy} r={gate_ratio:g}"
 
 
 def seed_summary(result):
-    """Compress one run seed result to seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     summary = {}
     for key in NUMERIC_RESULT_KEYS:
         if key in result:
@@ -543,7 +532,7 @@ def seed_summary(result):
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate matching result lists across run seeds."""
+    """跨 run seed 聚合配置完全一致的结果列表，避免不同策略或场景被错误合并。"""
     if not seed_result_sets:
         return []
     aggregated_results = []
@@ -569,7 +558,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95 percent CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -582,7 +571,7 @@ def metric_mean_ci(result, key):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results to rows."""
+    """聚合results结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -628,7 +617,7 @@ def summarize_results(args, results):
 
 
 def attach_scenario_metadata(rows, args, scenario_name, bandit_args):
-    """Add scenario metadata to summary rows."""
+    """处理attach、场景、元数据相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     preset = stress.SCENARIO_PRESETS[scenario_name]
     for row in rows:
         row.update(
@@ -650,7 +639,7 @@ def attach_scenario_metadata(rows, args, scenario_name, bandit_args):
 
 
 def evaluate_suite(args, bandit_args, episode_seed_sets, feedback_noise_std, base_action):
-    """Run selected baselines, probe policies, and adaptive configurations."""
+    """评估suite对应的策略或实验配置，返回后续聚合和报告生成所需的指标。"""
     seed_result_sets = []
     baseline_policy_names = [stress.BASELINE_POLICIES[name] for name in args.baseline_policies]
     probe_policy_names = [stress.PROBE_POLICIES[name] for name in args.probe_policies]
@@ -709,7 +698,7 @@ def evaluate_suite(args, bandit_args, episode_seed_sets, feedback_noise_std, bas
 
 
 def write_csv(path, rows):
-    """Write the adaptive probing summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)
@@ -719,12 +708,12 @@ def write_csv(path, rows):
 
 
 def is_oracle(row):
-    """Return whether a row is an offline oracle diagnostic."""
+    """返回is、oracle 诊断上界对应的判断结果或派生值，用于封装重复出现的条件逻辑。"""
     return row["policy"] == bandit.POLICY_ORACLE_FULL
 
 
 def compact_policy_label(row):
-    """Return compact labels for console and plots."""
+    """处理compact、策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     policy = str(row["policy"])
     if policy.startswith(POLICY_ADAPTIVE_ROTATING_BACKUP):
         strategy = row.get("backup_strategy", "")
@@ -735,7 +724,7 @@ def compact_policy_label(row):
 
 
 def print_summary(rows):
-    """Print best policies per scenario/noise pair."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 144)
     print("Adaptive Feedback Probing Summary")
     print("=" * 144)
@@ -766,7 +755,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, output_prefix):
-    """Plot latency/probe tradeoffs for each scenario."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     scenarios = [name for name in stress.SCENARIO_PRESETS if any(row["scenario"] == name for row in rows)]
     if not scenarios:
         return
@@ -833,7 +822,7 @@ def plot_results(rows, output_prefix):
 
 
 def main():
-    """Run adaptive feedback probing experiments."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

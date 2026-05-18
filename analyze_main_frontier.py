@@ -1,13 +1,4 @@
-"""
-Generate paper-ready analysis artifacts for the execution-mismatch frontier.
-
-The script reads existing CSV results only. It does not rerun simulations.
-Outputs:
-- per-scenario analysis CSV
-- cost-vs-gap plot
-- failed/missed tradeoff plot
-- markdown analysis note
-"""
+"""汇总当前执行信道错配主线结果，生成预览成本、oracle 差距和失败/错失权衡分析。"""
 
 import argparse
 import csv
@@ -181,7 +172,7 @@ OUTPUT_FIELDS = [
 
 
 def parse_args():
-    """Parse CLI arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Analyze the main execution-mismatch frontier."
     )
@@ -194,20 +185,20 @@ def parse_args():
 
 
 def ensure_parent_dir(path):
-    """Create the parent directory for path if needed."""
+    """处理ensure、parent、dir相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
 
 
 def read_csv(path):
-    """Read CSV rows."""
+    """读取 CSV 文件并返回字典行，供后续筛选、聚合和绘图使用。"""
     with open(path, newline="", encoding="utf-8") as csvfile:
         return list(csv.DictReader(csvfile))
 
 
 def to_float(row, field, default=0.0):
-    """Parse a numeric field with a default for missing values."""
+    """处理to、浮点数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return float(default)
@@ -215,7 +206,7 @@ def to_float(row, field, default=0.0):
 
 
 def to_int(row, field, default=0):
-    """Parse an int-like field."""
+    """处理to、整数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     value = row.get(field, "")
     if value == "":
         return int(default)
@@ -223,14 +214,14 @@ def to_int(row, field, default=0):
 
 
 def scenario_key(row):
-    """Return a stable rho/delay scenario key."""
+    """处理场景、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     rho = to_float(row, "channel_rho")
     delay = to_int(row, "csi_delay_slots")
     return f"rho={rho:g}, delay={delay}"
 
 
 def load_method_rows(results_dir):
-    """Load selected rows for each main frontier method."""
+    """读取method、结果行输入数据，并转换成脚本内部统一使用的行、字典或数组结构。"""
     cache = {}
     method_rows = []
     for spec in METHOD_SPECS:
@@ -266,7 +257,7 @@ def load_method_rows(results_dir):
 
 
 def add_rotating_b8_deltas(rows):
-    """Add per-scenario deltas relative to Rotating B=8."""
+    """更新轮换、b8、deltas相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     baseline_by_scenario = {
         row["scenario_key"]: row for row in rows if row["label"] == "Rotating B=8"
     }
@@ -294,12 +285,12 @@ def add_rotating_b8_deltas(rows):
 
 
 def mean(rows, field):
-    """Mean over rows for a field."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return sum(float(row[field]) for row in rows) / len(rows)
 
 
 def aggregate_by_label(rows):
-    """Return equal-scenario averages by method label."""
+    """聚合by、标签结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     groups = {}
     for row in rows:
         groups.setdefault(row["label"], []).append(row)
@@ -355,7 +346,7 @@ def aggregate_by_label(rows):
 
 
 def write_analysis_csv(rows, path):
-    """Write per-scenario analysis rows."""
+    """写出analysis、CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=OUTPUT_FIELDS, lineterminator="\n")
@@ -365,7 +356,7 @@ def write_analysis_csv(rows, path):
 
 
 def plot_preview_gap(summary, path):
-    """Plot preview cost vs oracle gap."""
+    """绘制预览、差距图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     ensure_parent_dir(path)
     fig, ax = plt.subplots(figsize=(9.0, 5.4))
     colors = {
@@ -440,7 +431,7 @@ def plot_preview_gap(summary, path):
 
 
 def plot_failed_missed(summary, path):
-    """Plot failed and missed components for each method."""
+    """绘制failed、missed图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     ensure_parent_dir(path)
     labels = [
         next(spec["short_label"] for spec in METHOD_SPECS if spec["label"] == item["label"])
@@ -471,12 +462,12 @@ def plot_failed_missed(summary, path):
 
 
 def format_float(value, digits=3):
-    """Format a float for markdown tables."""
+    """格式化浮点数，统一 Markdown 表格中的小数位和缺失值显示。"""
     return f"{float(value):.{digits}f}"
 
 
 def markdown_table(headers, rows):
-    """Build a markdown table."""
+    """构建 Markdown 表格，保证分析文档中的列顺序和数值格式稳定。"""
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
@@ -487,7 +478,7 @@ def markdown_table(headers, rows):
 
 
 def write_markdown(summary, csv_output, preview_gap_plot, failed_missed_plot, path):
-    """Write the paper-ready analysis markdown note."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     overall_rows = []
     for item in summary:
@@ -611,7 +602,7 @@ Do not continue broad SAC/imitation/bandit branches as main work until this corr
 
 
 def main():
-    """Run analysis generation."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     rows = load_method_rows(args.results_dir)
     add_rotating_b8_deltas(rows)

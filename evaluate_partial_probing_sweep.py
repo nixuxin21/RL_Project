@@ -1,11 +1,4 @@
-"""
-Partial IRS codebook probing sweep.
-
-This experiment removes the assumption that all C codebook quality features are
-available for free. A policy may preview only B codebook indices per decision
-slot, then must choose the best IRS index among the probed candidates. The full
-Greedy IRS policy is kept as an oracle-style upper bound with B=C.
-"""
+"""评估 partial probing 策略，比较只预览少量码本索引时的成本和性能。"""
 
 import argparse
 import csv
@@ -63,12 +56,12 @@ POLICY_OFFSETS = {
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list such as '1,2,4,8'."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse partial probing sweep parameters."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Sweep per-slot IRS codebook preview budgets for partial probing policies."
     )
@@ -89,7 +82,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate positive sizes and normalize probe budgets."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -111,7 +104,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve the shared output prefix for CSV and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -125,7 +118,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args):
-    """Create the base codebook environment without full codebook features."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -136,14 +129,14 @@ def make_env(args):
 
 
 def make_base_action(args):
-    """Build the fixed g_th/alpha_th action prefix shared by all probing policies."""
+    """构建base、action所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     g_action = physical_to_action(args.g_th, low=0.001, scale=0.05)
     alpha_action = physical_to_action(args.alpha_th, low=0.05, scale=0.05)
     return np.array([g_action, alpha_action, 0.0], dtype=np.float32)
 
 
 def candidate_key(candidate):
-    """Greedy ranking key: scheduled nodes first, then lower power, then remaining gain."""
+    """处理候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     tx_count = int(candidate["tx_this_slot"])
     power_avg = float(candidate["power_avg"])
     mean_gain = float(candidate["mean_gain_remaining"])
@@ -152,12 +145,12 @@ def candidate_key(candidate):
 
 
 def best_candidate(candidates):
-    """Return the best preview candidate according to the project Greedy rule."""
+    """处理best、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return max(candidates, key=candidate_key)
 
 
 def preview_indices(env, args, indices):
-    """Preview a de-duplicated list of candidate IRS indices."""
+    """处理预览、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     clean_indices = unique_fill(indices, len(indices), args.num_codebook_states)
     return [
         env.preview_codebook_index(index, args.g_th, args.alpha_th)
@@ -166,7 +159,7 @@ def preview_indices(env, args, indices):
 
 
 def full_greedy_candidate(env, args):
-    """Preview all codebooks and return the full Greedy oracle candidate."""
+    """处理full、贪心、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return best_candidate(
         [
             env.preview_codebook_index(index, args.g_th, args.alpha_th)
@@ -176,7 +169,7 @@ def full_greedy_candidate(env, args):
 
 
 def stable_probe_rng(episode_seed, policy_name, budget):
-    """Create a deterministic RNG stream for a probing policy."""
+    """处理稳定、probe、随机数流相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if episode_seed is None:
         return np.random.default_rng()
     offset = POLICY_OFFSETS[policy_name]
@@ -185,7 +178,7 @@ def stable_probe_rng(episode_seed, policy_name, budget):
 
 
 def unique_fill(indices, budget, num_codebook_states):
-    """Return up to budget unique indices, filling deterministically when duplicates occur."""
+    """按输入优先级去重选择码本索引；候选不足时用未出现过的索引确定性补齐预算。"""
     selected = []
     seen = set()
     for index in indices:
@@ -206,7 +199,7 @@ def unique_fill(indices, budget, num_codebook_states):
 
 
 def grid_indices(num_codebook_states, budget, offset=0):
-    """Select roughly evenly spaced codebook indices with an optional circular offset."""
+    """在离散码本环上近似均匀抽取索引，并用 offset 实现随时隙轮换。"""
     budget = min(int(budget), num_codebook_states)
     if budget >= num_codebook_states:
         return list(range(num_codebook_states))
@@ -215,7 +208,7 @@ def grid_indices(num_codebook_states, budget, offset=0):
 
 
 def local_indices(center, budget, num_codebook_states):
-    """Select a circular neighborhood around a previous IRS index."""
+    """处理local、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     offsets = [0]
     radius = 1
     while len(offsets) < budget:
@@ -228,7 +221,7 @@ def local_indices(center, budget, num_codebook_states):
 
 
 def select_probe_indices(policy_name, args, budget, slot_idx, state, rng):
-    """Choose which codebook indices a partial probing policy will preview."""
+    """按照probe、索引集合规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     c_count = args.num_codebook_states
     budget = min(int(budget), c_count)
     if budget >= c_count:
@@ -262,7 +255,7 @@ def select_probe_indices(policy_name, args, budget, slot_idx, state, rng):
 
 
 def evaluate_probe_policy(episode_seeds, args, budget, policy_name, base_action):
-    """Evaluate one partial probing policy at one preview budget."""
+    """评估单个 probing 策略配置，返回后续聚合和报告生成所需的指标。"""
     env = make_env(args)
     success_nodes = []
     avg_power = []
@@ -356,7 +349,7 @@ def evaluate_probe_policy(episode_seeds, args, budget, policy_name, base_action)
 
 
 def print_progress(name, budget, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10% intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -364,7 +357,7 @@ def print_progress(name, budget, ep, episodes, success_nodes, num_nodes):
 
 
 def run_policy_suite_for_budget(args, episode_seeds, budget, base_action):
-    """Run all partial probing policies for one preview budget."""
+    """运行策略、suite、for、预算流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     policies = [
         POLICY_RANDOM,
         POLICY_FIXED_GRID,
@@ -379,7 +372,7 @@ def run_policy_suite_for_budget(args, episode_seeds, budget, base_action):
 
 
 def evaluate_greedy_upper_bound(args, episode_seeds, base_action):
-    """Evaluate full Greedy once as the B=C oracle-style upper bound."""
+    """评估贪心、upper、bound对应的策略或实验配置，返回后续聚合和报告生成所需的指标。"""
     return evaluate_probe_policy(
         episode_seeds,
         args,
@@ -390,12 +383,12 @@ def evaluate_greedy_upper_bound(args, episode_seeds, base_action):
 
 
 def seed_summary(result):
-    """Compress one run seed result into seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     return {key: float(np.mean(result[key])) for key in NUMERIC_RESULT_KEYS}
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate policy results across run seeds."""
+    """跨 run seed 聚合同一策略的结果，得到可写入 CSV 的稳定统计量。"""
     if not seed_result_sets:
         return []
 
@@ -418,7 +411,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95% CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -431,7 +424,7 @@ def metric_mean_ci(result, key):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results into CSV rows."""
+    """把聚合后的结果转换成 CSV 行，统一字段名和后续分析脚本的读取口径。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -466,7 +459,7 @@ def summarize_results(args, results):
 
 
 def write_csv(path, rows):
-    """Write partial probing summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     fieldnames = [
         "probe_budget",
@@ -497,7 +490,7 @@ def write_csv(path, rows):
 
 
 def print_summary(rows):
-    """Print a compact partial probing summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 138)
     print("Partial Codebook Probing Sweep Summary")
     print("=" * 138)
@@ -517,7 +510,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot success, perfect coverage, latency, and oracle gap against probe budget."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     policies = []
     for row in rows:
         if row["policy"] not in policies:
@@ -592,7 +585,7 @@ def plot_results(rows, args, output_prefix):
 
 
 def main():
-    """Run the partial probing sweep."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

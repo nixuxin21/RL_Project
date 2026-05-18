@@ -15,7 +15,7 @@ import os
 os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
 
 import numpy as np
-# 导入 Stable Baselines3 (SB3) 的核心算法 SAC
+# 导入强化学习训练库中的 SAC 算法实现。
 from stable_baselines3 import SAC
 # 导入环境多开与包装工具
 from stable_baselines3.common.env_util import make_vec_env
@@ -45,13 +45,13 @@ class TrackSuccessCallback(BaseCallback):
         多进程环境里一次会返回多个 `info`，只有某个子环境 episode 结束时，
         `info["total_tx"]` 才代表该 episode 的最终成功节点数。
         """
-        # locals 包含了当前这一步所有的局部变量，infos 是环境中产生的额外信息
+        # 本地变量表包含当前训练步的全部上下文，`infos` 是环境返回的额外物理指标。
         dones = self.locals.get("dones", [])
         for env_idx, info in enumerate(self.locals.get("infos", [])):
-            # 找到当前环境的索引，检查这个环境当前是否正好结束了 (done == True)
-            # 并且确保 info 字典里有 "total_tx" 这个你自己在 step() 函数里写的指标
+            # 找到当前环境的索引，检查这个环境当前是否正好结束。
+            # 并且确保环境返回信息里有“总成功发送节点数”这个自定义物理指标。
             if "total_tx" in info and env_idx < len(dones) and dones[env_idx]:
-                # 将这个数值记录到 TensorBoard 的 custom_metrics/final_total_tx_nodes 目录下
+                # 将这个数值记录到训练监控面板的自定义指标目录下，便于观察最终调度效果。
                 self.logger.record("custom_metrics/final_total_tx_nodes", info["total_tx"])
         return True # 返回 True 表示允许训练继续进行
 
@@ -111,7 +111,7 @@ def main():
     # =====================================================================
     # 4. 配置回调函数 (自动存档系统)
     # =====================================================================
-    # CheckpointCallback 就像打单机游戏时的“自动存档点”
+    # 自动存档回调负责定期保存模型，作用类似训练过程中的检查点。
     checkpoint_callback = CheckpointCallback(
         save_freq=max(10000 // num_cpu, 1), # 每走这么多步就存一次档（注意多核环境下步数是被平摊的）
         save_path=model_dir,
@@ -146,7 +146,7 @@ def main():
     
     print(">>> 训练圆满完成！")
 
-# 保护块：在 Windows 系统里进行多进程 (SubprocVecEnv) 编程时，
+# 保护块：在 Windows 系统里进行多进程环境采样时，
 # 必须把主程序放在这里面，否则会无限循环打开新终端导致内存崩溃
 if __name__ == "__main__":
     main()

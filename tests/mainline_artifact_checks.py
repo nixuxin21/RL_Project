@@ -1,9 +1,4 @@
-"""
-Audit the existing artifact chain for the current execution-mismatch mainline.
-
-This check does not re-run experiments. It verifies that the committed/generated
-CSV, figure, and Markdown artifacts still support the current main claims.
-"""
+"""审计主线 artifact、source_file 链接、论文表图和结果文档的一致性。"""
 
 import csv
 import re
@@ -527,7 +522,7 @@ def assert_exists(path):
 
 
 def assert_git_tracked(path):
-    """Require a freeze artifact to be present in the Git index."""
+    """处理assert、git、tracked相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     result = subprocess.run(
         ["git", "ls-files", "--error-unmatch", "--", str(path)],
         cwd=PROJECT_ROOT,

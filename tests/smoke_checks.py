@@ -1,10 +1,4 @@
-"""
-Lightweight correctness checks for the default MS-AirComp scenario.
-
-These checks intentionally avoid pytest so they can run with:
-
-    ./.venv/bin/python tests/smoke_checks.py
-"""
+"""模块 `tests/smoke_checks.py`：封装本项目实验、分析或测试所需的代码逻辑。"""
 
 from argparse import Namespace
 from pathlib import Path

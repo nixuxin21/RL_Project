@@ -1,17 +1,4 @@
-"""
-Bandit-feedback IRS-assisted multi-slot AirComp evaluation.
-
-This experiment is stricter than feature argmax, partial preview, and the
-limited-CSI equivalent-channel sweep. A policy does not observe per-codebook CSI
-or per-node schedulability masks. It may probe only B IRS codebook indices per
-decision slot and receives noisy aggregate feedback for each probed index:
-estimated feasible-node fraction and average transmit power. The data slot is
-then executed on the true channel.
-
-The goal is to model the research setting where IRS codebook selection is an
-online probing problem under limited feedback rather than a full-CSI preview
-problem.
-"""
+"""评估严格聚合反馈条件下的 IRS probing 策略，策略只能看到少量带噪声的聚合反馈。"""
 
 import argparse
 import csv
@@ -85,17 +72,17 @@ NUMERIC_RESULT_KEYS = (
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list such as '1,2,4,8'."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list such as '0,0.05,0.1'."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse bandit-feedback evaluation arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Evaluate IRS-assisted MS-AirComp with noisy aggregate probing feedback."
     )
@@ -124,7 +111,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate sizes, budgets, and feedback parameters."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -166,7 +153,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve output prefix for CSVs and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -184,7 +171,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args, irs_phase_mode="codebook"):
-    """Create the MS-AirComp environment for the selected IRS mode."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -195,14 +182,14 @@ def make_env(args, irs_phase_mode="codebook"):
 
 
 def make_base_action(args):
-    """Build the fixed g_th/alpha_th action prefix shared by policies."""
+    """构建base、action所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     g_action = physical_to_action(args.g_th, low=0.001, scale=0.05)
     alpha_action = physical_to_action(args.alpha_th, low=0.05, scale=0.05)
     return np.array([g_action, alpha_action, 0.0], dtype=np.float32)
 
 
 def stable_rng(episode_seed, policy_name, budget, feedback_noise_std, salt=0):
-    """Create deterministic RNG streams for probing and noisy feedback."""
+    """结合 seed、误差、策略名和预算生成稳定随机数流，使不同策略的随机性互不污染。"""
     if episode_seed is None:
         return np.random.default_rng()
     noise_tag = int(round(float(feedback_noise_std) * 1_000_000))
@@ -217,7 +204,7 @@ def stable_rng(episode_seed, policy_name, budget, feedback_noise_std, salt=0):
 
 
 def candidate_key(candidate):
-    """True greedy ranking key used only for oracle diagnostics."""
+    """处理候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     tx_count = int(candidate["tx_this_slot"])
     power_avg = float(candidate["power_avg"])
     mean_gain = float(candidate["mean_gain_remaining"])
@@ -226,17 +213,17 @@ def candidate_key(candidate):
 
 
 def best_candidate(candidates):
-    """Return the best candidate under the true greedy ranking."""
+    """处理best、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return max(candidates, key=candidate_key)
 
 
 def preview_codebook_candidate(env, args, index):
-    """Return hidden true metrics for one codebook index."""
+    """处理预览、码本、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return env.preview_codebook_index(index, args.g_th, args.alpha_th)
 
 
 def no_irs_candidate(env, args):
-    """Return hidden true metrics for the no-IRS direct link."""
+    """处理无、IRS、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     metrics = env._compute_slot_metrics(  # pylint: disable=protected-access
         args.g_th,
         args.alpha_th,
@@ -251,7 +238,7 @@ def no_irs_candidate(env, args):
 
 
 def full_oracle_candidate(env, args):
-    """Return the full-CSI greedy IRS candidate for offline diagnostics."""
+    """处理full、oracle 诊断上界、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return best_candidate(
         [
             preview_codebook_candidate(env, args, index)
@@ -261,12 +248,7 @@ def full_oracle_candidate(env, args):
 
 
 def observe_probe_feedback(candidate, args, feedback_noise_std, rng):
-    """
-    Convert hidden true candidate metrics into noisy aggregate probe feedback.
-
-    The policy observes only aggregate feasible-node fraction and aggregate power,
-    not node identities or equivalent channels.
-    """
+    """处理observe、probe、聚合反馈相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     true_tx_fraction = float(candidate["tx_this_slot"]) / float(max(args.num_nodes, 1))
     observed_tx_fraction = true_tx_fraction
     if feedback_noise_std > 0.0:
@@ -289,7 +271,7 @@ def observe_probe_feedback(candidate, args, feedback_noise_std, rng):
 
 
 def initialize_feedback_state(args):
-    """Initialize per-episode bandit state."""
+    """处理聚合反馈、状态相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return {
         "counts": np.zeros(args.num_codebook_states, dtype=float),
         "means": np.full(args.num_codebook_states, float(args.bandit_prior), dtype=float),
@@ -297,7 +279,7 @@ def initialize_feedback_state(args):
 
 
 def update_feedback_state(state, feedbacks, args):
-    """Update online aggregate-feedback estimates."""
+    """更新聚合反馈、状态相关状态、历史记录或结果行，保证后续时隙和聚合阶段能继续累积信息。"""
     lr = float(args.bandit_lr)
     for feedback in feedbacks:
         index = int(feedback["irs_index"])
@@ -313,14 +295,14 @@ def update_feedback_state(state, feedbacks, args):
 
 
 def top_indices(scores, budget, num_codebook_states, rng):
-    """Select top-scoring unique codebook indices with deterministic fill."""
+    """处理top、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     jitter = rng.uniform(0.0, 1e-9, size=num_codebook_states)
     order = np.argsort(-(np.asarray(scores, dtype=float) + jitter))
     return unique_fill(order, budget, num_codebook_states)
 
 
 def select_feedback_probe_indices(policy_name, args, budget, slot_idx, state, rng):
-    """Choose which IRS codebooks to probe using only past aggregate feedback."""
+    """按照聚合反馈、probe、索引集合规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     c_count = int(args.num_codebook_states)
     budget = min(int(budget), c_count)
     if budget >= c_count:
@@ -348,7 +330,7 @@ def select_feedback_probe_indices(policy_name, args, budget, slot_idx, state, rn
 
 
 def select_from_feedback(candidates, feedbacks):
-    """Choose one probed candidate from noisy aggregate feedback."""
+    """按照from、聚合反馈规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     feedback_by_index = {int(feedback["irs_index"]): feedback for feedback in feedbacks}
 
     def key(candidate):
@@ -363,7 +345,7 @@ def select_from_feedback(candidates, feedbacks):
 
 
 def choose_policy_candidate(env, args, policy_name, budget, slot_idx, feedback_noise_std, state, rng):
-    """Choose one codebook/no-IRS candidate and return visible feedback metadata."""
+    """按照策略、候选规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     if policy_name == POLICY_NO_IRS:
         return no_irs_candidate(env, args), [], 0
 
@@ -396,7 +378,7 @@ def choose_policy_candidate(env, args, policy_name, budget, slot_idx, feedback_n
 
 
 def evaluate_policy(episode_seeds, args, feedback_noise_std, policy_name, budget, base_action):
-    """Evaluate one policy for one feedback-noise level and probe budget."""
+    """评估单个策略配置在当前场景下的表现，返回后续聚合和报告生成所需的指标。"""
     irs_phase_mode = "none" if policy_name == POLICY_NO_IRS else "codebook"
     env = make_env(args, irs_phase_mode=irs_phase_mode)
     success_nodes = []
@@ -499,7 +481,7 @@ def evaluate_policy(episode_seeds, args, feedback_noise_std, policy_name, budget
 
 
 def print_progress(name, feedback_noise_std, budget, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10 percent intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -510,7 +492,7 @@ def print_progress(name, feedback_noise_std, budget, ep, episodes, success_nodes
 
 
 def policy_suite_for_noise(args, episode_seeds, feedback_noise_std, base_action):
-    """Run all aggregate-feedback policies for one noise level and run seed."""
+    """处理策略、suite、for、noise相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     results = [
         evaluate_policy(episode_seeds, args, feedback_noise_std, POLICY_NO_IRS, 0, base_action),
         evaluate_policy(episode_seeds, args, feedback_noise_std, POLICY_FIXED_IRS, 0, base_action),
@@ -554,12 +536,12 @@ def policy_suite_for_noise(args, episode_seeds, feedback_noise_std, base_action)
 
 
 def seed_summary(result):
-    """Compress one run seed result to seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     return {key: float(np.mean(result[key])) for key in NUMERIC_RESULT_KEYS}
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate result lists across run seeds."""
+    """跨 run seed 聚合同一策略和同一场景的结果列表，形成最终统计输入。"""
     if not seed_result_sets:
         return []
 
@@ -580,7 +562,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95 percent CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -593,7 +575,7 @@ def metric_mean_ci(result, key):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results to CSV summary rows."""
+    """把聚合后的结果转换成 summary CSV 行，统一字段名和后续分析脚本的读取口径。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -628,7 +610,7 @@ def summarize_results(args, results):
 
 
 def write_csv(path, rows):
-    """Write aggregate-feedback summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     fieldnames = [
         "feedback_noise_std",
@@ -661,7 +643,7 @@ def write_csv(path, rows):
 
 
 def policy_label(row):
-    """Return a compact label for plots and summaries."""
+    """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     policy = row["policy"]
     if policy in PROBE_POLICIES:
         return f"{policy} B={int(row['probe_budget'])}"
@@ -669,7 +651,7 @@ def policy_label(row):
 
 
 def print_summary(rows):
-    """Print a compact aggregate-feedback summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 146)
     print("Bandit-Feedback MS-AirComp Summary")
     print("=" * 146)
@@ -690,7 +672,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot success, perfect coverage, latency, and oracle gap vs feedback noise."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     labels = []
     for row in rows:
         label = policy_label(row)
@@ -765,7 +747,7 @@ def plot_results(rows, args, output_prefix):
 
 
 def main():
-    """Run bandit-feedback MS-AirComp evaluation."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

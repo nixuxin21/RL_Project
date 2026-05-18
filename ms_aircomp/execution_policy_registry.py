@@ -1,4 +1,4 @@
-"""Policy aliases, labels, and parameter grids for execution-mismatch runs."""
+"""维护执行信道错配策略别名、显示 label 和参数网格展开逻辑。"""
 
 import ms_aircomp.limited_csi as limited
 
@@ -125,7 +125,7 @@ def policy_label(
     learned_shortlist_extra_count=1,
     adaptive_sparse_show_params=False,
 ):
-    """Return a compact display label."""
+    """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if policy_name in {
         limited.POLICY_RANDOM_PROBE,
         limited.POLICY_ROTATING_GRID,
@@ -236,7 +236,7 @@ def policy_label(
 
 
 def policy_configs(args):
-    """Expand selected policy aliases into concrete parameter configurations."""
+    """处理策略、configs相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     configs = []
     for alias in args.policies:
         policy_name = POLICY_CHOICES[alias]
@@ -546,7 +546,7 @@ def policy_configs(args):
 
 
 def mismatch_scenarios(args):
-    """Yield concrete mismatch-model parameter tuples."""
+    """处理mismatch、scenarios相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for mismatch_model in args.mismatch_models:
         if mismatch_model == MISMATCH_INDEPENDENT:
             yield mismatch_model, 0.0, 0

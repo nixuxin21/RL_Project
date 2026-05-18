@@ -1,4 +1,4 @@
-"""Execution-risk and opportunity-cost policy helpers."""
+"""实现 execution-risk 和 opportunity-cost 诊断策略，用可靠性估计重排候选。"""
 
 import numpy as np
 
@@ -20,7 +20,7 @@ __all__ = [
 
 
 def execution_risk_error_std(decision_error_std, execution_error_std):
-    """Combine independent decision-estimation and execution-drift uncertainty."""
+    """处理执行阶段、风险、error、std相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return float(np.hypot(float(decision_error_std), float(execution_error_std)))
 
 
@@ -31,15 +31,7 @@ def candidate_with_execution_reliability(
     decision_error_std,
     execution_error_std,
 ):
-    """
-    Re-score a decision candidate with execution-drift reliability.
-
-    Limited-CSI risk-aware candidates normally derive reliability only from
-    noisy decision CSI. In execution-mismatch experiments, a stale decision can
-    be exact while the execution slot still drifts. This helper exposes that
-    drift as a posterior reliability term without revealing the realized
-    execution channel.
-    """
+    """处理候选、with、执行阶段、可靠性相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     adjusted = dict(candidate)
     h_gain = np.asarray(candidate["h_gain"], dtype=float)
     h_proxy = np.sqrt(np.maximum(h_gain, 0.0))
@@ -66,7 +58,7 @@ def execution_risk_candidate_set(
     execution_error_std,
     episode_seed,
 ):
-    """Return rotating-grid candidates re-scored with execution-drift reliability."""
+    """处理执行阶段、风险、候选、set相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     budget = min(int(budget), args.num_codebook_states)
     random_rng = limited.stable_rng(
         episode_seed,
@@ -110,7 +102,7 @@ def execution_risk_candidate_set(
 
 
 def execution_urgency(env, args, slot_idx, deadline_gain=0.5, backlog_gain=0.5):
-    """Return a multiplier that raises missed-opportunity cost near deadline/backlog."""
+    """处理执行阶段、urgency相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.num_slots <= 1:
         deadline_pressure = 1.0
     else:
@@ -135,7 +127,7 @@ def opportunity_cost_candidate(
     deadline_gain=0.5,
     backlog_gain=0.5,
 ):
-    """Build an execution-risk candidate using false-accept and false-reject costs."""
+    """处理opportunity、cost、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     adjusted = dict(candidate)
     estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
     reliability = np.asarray(candidate["success_reliability"], dtype=float)
@@ -188,7 +180,7 @@ def opportunity_cost_candidate(
 
 
 def opportunity_cost_candidate_key(candidate):
-    """Rank opportunity-cost candidates by expected utility and reliable progress."""
+    """处理opportunity、cost、候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return (
         float(candidate["opportunity_score"]),
         float(candidate["expected_success"]),
@@ -213,7 +205,7 @@ def choose_opportunity_execution_risk_decision(
     deadline_gain=0.5,
     backlog_gain=0.5,
 ):
-    """Choose rotating-grid candidates by expected utility under execution drift."""
+    """按照opportunity、执行阶段、风险、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     candidates, preview_calls = execution_risk_candidate_set(
         env,
         args,
@@ -257,7 +249,7 @@ def choose_execution_risk_decision(
     adaptive_risk_deadline_relief=0.6,
     adaptive_risk_backlog_relief=0.8,
 ):
-    """Choose rotating-grid candidates using execution-drift risk statistics."""
+    """按照执行阶段、风险、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     candidates, preview_calls = execution_risk_candidate_set(
         env,
         args,

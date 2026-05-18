@@ -1,14 +1,4 @@
-"""
-Channel estimation error robustness sweep.
-
-The physical environment still executes actions with the true channel. Policies
-make decisions from estimated equivalent channels:
-
-    h_total_est = h_total_true + error_std * rms(h_total_true) * complex_noise
-
-This tests whether full preview, count argmax, and low-budget rotating probing
-remain reliable when preview information is imperfect.
-"""
+"""评估信道估计误差对 IRS 选择和 AirComp 调度结果的影响。"""
 
 import argparse
 import csv
@@ -60,12 +50,12 @@ NUMERIC_RESULT_KEYS = (
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list such as '0,0.05,0.1'."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def parse_args():
-    """Parse channel estimation error sweep parameters."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和开关选项。"""
     parser = argparse.ArgumentParser(
         description="Sweep equivalent-channel estimation error std for probing policies."
     )
@@ -88,7 +78,7 @@ def parse_args():
 
 
 def validate_args(args):
-    """Validate positive sizes and non-negative estimation errors."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive")
     if args.num_seeds <= 0:
@@ -119,7 +109,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Resolve shared output prefix for CSV and plots."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix is not None:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -137,7 +127,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args):
-    """Create the base codebook environment."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -148,14 +138,14 @@ def make_env(args):
 
 
 def make_base_action(args):
-    """Build the fixed g_th/alpha_th action prefix shared by policies."""
+    """构建base、action所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     g_action = physical_to_action(args.g_th, low=0.001, scale=0.05)
     alpha_action = physical_to_action(args.alpha_th, low=0.05, scale=0.05)
     return np.array([g_action, alpha_action, 0.0], dtype=np.float32)
 
 
 def make_error_rng(episode_seed, error_std):
-    """Create a deterministic estimation-error RNG for one episode/error level."""
+    """构建error、随机数流所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     if episode_seed is None:
         return np.random.default_rng()
     error_tag = int(round(float(error_std) * 1_000_000))
@@ -164,7 +154,7 @@ def make_error_rng(episode_seed, error_std):
 
 
 def make_random_probe_rng(episode_seed, error_std):
-    """Create deterministic RNG for random candidate subsets."""
+    """构建随机、probe、随机数流所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     if episode_seed is None:
         return np.random.default_rng()
     error_tag = int(round(float(error_std) * 1_000_000))
@@ -173,7 +163,7 @@ def make_random_probe_rng(episode_seed, error_std):
 
 
 def exact_preview_candidates(env, args, indices):
-    """Preview selected codebooks with true channels."""
+    """处理exact、预览、候选集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return [
         env.preview_codebook_index(index, args.g_th, args.alpha_th)
         for index in indices
@@ -181,7 +171,7 @@ def exact_preview_candidates(env, args, indices):
 
 
 def effective_channels(env, indices):
-    """Compute true equivalent channels for selected codebook indices."""
+    """计算给定 IRS 索引集合下的等效信道；无 IRS 时只返回直达链路。"""
     clean_indices = np.asarray(indices, dtype=int)
     weighted_reflection = env.h_r * env.h_bs_r
     cascade = weighted_reflection @ env.codebook[clean_indices].T
@@ -190,12 +180,7 @@ def effective_channels(env, indices):
 
 
 def estimated_preview_candidates(env, args, indices, error_std, rng):
-    """
-    Preview selected codebooks under equivalent-channel estimation error.
-
-    Returns the same candidate keys as env.preview_codebook_index, but all
-    scheduling and power values are computed from h_total_est.
-    """
+    """处理估计、预览、候选集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     clean_indices = [int(np.clip(index, 0, args.num_codebook_states - 1)) for index in indices]
     h_total = effective_channels(env, clean_indices)
     if error_std > 0.0:
@@ -230,12 +215,12 @@ def estimated_preview_candidates(env, args, indices, error_std, rng):
 
 
 def choose_count_argmax(candidates):
-    """Choose the first candidate with the largest estimated tx count."""
+    """按照count、argmax规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     return max(candidates, key=lambda candidate: int(candidate["tx_this_slot"]))
 
 
 def policy_indices(policy_name, args, slot_idx, random_rng):
-    """Return candidate indices and preview budget for one policy."""
+    """处理策略、索引集合相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if policy_name in {
         POLICY_EXACT_GREEDY,
         POLICY_EST_COUNT_ARGMAX,
@@ -255,7 +240,7 @@ def policy_indices(policy_name, args, slot_idx, random_rng):
 
 
 def choose_policy_candidate(env, args, policy_name, error_std, slot_idx, error_rng, random_rng):
-    """Choose one IRS candidate according to a policy under estimation error."""
+    """按照策略、候选规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     indices, preview_budget = policy_indices(policy_name, args, slot_idx, random_rng)
     if policy_name == POLICY_EXACT_GREEDY:
         candidates = exact_preview_candidates(env, args, indices)
@@ -268,7 +253,7 @@ def choose_policy_candidate(env, args, policy_name, error_std, slot_idx, error_r
 
 
 def evaluate_policy(args, episode_seeds, error_std, policy_name, base_action):
-    """Evaluate one policy for one estimation error level."""
+    """评估单个策略配置在当前场景下的表现，返回后续聚合和报告生成所需的指标。"""
     env = make_env(args)
     success_nodes = []
     avg_power = []
@@ -359,7 +344,7 @@ def evaluate_policy(args, episode_seeds, error_std, policy_name, base_action):
 
 
 def print_progress(policy_name, error_std, ep, episodes, success_nodes, num_nodes):
-    """Print progress at 10% intervals."""
+    """按 10% 进度间隔打印实验状态，避免长实验运行时没有可见反馈。"""
     interval = max(episodes // 10, 1)
     if ep % interval == 0 or ep == episodes:
         recent = np.mean(success_nodes[-interval:])
@@ -370,12 +355,12 @@ def print_progress(policy_name, error_std, ep, episodes, success_nodes, num_node
 
 
 def seed_summary(result):
-    """Compress one run seed result into seed-level means."""
+    """把单个 run seed 的逐 episode 结果压缩为 seed-level 均值，供多 seed 聚合使用。"""
     return {key: float(np.mean(result[key])) for key in NUMERIC_RESULT_KEYS}
 
 
 def aggregate_seed_results(seed_result_sets):
-    """Aggregate policy results across run seeds."""
+    """跨 run seed 聚合同一策略的结果，得到可写入 CSV 的稳定统计量。"""
     if not seed_result_sets:
         return []
 
@@ -398,7 +383,7 @@ def aggregate_seed_results(seed_result_sets):
 
 
 def metric_mean_ci(result, key):
-    """Compute overall mean and run-seed 95% CI."""
+    """计算跨 run seed 的总体均值和 95% 置信区间，用于结果表中的不确定性展示。"""
     seed_values = np.asarray(
         [summary[key] for summary in result.get("seed_summaries", [seed_summary(result)])],
         dtype=float,
@@ -411,7 +396,7 @@ def metric_mean_ci(result, key):
 
 
 def summarize_results(args, results):
-    """Convert aggregated results into CSV rows."""
+    """把聚合后的结果转换成 CSV 行，统一字段名和后续分析脚本的读取口径。"""
     rows = []
     for result in results:
         success_mean, success_ci95 = metric_mean_ci(result, "success_nodes")
@@ -444,7 +429,7 @@ def summarize_results(args, results):
 
 
 def write_csv(path, rows):
-    """Write channel estimation sweep summary CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     fieldnames = [
         "error_std",
@@ -473,7 +458,7 @@ def write_csv(path, rows):
 
 
 def print_summary(rows):
-    """Print compact channel estimation summary."""
+    """处理摘要相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     print("=" * 140)
     print("Channel Estimation Error Sweep Summary")
     print("=" * 140)
@@ -493,7 +478,7 @@ def print_summary(rows):
 
 
 def plot_results(rows, args, output_prefix):
-    """Plot perfect coverage, latency, and oracle gap against estimation error."""
+    """绘制results图像，把聚合指标转换成论文或诊断文档可直接查看的图。"""
     policies = []
     for row in rows:
         if row["policy"] not in policies:
@@ -556,7 +541,7 @@ def plot_results(rows, args, output_prefix):
 
 
 def policy_suite(args):
-    """Return policies included in the sweep."""
+    """处理策略、suite相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     policies = [
         POLICY_EXACT_GREEDY,
         POLICY_EST_COUNT_ARGMAX,
@@ -571,7 +556,7 @@ def policy_suite(args):
 
 
 def main():
-    """Run the channel estimation error sweep."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)

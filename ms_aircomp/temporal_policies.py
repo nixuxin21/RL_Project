@@ -1,4 +1,4 @@
-"""Temporal stale-CSI policy helpers for execution-mismatch experiments."""
+"""实现 temporal stale-CSI 策略和 temporal-deviation oracle 诊断。"""
 
 import numpy as np
 
@@ -24,7 +24,7 @@ def temporal_reliability_candidate(
     risk_power_weight=0.1,
     quantile_z=1.0,
 ):
-    """Score a stale-CSI candidate by expected current schedulability."""
+    """处理时序、可靠性、候选相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     adjusted = dict(candidate)
     estimated_valid_mask = np.asarray(candidate["valid_mask"], dtype=bool)
     h_gain = np.asarray(candidate["h_gain"], dtype=float)
@@ -70,7 +70,7 @@ def temporal_reliability_candidate(
 
 
 def temporal_reliability_candidate_key(candidate):
-    """Rank temporal reliability candidates without hard false-reject filtering."""
+    """处理时序、可靠性、候选、排序键相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     return (
         float(candidate["temporal_reliability_score"]),
         int(candidate["temporal_quantile_valid_count"]),
@@ -94,7 +94,7 @@ def choose_temporal_reliability_decision(
     risk_power_weight=0.1,
     quantile_z=1.0,
 ):
-    """Choose rotating candidates using temporal schedulability reliability."""
+    """按照时序、可靠性、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     random_rng = limited.stable_rng(
         episode_seed,
@@ -150,13 +150,7 @@ def choose_temporal_deviation_oracle_decision(
     episode_seed,
     execution_state=None,
 ):
-    """
-    Choose a B-sized probe set using hidden execution-channel quality.
-
-    This is a diagnostic upper bound for probe-set selection: the oracle may
-    pick the current top-B IRS indices, but the actual invitation mask is still
-    built from the stale/estimated decision channel.
-    """
+    """按照时序、deviation、oracle 诊断上界、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(budget), args.num_codebook_states)
     decision_snapshot = capture_channel_state(env)
     if execution_state is not None:

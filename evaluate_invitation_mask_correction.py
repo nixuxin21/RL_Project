@@ -1,12 +1,4 @@
-"""
-Evaluate invitation-mask correction for the current Coverage-Aware B=3 setting.
-
-The policy selection is unchanged: stale sparse previews generate a B=3
-candidate set and current aggregate feedback confirms one IRS index. This pilot
-only changes the invitation mask for the confirmed IRS index. The corrected
-mask uses the aggregate current feedback count as a target cardinality and stale
-per-node gains under the confirmed IRS as a deployable reranking signal.
-"""
+"""评估邀请掩码修正：在确认 IRS 后用聚合反馈数量修正 stale invitation mask。"""
 
 import argparse
 import csv
@@ -80,7 +72,7 @@ CSV_FIELDS = [
 
 
 def parse_args():
-    """Parse CLI arguments."""
+    """解析命令行参数，集中声明实验规模、策略配置、输入输出路径和绘图开关。"""
     parser = argparse.ArgumentParser(
         description="Evaluate aggregate-feedback invitation mask correction."
     )
@@ -146,22 +138,22 @@ def parse_args():
 
 
 def parse_float_list(value):
-    """Parse a comma-separated float list."""
+    """解析浮点数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [float(item) for item in str(value).split(",") if str(item).strip()]
 
 
 def parse_int_list(value):
-    """Parse a comma-separated integer list."""
+    """解析整数、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [int(item) for item in str(value).split(",") if str(item).strip()]
 
 
 def parse_string_list(value):
-    """Parse a comma-separated string list."""
+    """解析字符串、列表参数，通常把逗号分隔的命令行字符串转换成类型明确的 Python 列表。"""
     return [str(item).strip() for item in str(value).split(",") if str(item).strip()]
 
 
 def normalize_args(args):
-    """Parse list-like CLI options in-place."""
+    """处理normalize、参数相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     args.channel_rho_values = parse_float_list(args.channel_rho_values)
     args.csi_delay_slots = parse_int_list(args.csi_delay_slots)
     args.mask_correction_strengths = parse_float_list(args.mask_correction_strengths)
@@ -184,7 +176,7 @@ def normalize_args(args):
 
 
 def validate_args(args):
-    """Validate parsed CLI arguments before running an experiment."""
+    """校验解析后的命令行参数，尽早拒绝非法规模、预算或概率配置。"""
     validate_common_experiment_args(args)
     args.probe_budget = validate_probe_budget_values(
         [args.probe_budget],
@@ -238,7 +230,7 @@ def validate_args(args):
 
 
 def resolve_output_prefix(args):
-    """Return output prefix."""
+    """处理resolve、输出、前缀相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if args.output_prefix:
         ensure_parent_dir(args.output_prefix)
         return args.output_prefix
@@ -284,7 +276,7 @@ def resolve_output_prefix(args):
 
 
 def make_env(args):
-    """Create the MS-AirComp environment."""
+    """构建env所需的数据结构，供评估循环、训练流程或报告生成继续使用。"""
     return MSAirCompEnv(
         num_nodes=args.num_nodes,
         num_slots=args.num_slots,
@@ -304,7 +296,7 @@ def choose_coverage_b3_decision(
     max_delta,
     rerank_mode,
 ):
-    """Choose the current B3 policy and optionally correct its invitation mask."""
+    """按照覆盖感知、b3、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
     budget = min(int(args.probe_budget), int(args.num_codebook_states))
     seed_budget = min(
         int(args.num_codebook_states),
@@ -408,7 +400,7 @@ def run_episode(
     max_delta,
     rerank_mode,
 ):
-    """Run one episode for one correction strength."""
+    """运行回合流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     env = make_env(args)
     env.reset(seed=episode_seed)
     env._last_seed = episode_seed
@@ -520,14 +512,14 @@ def run_episode(
 
 
 def mean(items, field):
-    """Return a mean over dictionaries."""
+    """处理均值相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if not items:
         return 0.0
     return float(sum(float(item[field]) for item in items) / len(items))
 
 
 def policy_label(strength, deadband_z, max_delta, rerank_mode):
-    """Return policy label for a correction strength."""
+    """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     if abs(float(strength)) < 1e-12:
         return "Coverage-Aware B=3 sm=4.1"
     mode_prefix = ""
@@ -547,7 +539,7 @@ def policy_label(strength, deadband_z, max_delta, rerank_mode):
 
 
 def correction_configs(args):
-    """Yield unique correction configurations."""
+    """处理correction、configs相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     yielded_uncorrected = False
     for strength in args.mask_correction_strengths:
         if abs(float(strength)) < 1e-12:
@@ -567,7 +559,7 @@ def correction_configs(args):
 
 
 def run_evaluation(args):
-    """Run all scenarios and strengths."""
+    """运行evaluation流程，串联参数解析、实验执行、结果聚合和文件输出。"""
     rows = []
     run_seeds = make_run_seeds(args)
     episode_seed_sets = [make_episode_seeds(args, run_seed) for run_seed in run_seeds]
@@ -643,7 +635,7 @@ def run_evaluation(args):
 
 
 def aggregate_by_policy(rows):
-    """Aggregate scenario rows by policy and feedback-noise level."""
+    """聚合by、策略结果，把逐时隙、逐回合或逐场景数据压缩为可比较的摘要。"""
     groups = {}
     for row in rows:
         key = (
@@ -702,7 +694,7 @@ def aggregate_by_policy(rows):
 
 
 def write_csv(path, rows):
-    """Write scenario CSV."""
+    """写出CSV结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDS)
@@ -711,19 +703,19 @@ def write_csv(path, rows):
 
 
 def format_float(value, digits=3):
-    """Format for markdown."""
+    """格式化浮点数显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     return f"{float(value):.{digits}f}"
 
 
 def format_clip(value):
-    """Format max-delta clipping for markdown."""
+    """格式化clip显示文本，保证控制台、CSV 和 Markdown 中的数值表达一致。"""
     if float(value) < 0.0:
         return "none"
     return f"{float(value):g}"
 
 
 def markdown_table(headers, rows):
-    """Render a markdown table."""
+    """渲染 Markdown 表格，把表头和结果行转换成文档可直接引用的表格文本。"""
     output = ["| " + " | ".join(headers) + " |"]
     output.append("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
@@ -732,7 +724,7 @@ def markdown_table(headers, rows):
 
 
 def find_summary_by_mode(summaries, mode):
-    """Return the first summary row for a rerank mode, if present."""
+    """处理find、摘要、by、mode相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     for item in summaries:
         if item.get("mask_correction_rerank_mode") == mode:
             return item
@@ -740,7 +732,7 @@ def find_summary_by_mode(summaries, mode):
 
 
 def write_markdown(path, csv_path, summaries):
-    """Write analysis markdown."""
+    """写出markdown结果，并统一字段顺序、目录创建和后续文档读取口径。"""
     ensure_parent_dir(path)
     table_rows = []
     for item in summaries:
@@ -898,7 +890,7 @@ Best setting by gap: `{best["policy"]}` at feedback-noise std `{format_float(bes
 
 
 def main():
-    """Run the pilot."""
+    """脚本入口：串联参数解析、实验执行、结果聚合和文件输出。"""
     args = parse_args()
     normalize_args(args)
     validate_args(args)
