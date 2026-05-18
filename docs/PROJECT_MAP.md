@@ -19,7 +19,7 @@
 - `docs/PAPER_TEXT_OUTLINE.md`: 论文正文最小骨架，逐节固定 claim、证据、禁入内容和图表引用顺序。
 - `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 投稿前资产缺口清单，固定哪些表图 ready、source-only、analysis-layer 或 deferred。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结结果包的 artifact 清单、验证命令和非冻结边界。
-- `docs/figures/figure1_system_flow.mmd`: Figure 1 的 Mermaid 可编辑源文件，展示 system mismatch 和 deployable feedback pipeline。
+- `docs/figures/figure1_system_flow.mmd`: Figure 1 的 Mermaid 可编辑源文件，展示 system mismatch 和 deployable feedback pipeline；当前导出件为 `results/paper/figure1_system_flow.svg` 和 `results/paper/figure1_system_flow.pdf`。
 - `generate_paper_tables.py`: 从 frozen mainline CSV、coverage-aware analysis CSV 和 failure-diagnosis CSV 生成论文 Table 1/2/3 artifact；入口是 `make paper-tables`。
 - `generate_paper_figures.py`: 从 frozen mainline CSV 生成论文版 Figure 2/3/4 artifact；入口是 `make paper-figures`。
 - `summarize_execution_baselines.py`: 从已有 execution mismatch CSV 生成最终主线 baseline 和 learned 诊断汇总表；入口是 `make execution-baseline-summary`。
@@ -77,9 +77,9 @@
 - `docs/PAPER_FIGURE_TABLE_SPECS.md`: 论文图表规格层，作为 Figure 1、Table 1 和后续主图主表的默认依据。
 - `docs/PAPER_APPENDIX_BOUNDARY.md`: 论文附录边界层，作为选择 minimal appendix 与 supplement-only diagnostics 的默认依据。
 - `docs/PAPER_TEXT_OUTLINE.md`: 论文正文骨架层，作为正式写作前检查每节 claim 和 evidence traceability 的默认依据。
-- `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 论文资产缺口层，作为 manuscript assembly 前检查 Figure 1 export、Table 2/3 paper artifacts 和图表版式状态的默认依据。
+- `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 论文资产缺口层，作为 manuscript assembly 前检查 Figure 1 导出件、Table 2/3 paper artifacts 和图表版式状态的默认依据。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结清单层，作为提交 frozen CSV/PNG/MD artifact 前的默认依据。
-- `docs/figures/figure1_system_flow.mmd`: Figure 1 系统图源文件；暂不要求本地 Mermaid 渲染工具链。
+- `docs/figures/figure1_system_flow.mmd`: Figure 1 系统图源文件；`results/paper/figure1_system_flow.svg` 和 `results/paper/figure1_system_flow.pdf` 是从该源导出的当前 paper-facing 版本，重新导出可用 `make paper-figure1`。
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`: 由 `make paper-tables` 生成的论文 Table 1 Markdown 主表。
 - `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`: 由 `make paper-tables` 生成的 compact coverage-aware ablation / budget-split 表。
 - `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`: 由 `make paper-tables` 生成的 compact B3 failure diagnosis 表。

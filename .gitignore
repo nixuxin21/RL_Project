@@ -104,6 +104,8 @@ results/paper/*
 !results/paper/table1_paired_scenario_deltas.csv
 !results/paper/table2_coverage_aware_ablation.csv
 !results/paper/table3_failure_diagnosis.csv
+!results/paper/figure1_system_flow.svg
+!results/paper/figure1_system_flow.pdf
 !results/paper/figure2_figure3_points.csv
 !results/paper/figure2_preview_gap_frontier.png
 !results/paper/figure3_failed_missed_tradeoff.png

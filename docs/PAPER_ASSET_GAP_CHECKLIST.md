@@ -9,7 +9,7 @@
 | Asset | Current Status | Existing Source / Artifact | Gap Before Submission | Priority |
 |---|---|---|---|---|
 | Table 1: main results | Ready as paper-facing CSV and Markdown, with scenario-level uncertainty companion. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv` | Journal formatting only; do not overstate companion as seed-level significance. | Done |
-| Figure 1: system and feedback flow | Scientific source ready; publication export not generated. | `docs/figures/figure1_system_flow.mmd` | Export SVG/PDF from Mermaid and inspect layout manually. | P0 before manuscript assembly |
+| Figure 1: system and feedback flow | SVG/PDF export is generated from the canonical Mermaid source. | `docs/figures/figure1_system_flow.mmd`, `results/paper/figure1_system_flow.svg`, `results/paper/figure1_system_flow.pdf` | Final journal sizing / font check. | Done |
 | Figure 2: preview-gap frontier | Ready as paper-facing PNG and points CSV. | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` | Final journal sizing / font check. | P1 before submission |
 | Figure 3: failed/missed tradeoff | Ready as paper-facing PNG and points CSV. | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` | Final journal sizing / font check. | P1 before submission |
 | Figure 4: noise boundary | Ready as paper-facing PNGs and points CSV. | `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | Decide whether journal wants one combined panel or two separate files. | P1 before submission |
@@ -23,7 +23,6 @@ These assets should be generated only when the manuscript assembly begins. Propo
 
 | Missing Asset | Proposed Future Filename | Source | Acceptance Criteria |
 |---|---|---|---|
-| Figure 1 SVG/PDF export | results/paper/figure1_system_flow.svg and/or results/paper/figure1_system_flow.pdf | `docs/figures/figure1_system_flow.mmd` | Preserves stale/current CSI separation, aggregate feedback count, and `Aggregate count -> Mask correction` emphasis. |
 | Optional appendix tables | results/paper/appendix_* and docs/PAPER_APPENDIX_*.md | `docs/PAPER_APPENDIX_BOUNDARY.md`, `docs/RESULTS_INDEX.md` | Created only for the minimum Appendix A/B/C or reviewer-requested supplement. |
 
 ## Do Not Generate By Default
@@ -46,7 +45,7 @@ Before the manuscript is assembled:
 1. Run `make paper-tables`.
 2. Run `make paper-figures`.
 3. Decide whether Table 2 and Table 3 stay in main text or Table 3 moves to appendix.
-4. Export Figure 1 to SVG/PDF from `docs/figures/figure1_system_flow.mmd`.
+4. Re-export Figure 1 with `make paper-figure1` only if `docs/figures/figure1_system_flow.mmd` changes.
 5. Inspect Figure 1-4 and Table 1-3 at target journal column width.
 6. Run `make docs`, `make mainline-audit`, and `make check`.
 
@@ -54,7 +53,7 @@ Before the manuscript is assembled:
 
 The project is not blocked on more experiments. The remaining paper-asset gaps are presentation and packaging gaps:
 
-- Figure 1 needs a publication export.
+- Figure 1 SVG/PDF export is generated; it still needs final journal sizing / font inspection.
 - Table 2 and Table 3 now have compact paper-facing artifacts; the remaining decision is placement and final formatting.
 - Figure 2-4 need only final visual sizing / font checks unless the target journal requires vector formats.
 - Appendix assets should stay deferred until manuscript length and reviewer needs are known.

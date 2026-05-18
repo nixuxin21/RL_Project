@@ -134,7 +134,7 @@ Candidate caption:
 
 Figure 1 should explain the information flow, not report numerical results.
 
-The versioned source file is `docs/figures/figure1_system_flow.mmd`. This source is intentionally checked in before any polished SVG/PDF export so the scientific information flow can be reviewed in text.
+The versioned source file is `docs/figures/figure1_system_flow.mmd`. The paper-facing exports are `results/paper/figure1_system_flow.svg` and `results/paper/figure1_system_flow.pdf`. The Mermaid source remains the canonical editable source; regenerate the SVG/PDF with `make paper-figure1` only after changing that source.
 
 ### Main Message
 
@@ -192,8 +192,9 @@ Candidate caption:
 ### Source Maintenance
 
 - Keep `docs/figures/figure1_system_flow.mmd` as the canonical editable source.
+- Keep `results/paper/figure1_system_flow.svg` and `results/paper/figure1_system_flow.pdf` as the current paper-facing exports.
 - Do not make `make check` depend on Mermaid rendering tools.
-- If an SVG/PDF export is later added, it should be generated from this source and treated as a paper asset, not as a replacement for the source.
+- Treat SVG/PDF exports as paper assets, not as replacements for the source.
 
 ## Figure 2 And Figure 3
 

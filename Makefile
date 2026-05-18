@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figure1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -830,6 +830,10 @@ paper-table1:
 
 paper-tables: paper-table1
 
+paper-figure1:
+	npx -y @mermaid-js/mermaid-cli -i docs/figures/figure1_system_flow.mmd -o results/paper/figure1_system_flow.svg -b transparent
+	npx -y @mermaid-js/mermaid-cli -i docs/figures/figure1_system_flow.mmd -o results/paper/figure1_system_flow.pdf --pdfFit
+
 paper-figures:
 	$(PYTHON) generate_paper_figures.py
 
@@ -855,6 +859,8 @@ docs:
 		'Paper freeze manifest: docs/PAPER_FREEZE_MANIFEST.md' \
 		'Environment: docs/ENVIRONMENT.md' \
 		'Paper Figure 1 source: docs/figures/figure1_system_flow.mmd' \
+		'Paper Figure 1 SVG: results/paper/figure1_system_flow.svg' \
+		'Paper Figure 1 PDF: results/paper/figure1_system_flow.pdf' \
 		'Paper Table 1 main results: docs/PAPER_TABLE1_MAIN_RESULTS.md' \
 		'Paper Table 1 CSV: results/paper/table1_main_results.csv' \
 		'Paper Table 1 uncertainty: docs/PAPER_TABLE1_UNCERTAINTY.md' \
@@ -904,6 +910,7 @@ help:
 		'  make runtime               Reproduce the runtime benchmark' \
 		'  make docs                  Show documentation entry points' \
 		'  make paper-tables          Generate paper-facing Table 1/2/3 artifacts' \
+		'  make paper-figure1         Export Figure 1 SVG/PDF from Mermaid source' \
 		'' \
 		'Current execution-mismatch frontier:' \
 		'  make sparse-topk-cost-pilot' \

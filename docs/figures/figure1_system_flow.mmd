@@ -2,8 +2,9 @@
 %% This Mermaid file is a versioned concept figure source, not a generated result.
 %% Hidden current-channel information must remain evaluation-only.
 
-flowchart LR
+flowchart TB
     subgraph panel_a["(a) System and mismatch"]
+        direction LR
         devices["K devices"]
         irs["IRS codebook C"]
         ap["AP / parameter server"]
@@ -21,6 +22,7 @@ flowchart LR
     end
 
     subgraph panel_b["(b) Deployable feedback pipeline"]
+        direction TB
         stale_preview["Stale preview / ranking"]
         candidates["Coverage-aware candidates"]
         probes["B aggregate current probes"]

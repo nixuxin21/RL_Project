@@ -28,6 +28,9 @@ PAPER_TABLE2 = PAPER_RESULTS / "table2_coverage_aware_ablation.csv"
 PAPER_TABLE2_MD = Path("docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md")
 PAPER_TABLE3 = PAPER_RESULTS / "table3_failure_diagnosis.csv"
 PAPER_TABLE3_MD = Path("docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md")
+PAPER_FIGURE1_SOURCE = Path("docs/figures/figure1_system_flow.mmd")
+PAPER_FIGURE1_SVG = PAPER_RESULTS / "figure1_system_flow.svg"
+PAPER_FIGURE1_PDF = PAPER_RESULTS / "figure1_system_flow.pdf"
 PAPER_FIGURE_POINTS = PAPER_RESULTS / "figure2_figure3_points.csv"
 PAPER_FIGURE2 = PAPER_RESULTS / "figure2_preview_gap_frontier.png"
 PAPER_FIGURE3 = PAPER_RESULTS / "figure3_failed_missed_tradeoff.png"
@@ -99,7 +102,9 @@ REQUIRED_ARTIFACTS = [
     PAPER_ASSET_GAP,
     PAPER_FREEZE_MANIFEST,
     PROJECT_README,
-    Path("docs/figures/figure1_system_flow.mmd"),
+    PAPER_FIGURE1_SOURCE,
+    PAPER_FIGURE1_SVG,
+    PAPER_FIGURE1_PDF,
     PAPER_TABLE1,
     PAPER_TABLE1_MD,
     PAPER_TABLE1_UNCERTAINTY,
@@ -308,6 +313,9 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "docs/PAPER_TEXT_OUTLINE.md",
         "docs/PAPER_ASSET_GAP_CHECKLIST.md",
         "results/paper/table1_main_results.csv",
+        str(PAPER_FIGURE1_SOURCE),
+        str(PAPER_FIGURE1_SVG),
+        str(PAPER_FIGURE1_PDF),
         str(PAPER_TABLE2),
         str(PAPER_TABLE3),
         "docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md",
@@ -333,6 +341,8 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "使用 `make paper-tables` 和 `make paper-figures`",
         "docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md",
         "docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md",
+        str(PAPER_FIGURE1_SVG),
+        str(PAPER_FIGURE1_PDF),
         str(PAPER_FIGURE4_POINTS),
         str(PAPER_FIGURE4_GAP),
         str(PAPER_FIGURE4_FAILED_MISSED),
@@ -345,6 +355,9 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "`hidden-information temporal diagnostic`",
         "`Direct Mask Correction mc=1`",
         "`Clipped Mask Correction mc=1 clip=2`",
+        str(PAPER_FIGURE1_SOURCE),
+        str(PAPER_FIGURE1_SVG),
+        str(PAPER_FIGURE1_PDF),
         str(PAPER_FIGURE4_POINTS),
         str(PAPER_FIGURE4_GAP),
         str(PAPER_FIGURE4_FAILED_MISSED),
@@ -401,7 +414,7 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "## Missing Paper-Facing Artifacts",
         "## Do Not Generate By Default",
         "## Readiness Gates",
-        "Figure 1 needs a publication export",
+        "Figure 1 SVG/PDF export is generated",
         "Table 2 and Table 3 now have compact paper-facing artifacts",
         "docs/PAPER_RESULT_PACKAGE.md",
         "docs/PAPER_FIGURE_TABLE_SPECS.md",
@@ -415,7 +428,9 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md",
         str(PAPER_TABLE2),
         str(PAPER_TABLE3),
-        "docs/figures/figure1_system_flow.mmd",
+        str(PAPER_FIGURE1_SOURCE),
+        str(PAPER_FIGURE1_SVG),
+        str(PAPER_FIGURE1_PDF),
         str(PAPER_FIGURE2),
         str(PAPER_FIGURE3),
         str(PAPER_FIGURE4_POINTS),
@@ -471,6 +486,9 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "mc=1 clip=2",
         "make mainline-audit",
         str(FINAL_SUMMARY),
+        str(PAPER_FIGURE1_SOURCE),
+        str(PAPER_FIGURE1_SVG),
+        str(PAPER_FIGURE1_PDF),
         str(PAPER_TABLE1),
         str(PAPER_TABLE1_SCENARIO_UNCERTAINTY),
         str(PAPER_TABLE1_PAIRED_DELTAS),
@@ -488,6 +506,7 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "`Mask-Corrected Coverage-Aware B=3 mc=1` 是同 preview `16` 下的 trade-off result",
         "failed-invitation control diagnostic",
         "make paper-tables",
+        str(PAPER_FIGURE1_SVG),
     ],
 }
 
@@ -813,7 +832,32 @@ def assert_paper_table3():
     return len(rows)
 
 
+def assert_paper_figure1():
+    source_text = assert_exists(PAPER_FIGURE1_SOURCE).read_text(encoding="utf-8")
+    for snippet in (
+        "flowchart TB",
+        "Aggregate feedback count",
+        "Mask correction",
+        "Hidden current-channel oracle",
+    ):
+        if snippet not in source_text:
+            fail(f"{PAPER_FIGURE1_SOURCE} missing Figure 1 source snippet: {snippet!r}")
+
+    svg_text = assert_exists(PAPER_FIGURE1_SVG).read_text(encoding="utf-8", errors="replace")
+    if "<svg" not in svg_text or "Aggregate feedback count" not in svg_text:
+        fail(f"{PAPER_FIGURE1_SVG} does not look like the exported Figure 1 SVG")
+
+    pdf_header = assert_exists(PAPER_FIGURE1_PDF).read_bytes()[:4]
+    if pdf_header != b"%PDF":
+        fail(f"{PAPER_FIGURE1_PDF} does not look like a PDF export")
+
+    for path in (PAPER_FIGURE1_SVG, PAPER_FIGURE1_PDF):
+        if project_path(path).stat().st_size <= 0:
+            fail(f"empty paper Figure 1 artifact: {path}")
+
+
 def assert_paper_figures():
+    assert_paper_figure1()
     rows = read_csv(PAPER_FIGURE_POINTS)
     observed_order = [row["Method"] for row in rows]
     if observed_order != TABLE1_METHOD_ORDER:

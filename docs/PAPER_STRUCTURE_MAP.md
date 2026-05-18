@@ -41,7 +41,7 @@
 | Order | Item | Content | Source |
 |---|---|---|---|
 | Table 1 | Main result table | Frozen main-text methods across 9 temporal AR(1) scenarios, plus scenario-level uncertainty companion. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `docs/PAPER_RESULT_PACKAGE.md` |
-| Figure 1 | System and feedback flow diagram | Stale CSI, limited IRS preview, aggregate confirmation, invitation-mask correction. | `docs/PAPER_FIGURE_TABLE_SPECS.md`, `docs/figures/figure1_system_flow.mmd` |
+| Figure 1 | System and feedback flow diagram | Stale CSI, limited IRS preview, aggregate confirmation, invitation-mask correction. | `docs/PAPER_FIGURE_TABLE_SPECS.md`, `docs/figures/figure1_system_flow.mmd`, `results/paper/figure1_system_flow.svg`, `results/paper/figure1_system_flow.pdf` |
 | Figure 2 | Preview-gap frontier | Preview cost vs oracle gap for main methods. | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` |
 | Figure 3 | Failed/missed tradeoff | Failed invitations and missed opportunities across main methods. | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` |
 | Table 2 | Coverage-aware and budget split ablation | Why `cw=0.5 cpw=0` and why `B=3 sm=4.1`. | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`, `docs/COVERAGE_AWARE_ANALYSIS.md` |
@@ -112,8 +112,8 @@ Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-
 真正开始写论文正文前，建议先完成下面几项：
 
 1. 检查 Table 1、Figure 2、Figure 3 和 Figure 4 的 method naming 是否与 `docs/PAPER_FIGURE_TABLE_SPECS.md` 的 naming crosswalk 完全一致。
-2. 以 `docs/figures/figure1_system_flow.mmd` 为 Figure 1 的 canonical editable source；如果导出 SVG/PDF，导出件必须仍保持 stale CSI、limited IRS probes、aggregate feedback count 和 mask correction 的信息边界。
+2. 以 `docs/figures/figure1_system_flow.mmd` 为 Figure 1 的 canonical editable source；当前 SVG/PDF 导出为 `results/paper/figure1_system_flow.svg` 和 `results/paper/figure1_system_flow.pdf`，且必须保持 stale CSI、limited IRS probes、aggregate feedback count 和 mask correction 的信息边界。
 3. 使用 `make paper-tables` 和 `make paper-figures` 生成正文 Table 1/2/3、Table 1 uncertainty companion、Figure 2、Figure 3 和 Figure 4，不手工改数值或绘图点表。
-4. 按 `docs/PAPER_ASSET_GAP_CHECKLIST.md` 确认 Figure 1 export、Table 2/3 placement 和图表版式状态。
+4. 按 `docs/PAPER_ASSET_GAP_CHECKLIST.md` 确认 Figure 1 导出件、Table 2/3 placement 和图表版式状态。
 5. 从 `docs/RESULTS_INDEX.md` 抽出 appendix tables 的最小集合，避免附录过度膨胀。
 6. 跑 `make mainline-audit` 和 `make check`，确保 artifact chain 和数值趋势仍成立。

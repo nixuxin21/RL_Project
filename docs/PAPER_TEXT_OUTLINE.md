@@ -48,7 +48,7 @@ Must not say:
 | Claim | Evidence | Placement |
 |---|---|---|
 | Stale CSI and execution-channel mismatch make full-current-CSI scheduling unrealistic. | `docs/PAPER_RESULT_PACKAGE.md`, `docs/MAIN_RESULTS_ANALYSIS.md` | Opening motivation |
-| IRS-assisted MS-AirComp under limited feedback has two coupled decisions: IRS state and invited devices. | Figure 1 source: `docs/figures/figure1_system_flow.mmd` | Problem paragraph |
+| IRS-assisted MS-AirComp under limited feedback has two coupled decisions: IRS state and invited devices. | Figure 1 source/export: `docs/figures/figure1_system_flow.mmd`, `results/paper/figure1_system_flow.svg`, `results/paper/figure1_system_flow.pdf` | Problem paragraph |
 | Low-cost candidate generation alone improves the frontier but leaves invitation-mask mismatch. | Figure 2, Figure 3, Table 2, Table 3 | Gap paragraph |
 | Aggregate-feedback invitation-mask correction improves slots and failed invitations, slightly improves missed opportunities, but increases no-noise gap at the same preview budget. | Table 1, Figure 3 | Main result paragraph |
 | High-noise aggregate feedback changes the trade-off: direct correction improves gap, while clipped correction controls failed invitations. | Figure 4 | Boundary paragraph |
@@ -240,4 +240,4 @@ make mainline-audit
 make check
 ```
 
-Also check `docs/PAPER_ASSET_GAP_CHECKLIST.md` before manuscript assembly. Figure 1 export, Table 2/3 placement, and final table/figure formatting are presentation tasks, not new experiments.
+Also check `docs/PAPER_ASSET_GAP_CHECKLIST.md` before manuscript assembly. Figure 1 sizing/font inspection, Table 2/3 placement, and final table/figure formatting are presentation tasks, not new experiments.

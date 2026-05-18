@@ -64,6 +64,9 @@ not a full seed-level significance test.
 
 Supporting artifacts:
 
+- `docs/figures/figure1_system_flow.mmd`
+- `results/paper/figure1_system_flow.svg`
+- `results/paper/figure1_system_flow.pdf`
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`
 - `results/paper/table1_main_results.csv`
 - `docs/PAPER_TABLE1_UNCERTAINTY.md`
@@ -89,6 +92,7 @@ Supporting artifacts:
 Paper-facing generated artifacts are separated from analysis-layer figures:
 
 - `make paper-tables` owns Table 1, Table 2, Table 3 and the Table 1 scenario-level uncertainty companion (`docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `results/paper/table2_coverage_aware_ablation.csv`, `results/paper/table3_failure_diagnosis.csv`).
+- `make paper-figure1` owns the Mermaid export pair (`results/paper/figure1_system_flow.svg`, `results/paper/figure1_system_flow.pdf`) from `docs/figures/figure1_system_flow.mmd`; do not make Python `make check` depend on this Node/Mermaid toolchain.
 - `make paper-figures` owns Figure 2, Figure 3 and Figure 4 (`results/paper/...`).
 - `make main-results-analysis` and `make final-invitation-mask-analysis` own analysis-layer CSV/PNG/MD files under `results/execution_mismatch/` and `docs/`.
 

@@ -38,6 +38,7 @@ Run these before treating the freeze as valid:
 ```bash
 make paper-tables
 make paper-figures
+make paper-figure1
 make check
 make mainline-audit
 ```
@@ -104,6 +105,9 @@ Invitation-mask correction artifacts:
 
 Paper-facing table and figure artifacts:
 
+- `docs/figures/figure1_system_flow.mmd`
+- `results/paper/figure1_system_flow.svg`
+- `results/paper/figure1_system_flow.pdf`
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`
 - `docs/PAPER_TABLE1_UNCERTAINTY.md`
 - `results/paper/table1_main_results.csv`
