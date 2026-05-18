@@ -858,6 +858,7 @@ docs:
 		'Paper asset gap checklist: docs/PAPER_ASSET_GAP_CHECKLIST.md' \
 		'Paper freeze manifest: docs/PAPER_FREEZE_MANIFEST.md' \
 		'Environment: docs/ENVIRONMENT.md' \
+		'Chinese code explanation: docs/CODE_EXPLANATION_CN.md' \
 		'Paper Figure 1 source: docs/figures/figure1_system_flow.mmd' \
 		'Paper Figure 1 SVG: results/paper/figure1_system_flow.svg' \
 		'Paper Figure 1 PDF: results/paper/figure1_system_flow.pdf' \

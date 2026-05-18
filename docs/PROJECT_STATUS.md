@@ -22,6 +22,7 @@
 - 2026-05-18 已用 `/tmp` fresh clone + 独立 Python `3.13.2` venv 验证 `requirements.txt` 可安装并通过 `make quick-audit`。
 - `.github/workflows/checks.yml` 已加入 CI，在 push 和 pull request 上运行同一套 `make quick-audit PYTHON=python`。
 - 结果发布边界由 `.gitignore`、`docs/PAPER_FREEZE_MANIFEST.md`、`results/README.md` 和 `tests/mainline_artifact_checks.py` 共同约束；clean clone 不应依赖本机 ignored result 文件。
+- `docs/CODE_EXPLANATION_CN.md` 已加入作为非论文侧中文代码读本，覆盖核心概念、模块职责、脚本分层、测试边界和后续扩展流程。
 
 ## Active Code
 

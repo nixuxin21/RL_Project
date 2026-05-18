@@ -58,6 +58,7 @@ make paper-figures
 | `docs/PAPER_ASSET_GAP_CHECKLIST.md` | 投稿前表图资产缺口清单，固定 Figure 1、Table 2/3 和图表美化状态 |
 | `docs/PAPER_FREEZE_MANIFEST.md` | 论文冻结结果包的 artifact 清单、验证命令和非冻结边界 |
 | `docs/ENVIRONMENT.md` | Python 版本、依赖锁定和 clean setup 命令 |
+| `docs/CODE_EXPLANATION_CN.md` | 面向新读者和维护者的中文代码详解，覆盖核心概念、运行链路、模块职责、脚本分层、测试和扩展方式 |
 | `docs/figures/figure1_system_flow.mmd`, `results/paper/figure1_system_flow.svg`, `results/paper/figure1_system_flow.pdf` | Figure 1 系统与 feedback pipeline 的 Mermaid 可编辑源文件和当前 SVG/PDF 导出 |
 | `docs/PAPER_TABLE1_MAIN_RESULTS.md` | 由 `make paper-tables` 生成的论文 Table 1 Markdown 主表 |
 | `docs/PAPER_TABLE1_UNCERTAINTY.md` | 由 `make paper-tables` 生成的 Table 1 scenario-level uncertainty 和 paired delta companion |
