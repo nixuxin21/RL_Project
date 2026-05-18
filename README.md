@@ -232,6 +232,19 @@ This is the recommended first-pass reproducibility audit. It does not rerun the
 formal experiments and does not rewrite `results/`. Use the larger experiment
 targets below only when intentionally regenerating specific result families.
 
+## Continuous Checks
+
+GitHub Actions runs the same lightweight gate on push and pull request:
+
+```text
+.github/workflows/checks.yml -> make quick-audit PYTHON=python
+```
+
+The workflow installs `requirements.txt` on the Python version pinned by
+`.python-version`, then runs compile/lint/pytest, artifact-chain audit and the
+tiny `/tmp` execution-mismatch dry-run. It intentionally does not rerun formal
+experiment sweeps or regenerate tracked result artifacts.
+
 ## Core Commands
 
 基础验证：

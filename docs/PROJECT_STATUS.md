@@ -14,6 +14,15 @@
 
 论文撰写前的主线结果包已冻结在 `docs/PAPER_RESULT_PACKAGE.md`。章节、表图和附录位置已映射到 `docs/PAPER_STRUCTURE_MAP.md`，主图主表规格已统一固定在 `docs/PAPER_FIGURE_TABLE_SPECS.md`，附录最小集合已固定在 `docs/PAPER_APPENDIX_BOUNDARY.md`，正文最小写作骨架已固定在 `docs/PAPER_TEXT_OUTLINE.md`，投稿前资产缺口已固定在 `docs/PAPER_ASSET_GAP_CHECKLIST.md`，冻结 artifact 清单已固定在 `docs/PAPER_FREEZE_MANIFEST.md`。后续写论文、补图表或判断新实验是否进入正文时，优先以这些文件为准。
 
+## Repository Readiness
+
+非论文侧当前维护状态：
+
+- 标准本地门槛是 `make check`、`make mainline-audit` 和 `make quick-audit`。
+- 2026-05-18 已用 `/tmp` fresh clone + 独立 Python `3.13.2` venv 验证 `requirements.txt` 可安装并通过 `make quick-audit`。
+- `.github/workflows/checks.yml` 已加入 CI，在 push 和 pull request 上运行同一套 `make quick-audit PYTHON=python`。
+- 结果发布边界由 `.gitignore`、`docs/PAPER_FREEZE_MANIFEST.md`、`results/README.md` 和 `tests/mainline_artifact_checks.py` 共同约束；clean clone 不应依赖本机 ignored result 文件。
+
 ## Active Code
 
 | 文件 | 状态 | 用途 |

@@ -1,5 +1,25 @@
 # Project Audit Report
 
+## 0. Resolution Status
+
+本报告最初记录的是审阅时的风险清单。当前仓库已经完成一轮工程收口，状态如下：
+
+| ID | Current Status | Evidence |
+|---|---|---|
+| AUD-001 | Resolved for implementation consistency. | `ms_aircomp/channel_models.py` 的 `execution_rng(..., candidate_index=...)` 让同一 IRS index 的 execution drift 不再依赖候选 batch 形状；`ms_aircomp/execution_candidates.py` 逐 index 构造 drifted candidate。 |
+| AUD-002 | Resolved for temporal AR(1) mainline. | `build_temporal_channel_trace(..., prehistory_slots=...)` 和 `delayed_channel_state(..., history_states=...)` 支持 early slots 使用真实 prehistory stale CSI。 |
+| AUD-003 | Resolved for clean-clone artifact tracing. | `.gitignore` 已 unignore freeze/source CSV；`tests/mainline_artifact_checks.py` 会检查 freeze artifacts 和 source CSV 是否 tracked/staged。 |
+| AUD-006 | Mitigated. | `docs/PAPER_TABLE1_UNCERTAINTY.md`、`results/paper/table1_scenario_uncertainty.csv` 和 `results/paper/table1_paired_scenario_deltas.csv` 提供 scenario-level variability；仍不声称完整 seed-level significance。 |
+| AUD-007 | Resolved for project setup. | `.python-version`、`pyproject.toml`、`requirements.txt`、`requirements-lock.txt` 和 `docs/ENVIRONMENT.md` 已固定环境；2026-05-18 fresh clone + independent venv passed `make quick-audit`。 |
+| AUD-008 | Resolved for release boundary. | `results/README.md` 和 `docs/PAPER_FREEZE_MANIFEST.md` 明确哪些结果需要版本化；`make mainline-audit` 检查 clean-clone 边界。 |
+| AUD-009 | Resolved for current entry points. | `ms_aircomp/experiment_utils.py` 提供共享 validation helpers；`tests/validation_checks.py` 覆盖关键 CLI validation failure paths。 |
+| AUD-010 | Resolved for public env API. | `test_env.py` 中 `_sanitize_action()` 检查 action shape/finite 并 clip 到 action space；`tests/smoke_checks.py` 覆盖非法 action。 |
+| AUD-011 | Resolved in method description. | 文档和 `ms_aircomp/invitation_mask_correction.py` 均明确 mask correction 是 aggregate target-count correction + stale-gain reranking。 |
+| AUD-012 | Mitigated by documentation. | `docs/RESULTS_INDEX.md` 说明 limited-CSI 与 execution-mismatch failure-slot 指标口径差异。 |
+| AUD-013 | Mitigated by boundary docs/tests. | `docs/PAPER_APPENDIX_BOUNDARY.md`、`docs/DEPRECATED_DIRECTIONS.md` 和 dependency-boundary checks 将 learned/RL branches 固定为 diagnostics/archive。 |
+
+当前工程状态以 `docs/PROJECT_STATUS.md`、`docs/ENVIRONMENT.md`、`results/README.md` 和 CI 工作流为准；下面保留原始审阅记录，便于追溯问题来源。
+
 ## 1. Project Understanding
 
 本项目研究 IRS-assisted multi-slot AirComp 在有限/过期 CSI 下的调度与 IRS 候选选择问题。当前主线不是通用 SAC 强化学习结果，而是面向论文复现实验的低预算候选预览策略：在 `K=50, N=10, M=64, C=16` 的仿真环境中，用过期 CSI 生成少量 IRS 候选，再用当前聚合反馈确认候选，并进一步用聚合反馈修正邀请掩码。

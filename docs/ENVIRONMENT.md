@@ -18,6 +18,14 @@ make test
 make mainline-audit
 ```
 
+Fresh-clone verification status:
+
+- On 2026-05-18, a temporary clone under `/tmp` with an independent Python
+  `3.13.2` virtual environment successfully installed `requirements.txt` and
+  passed `make quick-audit`.
+- The repository also has `.github/workflows/checks.yml`, which runs
+  `make quick-audit PYTHON=python` on push and pull request.
+
 For a lighter resolver-driven setup, install the direct pinned dependencies,
 including the standard `pytest` and high-signal `ruff` check entry points:
 
