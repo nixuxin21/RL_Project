@@ -8,6 +8,7 @@ CSV, figure, and Markdown artifacts still support the current main claims.
 import csv
 import re
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -20,6 +21,13 @@ MAIN_FRONTIER = EXECUTION_RESULTS / "main_frontier_analysis.csv"
 FINAL_INVITATION = EXECUTION_RESULTS / "final_invitation_mask_analysis.csv"
 PAPER_TABLE1 = PAPER_RESULTS / "table1_main_results.csv"
 PAPER_TABLE1_MD = Path("docs/PAPER_TABLE1_MAIN_RESULTS.md")
+PAPER_TABLE1_UNCERTAINTY = Path("docs/PAPER_TABLE1_UNCERTAINTY.md")
+PAPER_TABLE1_SCENARIO_UNCERTAINTY = PAPER_RESULTS / "table1_scenario_uncertainty.csv"
+PAPER_TABLE1_PAIRED_DELTAS = PAPER_RESULTS / "table1_paired_scenario_deltas.csv"
+PAPER_TABLE2 = PAPER_RESULTS / "table2_coverage_aware_ablation.csv"
+PAPER_TABLE2_MD = Path("docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md")
+PAPER_TABLE3 = PAPER_RESULTS / "table3_failure_diagnosis.csv"
+PAPER_TABLE3_MD = Path("docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md")
 PAPER_FIGURE_POINTS = PAPER_RESULTS / "figure2_figure3_points.csv"
 PAPER_FIGURE2 = PAPER_RESULTS / "figure2_preview_gap_frontier.png"
 PAPER_FIGURE3 = PAPER_RESULTS / "figure3_failed_missed_tradeoff.png"
@@ -33,6 +41,7 @@ PAPER_APPENDIX_BOUNDARY = Path("docs/PAPER_APPENDIX_BOUNDARY.md")
 PAPER_TEXT_OUTLINE = Path("docs/PAPER_TEXT_OUTLINE.md")
 PAPER_ASSET_GAP = Path("docs/PAPER_ASSET_GAP_CHECKLIST.md")
 PAPER_FREEZE_MANIFEST = Path("docs/PAPER_FREEZE_MANIFEST.md")
+PROJECT_README = Path("README.md")
 FINAL_INVITATION_MD = Path("docs/FINAL_INVITATION_MASK_ANALYSIS.md")
 INVITATION_FORMAL = (
     EXECUTION_RESULTS
@@ -89,9 +98,17 @@ REQUIRED_ARTIFACTS = [
     PAPER_TEXT_OUTLINE,
     PAPER_ASSET_GAP,
     PAPER_FREEZE_MANIFEST,
+    PROJECT_README,
     Path("docs/figures/figure1_system_flow.mmd"),
     PAPER_TABLE1,
     PAPER_TABLE1_MD,
+    PAPER_TABLE1_UNCERTAINTY,
+    PAPER_TABLE1_SCENARIO_UNCERTAINTY,
+    PAPER_TABLE1_PAIRED_DELTAS,
+    PAPER_TABLE2,
+    PAPER_TABLE2_MD,
+    PAPER_TABLE3,
+    PAPER_TABLE3_MD,
     PAPER_FIGURE_POINTS,
     PAPER_FIGURE2,
     PAPER_FIGURE3,
@@ -195,6 +212,62 @@ REQUIRED_COLUMNS = {
         "Preview",
         "Gap",
     },
+    PAPER_TABLE1_SCENARIO_UNCERTAINTY: {
+        "Method",
+        "Metric",
+        "Mean",
+        "ScenarioStd",
+        "ScenarioSE",
+        "ScenarioCI95",
+        "ScenarioCount",
+        "SamplesPerScenario",
+        "Seeds",
+    },
+    PAPER_TABLE1_PAIRED_DELTAS: {
+        "Comparison",
+        "Scope",
+        "Metric",
+        "Baseline",
+        "Candidate",
+        "BaselineMean",
+        "CandidateMean",
+        "MeanDelta",
+        "DeltaScenarioStd",
+        "DeltaScenarioSE",
+        "DeltaScenarioCI95",
+        "ImprovedScenarios",
+        "ScenarioCount",
+    },
+    PAPER_TABLE2: {
+        "Section",
+        "Setting",
+        "Scenarios",
+        "Samples",
+        "Seeds",
+        "Slots",
+        "Failed",
+        "Missed",
+        "Preview",
+        "Gap",
+        "DeltaSlotsVsSparse",
+        "DeltaMissedVsSparse",
+        "DeltaGapVsSparse",
+        "Role",
+    },
+    PAPER_TABLE3: {
+        "Scope",
+        "TraceSlots",
+        "GapSlots",
+        "AvgGap",
+        "PoolShare",
+        "SelectionShare",
+        "ConfirmationShare",
+        "InvitationShare",
+        "DominantComponent",
+        "OracleNotInSeedRate",
+        "Failed",
+        "Missed",
+    },
     PAPER_FIGURE_POINTS: {
         "Method",
         "ShortLabel",
@@ -214,8 +287,8 @@ REQUIRED_COLUMNS = {
         "Gap",
         "Failed",
         "Missed",
-        "IsReliableFeedbackMain",
-        "IsHighNoiseVariant",
+        "IsNoNoiseCorrectionTradeoff",
+        "IsHighNoiseGapBest",
     },
 }
 
@@ -235,6 +308,10 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "docs/PAPER_TEXT_OUTLINE.md",
         "docs/PAPER_ASSET_GAP_CHECKLIST.md",
         "results/paper/table1_main_results.csv",
+        str(PAPER_TABLE2),
+        str(PAPER_TABLE3),
+        "docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md",
+        "docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md",
         str(PAPER_FIGURE_POINTS),
         str(PAPER_FIGURE2),
         str(PAPER_FIGURE3),
@@ -242,6 +319,10 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         str(PAPER_FIGURE4_GAP),
         str(PAPER_FIGURE4_FAILED_MISSED),
         "When drafting, cite the `results/paper/` assets for main-text figures",
+        "Uncertainty status: the compact paper Table 1 is mean-only",
+        "docs/PAPER_TABLE1_UNCERTAINTY.md",
+        str(PAPER_TABLE1_PAIRED_DELTAS),
+        "stale-gain reranking",
     ],
     PAPER_STRUCTURE_MAP: [
         "docs/PAPER_APPENDIX_BOUNDARY.md",
@@ -249,19 +330,31 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "docs/PAPER_ASSET_GAP_CHECKLIST.md",
         "默认只保留 Appendix A/B/C 三组证据",
         "Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1`",
-        "使用 `make paper-table1` 和 `make paper-figures`",
+        "使用 `make paper-tables` 和 `make paper-figures`",
+        "docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md",
+        "docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md",
         str(PAPER_FIGURE4_POINTS),
         str(PAPER_FIGURE4_GAP),
         str(PAPER_FIGURE4_FAILED_MISSED),
     ],
     PAPER_FIGURE_SPECS: [
         "## Naming Crosswalk",
+        "## Information-Role Taxonomy",
+        "`deployable`",
+        "`diagnostic`",
+        "`hidden-information temporal diagnostic`",
         "`Direct Mask Correction mc=1`",
         "`Clipped Mask Correction mc=1 clip=2`",
         str(PAPER_FIGURE4_POINTS),
         str(PAPER_FIGURE4_GAP),
         str(PAPER_FIGURE4_FAILED_MISSED),
-        "Direct target-count correction is the reliable-feedback main method",
+        "Direct target-count correction is a no-noise trade-off",
+        str(PAPER_TABLE2),
+        str(PAPER_TABLE3),
+        "Table 1 is a compact mean-only table",
+        "docs/PAPER_TABLE1_UNCERTAINTY.md",
+        "stale-gain reranking",
+        "all non-oracle Table 1 methods in these figures as deployable",
     ],
     PAPER_APPENDIX_BOUNDARY: [
         "## Default Appendix Minimum",
@@ -274,7 +367,7 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "results/policy_comparison/policy_comparison_summary_ep1000_runs5_seed2026_featargmax_powertie_cbsac.csv",
         "results/runtime/runtime_benchmark_ep200_seed2026.csv",
         "results/bandit_feedback/bandit_feedback_stress_formal_ep1000_runs5_seed2026.csv",
-        "`mc=1 clip=2` 是 high-noise robustness variant",
+        "`mc=1 clip=2` 是 failed-invitation control diagnostic",
     ],
     PAPER_TEXT_OUTLINE: [
         "## Abstract Skeleton",
@@ -294,10 +387,12 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         str(PAPER_FIGURE2),
         str(PAPER_FIGURE3),
         str(PAPER_FIGURE4_POINTS),
-        "`Mask-Corrected Coverage-Aware B=3 mc=1` remains the reliable-feedback main method",
-        "`mc=1 clip=2` remains high-noise robustness only",
+        str(PAPER_TABLE2),
+        str(PAPER_TABLE3),
+        "`Mask-Corrected Coverage-Aware B=3 mc=1` is a no-noise trade-off",
+        "`mc=1 clip=2` is a failed-invitation control diagnostic",
         "No learned or RL branch is reintroduced as a main method",
-        "make paper-table1",
+        "make paper-tables",
         "make paper-figures",
         "make mainline-audit",
     ],
@@ -307,12 +402,19 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "## Do Not Generate By Default",
         "## Readiness Gates",
         "Figure 1 needs a publication export",
-        "Table 2 and Table 3 need compact paper-facing artifacts",
+        "Table 2 and Table 3 now have compact paper-facing artifacts",
         "docs/PAPER_RESULT_PACKAGE.md",
         "docs/PAPER_FIGURE_TABLE_SPECS.md",
         "docs/PAPER_TEXT_OUTLINE.md",
         "docs/PAPER_TABLE1_MAIN_RESULTS.md",
+        "docs/PAPER_TABLE1_UNCERTAINTY.md",
         str(PAPER_TABLE1),
+        str(PAPER_TABLE1_SCENARIO_UNCERTAINTY),
+        str(PAPER_TABLE1_PAIRED_DELTAS),
+        "docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md",
+        "docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md",
+        str(PAPER_TABLE2),
+        str(PAPER_TABLE3),
         "docs/figures/figure1_system_flow.mmd",
         str(PAPER_FIGURE2),
         str(PAPER_FIGURE3),
@@ -321,8 +423,38 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         str(PAPER_FIGURE4_FAILED_MISSED),
         "results/execution_mismatch/coverage_aware_ablation_analysis.csv",
         "docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md",
-        "make paper-table1",
+        "make paper-tables",
         "make paper-figures",
+    ],
+    PAPER_TABLE1_MD: [
+        "All non-oracle rows are deployable under the stated stale-CSI and aggregate-feedback information model",
+        "Information-role taxonomy follows `docs/PAPER_FIGURE_TABLE_SPECS.md`",
+        "All Table 1 rows except `Temporal Deviation Oracle B=4` are deployable comparisons or references",
+        "hidden-information temporal diagnostic reference",
+        "Learned variants are diagnostics",
+        "The compact main table is mean-only",
+        "Companion artifacts are generated",
+    ],
+    PAPER_TABLE1_UNCERTAINTY: [
+        "scenario-level variability",
+        "not a full seed-level significance test",
+        "Paired Same-Preview Deltas",
+        "ImprovedScenarios",
+        "Mask-Corrected vs Coverage-Aware B=3",
+    ],
+    PAPER_TABLE2_MD: [
+        "Paper Table 2 Coverage-Aware Ablation",
+        str(PAPER_TABLE2),
+        "Compact coverage-aware ablation and budget-split evidence",
+        "Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0",
+        "Full power-penalty and neighbor-coverage diagnostics remain",
+    ],
+    PAPER_TABLE3_MD: [
+        "Paper Table 3 Failure Diagnosis",
+        str(PAPER_TABLE3),
+        "overall invitation share is `0.687`",
+        "This is a diagnostic table",
+        "Full trace-level evidence remains",
     ],
     FINAL_INVITATION_MD: [
         "Paper-facing Figure 4 artifacts are generated",
@@ -340,8 +472,22 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         "make mainline-audit",
         str(FINAL_SUMMARY),
         str(PAPER_TABLE1),
+        str(PAPER_TABLE1_SCENARIO_UNCERTAINTY),
+        str(PAPER_TABLE1_PAIRED_DELTAS),
+        str(PAPER_TABLE2),
+        str(PAPER_TABLE3),
         str(PAPER_FIGURE2),
         str(PAPER_FIGURE4_GAP),
+    ],
+    PROJECT_README: [
+        "## Quick Reproduction Audit",
+        "make quick-audit",
+        "formal experiments",
+        "summary `source_file` CSV",
+        "`Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 是当前 no-noise same-preview gap reference",
+        "`Mask-Corrected Coverage-Aware B=3 mc=1` 是同 preview `16` 下的 trade-off result",
+        "failed-invitation control diagnostic",
+        "make paper-tables",
     ],
 }
 
@@ -359,6 +505,29 @@ def assert_exists(path):
     if not full_path.exists():
         fail(f"missing artifact: {path}")
     return full_path
+
+
+def assert_git_tracked(path):
+    """Require a freeze artifact to be present in the Git index."""
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", str(path)],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(path)],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if ignored.returncode == 0:
+        fail(f"freeze artifact is ignored by .gitignore and will be absent in a clean clone: {path}")
+    fail(f"freeze artifact is not tracked/staged and will be absent in a clean clone: {path}")
 
 
 def read_csv(path):
@@ -407,6 +576,7 @@ def assert_close(row, key, expected, tol=1e-9):
 def assert_all_exist():
     for path in REQUIRED_ARTIFACTS:
         assert_exists(path)
+        assert_git_tracked(path)
 
 
 def assert_results_index_paths_exist():
@@ -449,7 +619,20 @@ def assert_source_files_exist(rows):
         source_file = row.get("source_file", "").strip()
         if not source_file:
             continue
-        assert_exists(EXECUTION_RESULTS / source_file)
+        source_path = EXECUTION_RESULTS / source_file
+        assert_exists(source_path)
+        assert_git_tracked(source_path)
+
+
+def assert_source_files_documented(rows):
+    manifest_text = assert_exists(PAPER_FREEZE_MANIFEST).read_text(encoding="utf-8")
+    for row in rows:
+        source_file = row.get("source_file", "").strip()
+        if not source_file:
+            continue
+        source_path = str(EXECUTION_RESULTS / source_file)
+        if source_file not in manifest_text and source_path not in manifest_text:
+            fail(f"{PAPER_FREEZE_MANIFEST} missing source_file reference: {source_file}")
 
 
 def assert_final_summary():
@@ -459,6 +642,7 @@ def assert_final_summary():
     if missing_labels:
         fail(f"{FINAL_SUMMARY} missing mainline labels: {sorted(missing_labels)}")
     assert_source_files_exist(rows)
+    assert_source_files_documented(rows)
 
     coverage_b3 = row_by(rows, "label", "Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0")
     mask_corrected = row_by(rows, "label", "Mask-Corrected Coverage-Aware B=3 mc=1")
@@ -473,12 +657,12 @@ def assert_final_summary():
     assert_close(temporal_oracle, "decision_preview_calls_per_slot_mean", 4.0)
     assert_close(stale_topk, "decision_preview_calls_per_slot_mean", 20.0)
 
-    if as_float(mask_corrected, "oracle_tx_gap_mean") >= as_float(coverage_b3, "oracle_tx_gap_mean"):
-        fail("mask-corrected main method must improve oracle gap over uncorrected Coverage-Aware B=3")
+    if as_float(mask_corrected, "slots_mean") >= as_float(coverage_b3, "slots_mean"):
+        fail("mask-corrected trade-off should reduce slots over uncorrected Coverage-Aware B=3")
     if as_float(mask_corrected, "failed_nodes_mean") >= as_float(coverage_b3, "failed_nodes_mean"):
-        fail("mask-corrected main method must reduce failed nodes over uncorrected Coverage-Aware B=3")
+        fail("mask-corrected trade-off should reduce failed nodes over uncorrected Coverage-Aware B=3")
     if as_float(mask_corrected, "missed_opportunities_mean") >= as_float(coverage_b3, "missed_opportunities_mean"):
-        fail("mask-corrected main method must reduce missed opportunities over uncorrected Coverage-Aware B=3")
+        fail("mask-corrected trade-off should reduce missed opportunities over uncorrected Coverage-Aware B=3")
     return len(rows)
 
 
@@ -513,6 +697,119 @@ def assert_paper_table1():
     for label in TABLE1_METHOD_ORDER:
         if f"`{label}`" not in text:
             fail(f"{PAPER_TABLE1_MD} missing method label {label!r}")
+    return len(rows)
+
+
+def assert_paper_table1_uncertainty():
+    uncertainty_rows = read_csv(PAPER_TABLE1_SCENARIO_UNCERTAINTY)
+    paired_rows = read_csv(PAPER_TABLE1_PAIRED_DELTAS)
+    text = assert_exists(PAPER_TABLE1_UNCERTAINTY).read_text(encoding="utf-8")
+
+    expected_metrics = {"Slots", "Failed", "Missed", "Gap"}
+    expected_uncertainty_count = len(TABLE1_METHOD_ORDER) * len(expected_metrics)
+    if len(uncertainty_rows) != expected_uncertainty_count:
+        fail(
+            f"{PAPER_TABLE1_SCENARIO_UNCERTAINTY} should have "
+            f"{expected_uncertainty_count} rows, found {len(uncertainty_rows)}"
+        )
+
+    methods_by_metric = {
+        (row["Method"], row["Metric"]): row for row in uncertainty_rows
+    }
+    for label in TABLE1_METHOD_ORDER:
+        for metric in expected_metrics:
+            row = methods_by_metric.get((label, metric))
+            if row is None:
+                fail(f"{PAPER_TABLE1_SCENARIO_UNCERTAINTY} missing {label} {metric}")
+            assert_close(row, "ScenarioCount", 9.0)
+            assert_close(row, "SamplesPerScenario", 900.0)
+            assert_close(row, "Seeds", 3.0)
+            if as_float(row, "ScenarioCI95") < 0.0:
+                fail(f"{PAPER_TABLE1_SCENARIO_UNCERTAINTY} has negative CI for {label} {metric}")
+
+    expected_comparisons = {
+        "Mask-Corrected vs Coverage-Aware B=3",
+        "Mask-Corrected vs Coverage-Aware B=4",
+        "Mask-Corrected vs Sparse-TopK B=4",
+    }
+    if len(paired_rows) != len(expected_comparisons) * len(expected_metrics):
+        fail(
+            f"{PAPER_TABLE1_PAIRED_DELTAS} should have "
+            f"{len(expected_comparisons) * len(expected_metrics)} rows, found {len(paired_rows)}"
+        )
+    for comparison in expected_comparisons:
+        for metric in expected_metrics:
+            row = row_by(
+                rows_by(paired_rows, Comparison=comparison),
+                "Metric",
+                metric,
+            )
+            assert_close(row, "ScenarioCount", 9.0)
+            if comparison == "Mask-Corrected vs Coverage-Aware B=3" and metric in {
+                "Slots",
+                "Failed",
+                "Missed",
+            }:
+                if as_float(row, "MeanDelta") >= 0.0:
+                    fail(f"{comparison} should improve lower-is-better metric {metric}")
+
+    for snippet in (
+        str(PAPER_TABLE1_SCENARIO_UNCERTAINTY),
+        str(PAPER_TABLE1_PAIRED_DELTAS),
+        "Claims of formal statistical dominance should wait",
+    ):
+        if snippet not in text:
+            fail(f"{PAPER_TABLE1_UNCERTAINTY} missing snippet: {snippet!r}")
+    return len(uncertainty_rows) + len(paired_rows)
+
+
+def assert_paper_table2():
+    rows = read_csv(PAPER_TABLE2)
+    if len(rows) != 8:
+        fail(f"{PAPER_TABLE2} should have 8 compact rows, found {len(rows)}")
+    sparse = row_by(rows, "Setting", "Sparse-TopK B=4 sm=3")
+    coverage_b4 = row_by(rows, "Setting", "Coverage-Aware B=4 cw=0.5 cpw=0")
+    coverage_b3 = row_by(rows, "Setting", "Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0")
+    assert_close(sparse, "Preview", 16.0)
+    assert_close(coverage_b4, "Preview", 16.0)
+    assert_close(coverage_b3, "Preview", 16.0)
+    if as_float(coverage_b4, "Missed") >= as_float(sparse, "Missed"):
+        fail("Table 2 should show B4 coverage-aware missed reduction over Sparse-TopK")
+    if as_float(coverage_b3, "Gap") >= as_float(coverage_b4, "Gap"):
+        fail("Table 2 should show B3 budget split as the lower-gap same-preview row")
+    text = assert_exists(PAPER_TABLE2_MD).read_text(encoding="utf-8")
+    for snippet in (
+        str(PAPER_TABLE2),
+        "Compact coverage-aware ablation and budget-split evidence",
+        "Full power-penalty and neighbor-coverage diagnostics remain",
+    ):
+        if snippet not in text:
+            fail(f"{PAPER_TABLE2_MD} missing snippet: {snippet!r}")
+    return len(rows)
+
+
+def assert_paper_table3():
+    rows = read_csv(PAPER_TABLE3)
+    if len(rows) != 10:
+        fail(f"{PAPER_TABLE3} should have overall plus 9 scenario rows, found {len(rows)}")
+    overall = row_by(rows, "Scope", "overall")
+    invitation_share = as_float(overall, "InvitationShare")
+    competing_shares = [
+        as_float(overall, "PoolShare"),
+        as_float(overall, "SelectionShare"),
+        as_float(overall, "ConfirmationShare"),
+    ]
+    if overall["DominantComponent"] != "invitation" or invitation_share <= max(competing_shares):
+        fail("Table 3 should identify invitation as the dominant residual component")
+    assert_close(overall, "InvitationShare", 0.687, tol=0.001)
+    text = assert_exists(PAPER_TABLE3_MD).read_text(encoding="utf-8")
+    for snippet in (
+        str(PAPER_TABLE3),
+        "overall invitation share is `0.687`",
+        "This is a diagnostic table",
+    ):
+        if snippet not in text:
+            fail(f"{PAPER_TABLE3_MD} missing snippet: {snippet!r}")
     return len(rows)
 
 
@@ -588,8 +885,8 @@ def assert_paper_figure4():
         "Failed": ("failed_nodes_mean", 3),
         "Missed": ("missed_opportunities_mean", 3),
     }
-    reliable_main_count = 0
-    high_noise_variant_count = 0
+    no_noise_tradeoff_count = 0
+    high_noise_gap_best_count = 0
     for row in rows:
         noise = float(row["FeedbackNoiseStd"])
         source_row = invitation_row_by_label_noise(final_rows, row["Label"], noise)
@@ -604,13 +901,13 @@ def assert_paper_figure4():
                     f"{PAPER_FIGURE4_POINTS}: {row['Label']} noise={noise:g} "
                     f"{figure_key}={row[figure_key]!r}, expected {expected!r}"
                 )
-        reliable_main_count += row["IsReliableFeedbackMain"] == "True"
-        high_noise_variant_count += row["IsHighNoiseVariant"] == "True"
+        no_noise_tradeoff_count += row["IsNoNoiseCorrectionTradeoff"] == "True"
+        high_noise_gap_best_count += row["IsHighNoiseGapBest"] == "True"
 
-    if reliable_main_count != 1:
-        fail(f"{PAPER_FIGURE4_POINTS} should mark exactly one reliable-feedback main point")
-    if high_noise_variant_count != 1:
-        fail(f"{PAPER_FIGURE4_POINTS} should mark exactly one high-noise variant point")
+    if no_noise_tradeoff_count != 1:
+        fail(f"{PAPER_FIGURE4_POINTS} should mark exactly one no-noise correction trade-off point")
+    if high_noise_gap_best_count != 1:
+        fail(f"{PAPER_FIGURE4_POINTS} should mark exactly one high-noise gap-best point")
 
     for path in (PAPER_FIGURE4_GAP, PAPER_FIGURE4_FAILED_MISSED):
         full_path = assert_exists(path)
@@ -622,6 +919,7 @@ def assert_paper_figure4():
 def assert_main_frontier():
     rows = read_csv(MAIN_FRONTIER)
     assert_source_files_exist(rows)
+    assert_source_files_documented(rows)
     scenario_keys = {row["scenario_key"] for row in rows}
     if len(scenario_keys) != 9:
         fail(f"{MAIN_FRONTIER} should cover 9 rho/delay scenarios, found {len(scenario_keys)}")
@@ -642,6 +940,7 @@ def assert_invitation_artifacts():
     reliable_direct = rows_by(final_rows, label="Direct Mask Correction mc=1", feedback_noise_std="0.0")[0]
     noisy_direct = rows_by(final_rows, label="Direct Mask Correction mc=1", feedback_noise_std="0.1")[0]
     noisy_clipped = rows_by(final_rows, label="Clipped Mask Correction mc=1 clip=2", feedback_noise_std="0.1")[0]
+    noisy_b3 = rows_by(final_rows, label="Coverage-Aware B=3", feedback_noise_std="0.1")[0]
 
     for row in (reliable_b3, reliable_direct, noisy_direct, noisy_clipped):
         assert_close(row, "scenario_count", 9.0)
@@ -649,14 +948,20 @@ def assert_invitation_artifacts():
         assert_close(row, "num_seeds", 3.0)
         assert_close(row, "decision_preview_calls_per_slot_mean", 16.0)
 
-    if as_float(reliable_direct, "oracle_tx_gap_mean") >= as_float(reliable_b3, "oracle_tx_gap_mean"):
-        fail("reliable direct mask correction must improve gap over B3")
+    if as_float(reliable_direct, "slots_mean") >= as_float(reliable_b3, "slots_mean"):
+        fail("no-noise direct mask correction should reduce slots over B3")
+    if as_float(reliable_direct, "failed_nodes_mean") >= as_float(reliable_b3, "failed_nodes_mean"):
+        fail("no-noise direct mask correction should reduce failed nodes over B3")
+    if as_float(reliable_direct, "missed_opportunities_mean") >= as_float(reliable_b3, "missed_opportunities_mean"):
+        fail("no-noise direct mask correction should reduce missed opportunities over B3")
     if as_float(reliable_direct, "mask_correction_applied_rate") <= 0.0:
         fail("reliable direct mask correction should apply on at least some slots")
-    if as_float(noisy_clipped, "oracle_tx_gap_mean") >= as_float(noisy_direct, "oracle_tx_gap_mean"):
-        fail("high-noise clipped variant must improve gap over direct mc=1")
+    if as_float(noisy_direct, "oracle_tx_gap_mean") >= as_float(noisy_b3, "oracle_tx_gap_mean"):
+        fail("high-noise direct mask correction should improve gap over noisy B3")
+    if as_float(noisy_direct, "missed_opportunities_mean") >= as_float(noisy_b3, "missed_opportunities_mean"):
+        fail("high-noise direct mask correction should reduce missed opportunities over noisy B3")
     if as_float(noisy_clipped, "failed_nodes_mean") >= as_float(noisy_direct, "failed_nodes_mean"):
-        fail("high-noise clipped variant must reduce failed nodes over direct mc=1")
+        fail("high-noise clipped diagnostic should reduce failed nodes over direct mc=1")
 
     formal_strengths = {float(row["mask_correction_strength"]) for row in formal_rows}
     if formal_strengths != {0.0, 0.75, 1.0}:
@@ -702,6 +1007,9 @@ def main():
     paper_text_count = assert_paper_facing_text()
     checked_rows += assert_final_summary()
     checked_rows += assert_paper_table1()
+    checked_rows += assert_paper_table1_uncertainty()
+    checked_rows += assert_paper_table2()
+    checked_rows += assert_paper_table3()
     checked_rows += assert_paper_figures()
     checked_rows += assert_paper_figure4()
     checked_rows += assert_main_frontier()

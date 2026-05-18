@@ -6,6 +6,7 @@ __all__ = [
     "apply_channel_state",
     "ar1_predict_channel_state",
     "build_temporal_channel_states",
+    "build_temporal_channel_trace",
     "capture_channel_state",
     "complex_normal",
     "delayed_channel_state",
@@ -16,18 +17,30 @@ __all__ = [
 ]
 
 
-def execution_rng(episode_seed, execution_error_std, slot_idx, no_irs=False):
-    """Create a policy-independent RNG for execution channel drift."""
+def execution_rng(
+    episode_seed,
+    execution_error_std,
+    slot_idx,
+    no_irs=False,
+    candidate_index=None,
+):
+    """Create a policy-independent RNG for execution channel drift.
+
+    `candidate_index` makes execution drift stable for a specific IRS candidate
+    regardless of whether it is built alone or inside a larger candidate batch.
+    """
     if episode_seed is None:
         return np.random.default_rng()
     error_tag = int(round(float(execution_error_std) * 1_000_000))
     mode_tag = 0x4CF5AD43 if no_irs else 0
+    index_tag = 0 if candidate_index is None else int(candidate_index) + 2
     seed = (
         int(episode_seed)
         + 0xD1B54A32
         + error_tag * 0x9E3779B1
         + int(slot_idx) * 0x85EBCA6B
         + mode_tag
+        + index_tag * 0x27D4EB2F
     ) % (2**32)
     return np.random.default_rng(seed)
 
@@ -73,30 +86,56 @@ def complex_normal(rng, shape, scale=1.0):
     return float(scale) * (rng.normal(size=shape) + 1j * rng.normal(size=shape)) / np.sqrt(2.0)
 
 
-def build_temporal_channel_states(env, args, episode_seed, channel_rho):
-    """Generate one AR(1) physical-channel state per slot."""
+def next_temporal_channel_state(prev, rho, innovation_weight, rng):
+    """Generate the next AR(1) physical-channel state."""
+    return {
+        "h_d": rho * prev["h_d"]
+        + innovation_weight * complex_normal(rng, prev["h_d"].shape, scale=0.1),
+        "h_r": rho * prev["h_r"]
+        + innovation_weight * complex_normal(rng, prev["h_r"].shape),
+        "h_bs_r": rho * prev["h_bs_r"]
+        + innovation_weight * complex_normal(rng, prev["h_bs_r"].shape),
+    }
+
+
+def build_temporal_channel_trace(env, args, episode_seed, channel_rho, prehistory_slots=0):
+    """Generate AR(1) history states and execution states for an episode."""
     rho = float(channel_rho)
     innovation_weight = np.sqrt(max(0.0, 1.0 - rho**2))
     rng = temporal_rng(episode_seed, rho)
+    prehistory_slots = max(0, int(prehistory_slots))
+    total_slots = prehistory_slots + int(args.num_slots)
     states = [capture_channel_state(env)]
-    for _slot_idx in range(1, int(args.num_slots)):
+    for _slot_idx in range(1, total_slots):
         prev = states[-1]
-        states.append(
-            {
-                "h_d": rho * prev["h_d"]
-                + innovation_weight * complex_normal(rng, prev["h_d"].shape, scale=0.1),
-                "h_r": rho * prev["h_r"]
-                + innovation_weight * complex_normal(rng, prev["h_r"].shape),
-                "h_bs_r": rho * prev["h_bs_r"]
-                + innovation_weight * complex_normal(rng, prev["h_bs_r"].shape),
-            }
-        )
-    return states
+        states.append(next_temporal_channel_state(prev, rho, innovation_weight, rng))
+    history_states = states[:prehistory_slots]
+    execution_states = states[prehistory_slots:]
+    return history_states, execution_states
 
 
-def delayed_channel_state(states, slot_idx, csi_delay_slots):
+def build_temporal_channel_states(env, args, episode_seed, channel_rho):
+    """Generate one AR(1) physical-channel state per execution slot."""
+    _history_states, execution_states = build_temporal_channel_trace(
+        env,
+        args,
+        episode_seed,
+        channel_rho,
+        prehistory_slots=0,
+    )
+    return execution_states
+
+
+def delayed_channel_state(states, slot_idx, csi_delay_slots, history_states=None):
     """Return the stale CSI state visible to the decision policy."""
-    delayed_idx = max(0, int(slot_idx) - int(csi_delay_slots))
+    slot_idx = int(slot_idx)
+    delay = max(0, int(csi_delay_slots))
+    if delay > slot_idx:
+        history_states = [] if history_states is None else list(history_states)
+        history_offset = delay - slot_idx
+        if history_offset <= len(history_states):
+            return history_states[-history_offset]
+    delayed_idx = max(0, slot_idx - delay)
     delayed_idx = min(delayed_idx, len(states) - 1)
     return states[delayed_idx]
 

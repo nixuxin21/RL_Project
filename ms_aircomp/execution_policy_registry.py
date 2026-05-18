@@ -1,6 +1,6 @@
 """Policy aliases, labels, and parameter grids for execution-mismatch runs."""
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 
 __all__ = [
     "MISMATCH_CHOICES",

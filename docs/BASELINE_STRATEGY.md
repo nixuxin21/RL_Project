@@ -15,15 +15,15 @@ execution mismatch 主线的最终聚合表由 `make execution-baseline-summary`
 | `No IRS` | 无 IRS 下界，用来证明 IRS 是否必要 | 是 |
 | `Random IRS` | 有 IRS 但不优化相位的基础 baseline | 是 |
 | `Greedy IRS` | full-preview 高开销上界 | 是 |
-| `Feature Argmax IRS` | 简单低复杂度规则方法 | 是 |
-| `Feature Argmax PowerTie IRS` | 当前主方法，低 preview 成本接近 Greedy | 是 |
+| `Feature Argmax IRS` | 简单低复杂度规则方法；exact feature acquisition 需计入 full-codebook preview cost | 是 |
+| `Feature Argmax PowerTie IRS` | exact feature + tie-break 诊断，不能把 feature acquisition 当作零成本 | 是 |
 
 ## 可选补充 Baselines
 
 | 方法 | 角色 | 建议位置 |
 |---|---|---|
 | `Fixed IRS` | 单个静态 codebook 消融 | appendix 或归档 |
-| `Best Fixed IRS` | 测试集静态 codebook 上限，说明静态配置能力有限 | appendix |
+| `Best Fixed IRS (val-selected)` | validation-seed 选择的静态 codebook 消融，说明静态配置能力有限 | appendix |
 | `SAC` / `SAC Fixed g/a` | 学习式 baseline，说明普通 RL 不自然优于规则方法 | supplement |
 | `Codebook-Aware SAC` | 学习式 IRS selector，适合诊断而非主线核心 | supplement |
 
@@ -99,7 +99,7 @@ execution mismatch 主线的最终聚合表由 `make execution-baseline-summary`
 | `Active Diverse Feedback Grid B=4` | 4.148 | 0.579 | 2.436 | 9.35 | 1.035 | 降低 gap 但牺牲 slots/preview |
 | `Sparse-TopK Feedback Grid B=4` | 3.751 | 0.518 | 1.818 | 12 | 0.773 | pilot 阶段主候选 |
 | `Stale-TopK Feedback Grid B=4` | 3.373 | 0.444 | 1.321 | 20 | 0.465 | 高成本正向参照 |
-| `Temporal Deviation Oracle B=4` | 2.985 | 0.326 | 0.900 | 4 | 0.345 | 隐藏 current-channel 上界 |
+| `Temporal Deviation Oracle B=4` | 2.985 | 0.326 | 0.900 | 4 | 0.345 | 隐藏 current-channel temporal diagnostic |
 
 效用解释要谨慎：如果 preview 成本较高，普通 `Rotating B=4/B=8` 仍可能是最优；该 pilot 之后已继续 sweep `Sparse-TopK` 的 stale seed 数、top-k 比例和 probe budget，结论见下方 formal frontier。
 
@@ -222,4 +222,4 @@ Pairwise / Cost-aware Learned Shortlist 已完成，入口是 `make learned-pair
 
 结论：当前线性 pairwise / cost-aware set scorer 也是负/中性诊断。`pc=0` 的离线 correlation 更高，但闭环几乎不选择 extra；`pc=0.005` 可以稳定选 1 个 extra，却只接近 execution-value `maxex=1`，仍弱于 absolute-label `ex=2`。短期不应继续在同一组线性 set features 上调标签或 cost，而应把 learned route 降级为诊断；主线报告应围绕 `Rotating B=8`、`Sparse-TopK sm=3`、v2 continuum、`Stale-TopK` 和 temporal deviation oracle。
 
-Coverage-Aware Sparse-TopK 已作为 candidate-generation refinement 加入，pilot 入口是 `make coverage-sparse-topk-pilot`，weight ablation 入口是 `make coverage-sparse-topk-ablation`，power ablation 入口是 `make coverage-sparse-power-ablation`，B=4 formal 入口是 `make coverage-sparse-topk-frontier`，当前 budget split formal 入口是 `make coverage-budget-split-formal`。它不改变问题设定，也不是新主线；它针对 `Sparse-TopK sm=3` 的 missed opportunities 增加问题，在固定 sparse stale preview pool 内用 marginal device coverage gain 替代普通 rotating fill。formal power ablation 选择 `cpw=0`；weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。B=4 formal frontier 在 preview `16` 下降低 gap 和 missed opportunities，failed invitations 与 `Sparse-TopK sm=3` 基本持平；budget split formal 进一步选择 `B=3 sm=4.1`，同样 preview `16` 下把 gap 降到 `0.432`、missed 降到 `0.864`，代价是 failed invitations 升到 `0.546`。`B=5/6/8` 虽然 failed 更低，但 missed/gap 分别退化到 `1.356/0.562`、`1.715/0.647`、`2.544/0.836`。逐场景检查显示 B=3 在全部 9 个 `rho/delay` 场景上都是 lowest-gap 和 lowest-slots split，因此没有简单的 scenario-adaptive B 选择收益。Neighbor-Coverage local reallocation 在同样 preview `16` 下测试把部分 uniform stale seeds 换成 stale leader neighbors，最佳 pilot 为 slots `3.293`、gap `0.452`，仍弱于当前 B=3 的 `3.189/0.432`，因此只保留为负诊断。`make coverage-b3-failure-diagnosis` 进一步显示，当前 B3 residual gap 的主导来源是 stale invitation-mask mismatch：invitation gap share `0.530`，高于 selection `0.251`、confirmation `0.116` 和 pool `0.104`。`make invitation-mask-correction-formal` 证明该诊断可以转化成正向方法：`Mask-Corrected Coverage-Aware B=3 mc=1` 在同样 preview `16` 下达到 slots `2.684`、failed `0.333`、missed `0.333`、gap `0.292`。`make invitation-mask-correction-noise-aware-formal` 进一步显示，低/中噪声下 direct `mc=1` 仍是最低 gap，高噪声 std `0.1` 下 `mc=1 clip=2` 把 direct `mc=1` 的 gap/failed/missed 从 `0.856/5.264/0.734` 降到 `0.818/3.275/0.599`。`make final-invitation-mask-analysis` 已把这两个结论整理成最终论文表和图。因此主线应报告 reliable-feedback direct correction 和 high-noise clipped correction，而不是继续普通 candidate-generation heuristic。
+Coverage-Aware Sparse-TopK 已作为 candidate-generation refinement 加入，pilot 入口是 `make coverage-sparse-topk-pilot`，weight ablation 入口是 `make coverage-sparse-topk-ablation`，power ablation 入口是 `make coverage-sparse-power-ablation`，B=4 formal 入口是 `make coverage-sparse-topk-frontier`，当前 budget split formal 入口是 `make coverage-budget-split-formal`。它不改变问题设定，也不是新主线；它针对 `Sparse-TopK sm=3` 的 missed opportunities 增加问题，在固定 sparse stale preview pool 内用 marginal device coverage gain 替代普通 rotating fill。formal power ablation 选择 `cpw=0`；weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。修正 temporal prehistory 后，B=4 formal frontier 在 preview `16` 下为 slots/failed/missed/gap `3.649/5.271/6.133/2.246`；budget split formal 进一步选择 `B=3 sm=4.1`，同样 preview `16` 下为 `3.604/5.804/5.438/2.207`，它是当前 no-noise same-preview gap reference。Neighbor-Coverage local reallocation 在同样 preview `16` 下未超过当前 B3 formal，因此只保留为负诊断。`make coverage-b3-failure-diagnosis` 进一步显示，当前 B3 residual gap 的主导来源是 stale invitation-mask mismatch：invitation gap share `0.687`，高于 selection `0.260`、confirmation `0.024` 和 pool `0.029`。`make invitation-mask-correction-formal` 证明该诊断会转化为 trade-off：`Mask-Corrected Coverage-Aware B=3 mc=1` 在同样 preview `16` 下把 slots/failed/missed 降到 `3.232/5.385/5.385`，但 no-noise gap 升到 `2.382`。`make invitation-mask-correction-noise-aware-formal` 进一步显示，高噪声 std `0.1` 下 direct `mc=1` 是 gap-best correction，gap `2.080`；`mc=1 clip=2` 把 direct failed invitations 从 `8.803` 降到 `8.395`，但 gap 更高。`make final-invitation-mask-analysis` 已把这些结论整理成最终论文表和图。因此主线应报告 no-noise B3 gap reference、direct mask-correction trade-off、高噪声 direct gap-best 和 clipped failed-invitation diagnostic，而不是继续普通 candidate-generation heuristic。

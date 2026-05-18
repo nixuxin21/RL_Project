@@ -8,7 +8,7 @@
 
 > IRS-assisted multi-slot AirComp under stale/limited CSI and execution-channel mismatch, using low-cost IRS candidate generation plus current aggregate feedback.
 
-最重要的 active method 是 `Mask-Corrected Coverage-Aware B=3 mc=1`。它保持 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 的 IRS candidate generation 和 current aggregate confirmation 不变，只在 confirmed IRS 后用 aggregate current feedback count 修正 stale invitation mask cardinality。
+当前 no-noise same-preview gap reference 是 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0`。`Mask-Corrected Coverage-Aware B=3 mc=1` 是同 preview trade-off method：它保持 B3 的 IRS candidate generation 和 current aggregate confirmation 不变，只在 confirmed IRS 后用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 生成 corrected invitation mask；修正后的 temporal prehistory 结果显示它降低 slots/failed/missed，但不降低 no-noise gap。
 
 当前最重要的维护目标不是继续扩展普通 heuristic 数量，而是让这条主线更可靠、更可复现、更容易重构。
 
@@ -41,6 +41,7 @@
 | `tests/dependency_boundary_checks.py` | active test | 防止从 evaluator 重新导入 reusable helper，固化 `ms_aircomp` 边界 |
 | `tests/mainline_artifact_checks.py` | active test | 不重跑实验，审计主线 CSV/PNG/MD artifact 证据链 |
 | `tests/mainline_regression_checks.py` | active test | 固定 seed 的主线数值趋势回归检查 |
+| `tests/test_project_checks.py` | active test | 标准 pytest wrapper，调用现有脚本式 checks |
 
 ## Diagnostic Or Archive Code
 
@@ -61,6 +62,8 @@
 
 `evaluate_execution_channel_mismatch.py` 现在主要承担 CLI parsing/validation、temporal scenario orchestration、`evaluate_policy()` episode loop 和 legacy compatibility re-export surface。CSV 写出、plot/summary 输出、policy registry、metric summary、policy decision dispatch 和 invitation-mask correction 已移入 `ms_aircomp` helper 模块。新增代码不应使用 `from evaluate_execution_channel_mismatch import ...` 导入 helper。整体 import evaluator 只允许少数编排入口，例如 `train_temporal_deviation_selector.py` 和 `tests/mainline_regression_checks.py`。
 
+`evaluate_limited_csi_ms_aircomp.py` 现在也只作为 limited-CSI evaluation runner 和 reporting script。Reusable limited-CSI constants、grid selection、candidate construction、risk helpers、environment factory 和 slot execution helper 都应从 `ms_aircomp.limited_csi` 导入；除测试历史 summary/reporting surface 外，不应把顶层 limited evaluator 当 helper module import。
+
 这个边界由 `tests/dependency_boundary_checks.py` 固化；如果后续有人重新从 evaluator 导入 helper、在 evaluator 中新增顶层 reusable helper、或让已拆出的 policy/output/result helper 回流进 evaluator，`make check` 会失败。
 
 后续继续拆其余 orchestration logic 时，应保持依赖方向为：
@@ -77,6 +80,8 @@ experiment scripts -> ms_aircomp reusable modules
 
 ```bash
 make test
+make lint
+make pytest-test
 ```
 
 涉及 current mainline、execution mismatch、coverage-aware 或 mask correction 的改动后运行：
@@ -86,6 +91,12 @@ make check
 ```
 
 其中 `make check` 包含：
+
+- `py_compile`: major scripts and reusable modules
+- `make lint`: high-signal Ruff rules for syntax/undefined-name failures
+- `make pytest-test`: standard pytest wrappers for smoke, boundary, regression, and mainline artifact checks
+
+传统单项入口仍保留：
 
 - `make test`: py_compile + smoke checks
 - `make boundary-test`: evaluator dependency-boundary checks
@@ -120,14 +131,14 @@ make mainline-audit
 | `docs/PAPER_TEXT_OUTLINE.md` | paper-facing text outline | 固定每节 claim、证据、禁入内容和图表引用顺序 |
 | `docs/PAPER_ASSET_GAP_CHECKLIST.md` | paper-facing asset checklist | 固定投稿前表图资产完成度、缺口和后续包装任务 |
 | `docs/PAPER_FREEZE_MANIFEST.md` | paper-facing freeze manifest | 固定论文冻结 artifact 清单、验证命令和非冻结边界 |
-| `make paper-table1` | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv` | 从 frozen mainline CSV 生成论文 Table 1 |
+| `make paper-tables` | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `results/paper/table2_coverage_aware_ablation.csv`, `results/paper/table3_failure_diagnosis.csv` | 从 frozen mainline CSV、coverage-aware analysis CSV 和 failure-diagnosis CSV 生成论文 Table 1/2/3、scenario-level uncertainty 和 paired deltas |
 | `make paper-figures` | `results/paper/figure2_figure3_points.csv`, `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | 从 frozen mainline CSV 生成论文版 Figure 2/3/4 |
 | `make execution-baseline-summary` | `docs/EXECUTION_BASELINE_SUMMARY.md`, `results/execution_mismatch/final_execution_baseline_summary.csv` | 当前 baseline 主表 |
 | `make main-results-analysis` | `docs/MAIN_RESULTS_ANALYSIS.md`, frontier CSV/PNG | cost-quality frontier 和 failed/missed tradeoff |
 | `make coverage-aware-analysis` | `docs/COVERAGE_AWARE_ANALYSIS.md` | coverage-aware weight/power/budget split |
 | `make coverage-b3-failure-diagnosis` | diagnosis CSV/MD | B3 residual gap 分解 |
-| `make invitation-mask-correction-formal` | formal correction CSV/MD | reliable feedback 下的 main correction result |
-| `make invitation-mask-correction-noise-aware-formal` | noise-aware CSV/MD | high-noise clipped correction result |
+| `make invitation-mask-correction-formal` | formal correction CSV/MD | reliable feedback 下的 no-noise trade-off result |
+| `make invitation-mask-correction-noise-aware-formal` | noise-aware CSV/MD | high-noise direct correction 和 clipped failed-invitation diagnostic |
 | `make final-invitation-mask-analysis` | final CSV/PNG/MD | final invitation-mask result package |
 
 ## Results Boundaries
@@ -145,7 +156,7 @@ make mainline-audit
 新增实验应先满足下面至少一项：
 
 1. 直接解释或降低 invitation-mask mismatch。
-2. 在相同或更低 preview 下改善 `Coverage-Aware B=3 sm=4.1` 或 `Mask-Corrected Coverage-Aware B=3`。
+2. 在相同或更低 preview 下改善 `Coverage-Aware B=3 sm=4.1` 的 no-noise gap，或改善 `Mask-Corrected Coverage-Aware B=3` 的 slots/failed/missed/gap trade-off。
 3. 提供对 failed/missed/oracle gap 的新诊断，而不只是新增一个策略名称。
 4. 改善 high-noise aggregate feedback robustness。
 

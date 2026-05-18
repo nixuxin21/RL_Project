@@ -13,6 +13,7 @@ __all__ = [
     "aggregate_seed_results",
     "metric_mean_ci",
     "result_array",
+    "result_metadata",
     "result_value",
     "seed_summary",
     "summarize_results",
@@ -30,7 +31,7 @@ NUMERIC_RESULT_KEYS = (
     "failed_nodes",
     "missed_opportunities",
     "true_opportunities",
-    "failure_slots",
+    "failure_slot_fraction",
     "decision_preview_calls_per_slot",
     "oracle_tx_gap_mean",
     "effective_risk_weight",
@@ -79,6 +80,32 @@ OPTIONAL_RESULT_DEFAULTS = {
     "learned_shortlist_extra_count": 1,
 }
 
+METADATA_FIELDS = (
+    "result_role",
+    "uses_hidden_training_labels",
+    "inference_uses_hidden_current_csi",
+    "supervision_signal",
+)
+
+DEFAULT_METADATA = {
+    "result_role": "comparison_reference",
+    "uses_hidden_training_labels": "false",
+    "inference_uses_hidden_current_csi": "false",
+    "supervision_signal": "none",
+}
+
+LEARNED_HIDDEN_LABEL_MARKERS = (
+    "Learned",
+    "DAgger",
+    "Window Temporal Deviation",
+    "Gated Temporal Deviation",
+)
+
+HIDDEN_INFERENCE_MARKERS = (
+    "Execution Oracle",
+    "Temporal Deviation Oracle",
+)
+
 CSV_FIELDS = [
     "decision_error_std",
     "execution_error_std",
@@ -87,6 +114,10 @@ CSV_FIELDS = [
     "csi_delay_slots",
     "probe_budget",
     "policy",
+    "result_role",
+    "uses_hidden_training_labels",
+    "inference_uses_hidden_current_csi",
+    "supervision_signal",
     "episodes",
     "num_seeds",
     "num_nodes",
@@ -165,6 +196,8 @@ def result_array(result, key):
     """Return a result metric array, defaulting optional diagnostics to zeros."""
     if key in result:
         return np.asarray(result[key], dtype=float)
+    if key == "failure_slot_fraction" and "failure_slots" in result:
+        return np.asarray(result["failure_slots"], dtype=float)
     episode_count = len(result["success_nodes"])
     return np.zeros(episode_count, dtype=float)
 
@@ -172,6 +205,32 @@ def result_array(result, key):
 def result_value(result, key):
     """Return a scalar metadata field with defaults for nonapplicable diagnostics."""
     return result.get(key, OPTIONAL_RESULT_DEFAULTS[key])
+
+
+def result_metadata(result):
+    """Return paper-boundary metadata for one execution result."""
+    name = str(result.get("policy", result.get("name", "")))
+    metadata = dict(DEFAULT_METADATA)
+    if any(marker in name for marker in HIDDEN_INFERENCE_MARKERS):
+        metadata.update(
+            {
+                "result_role": "diagnostic_upper_bound",
+                "inference_uses_hidden_current_csi": "true",
+                "supervision_signal": "hidden_current_channel_oracle_at_evaluation",
+            }
+        )
+    elif any(marker in name for marker in LEARNED_HIDDEN_LABEL_MARKERS):
+        metadata.update(
+            {
+                "result_role": "diagnostic",
+                "uses_hidden_training_labels": "true",
+                "supervision_signal": "hidden_current_channel_supervised_targets",
+            }
+        )
+    for key in METADATA_FIELDS:
+        if key in result:
+            metadata[key] = str(result[key])
+    return metadata
 
 
 def aggregate_seed_results(seed_result_sets):
@@ -221,6 +280,7 @@ def aggregate_seed_results(seed_result_sets):
             "adaptive_sparse_v3_history_count": result_value(parts[0], "adaptive_sparse_v3_history_count"),
             "learned_shortlist_extra_count": result_value(parts[0], "learned_shortlist_extra_count"),
         }
+        aggregated.update(result_metadata(parts[0]))
         for key in NUMERIC_RESULT_KEYS:
             aggregated[key] = np.concatenate([result_array(part, key) for part in parts])
         aggregated["seed_summaries"] = [seed_summary(part) for part in parts]
@@ -257,6 +317,7 @@ def summarize_results(args, results):
                 "csi_delay_slots": int(result["csi_delay_slots"]),
                 "probe_budget": int(result["probe_budget"]),
                 "policy": result["name"],
+                **result_metadata(result),
                 "episodes": len(result["success_nodes"]),
                 "num_seeds": args.num_seeds,
                 "num_nodes": args.num_nodes,
@@ -307,7 +368,7 @@ def summarize_results(args, results):
                 "failed_nodes_mean": float(np.mean(result["failed_nodes"])),
                 "missed_opportunities_mean": float(np.mean(result["missed_opportunities"])),
                 "true_opportunities_mean": float(np.mean(result["true_opportunities"])),
-                "failure_slot_rate": float(np.mean(result["failure_slots"]) * 100.0),
+                "failure_slot_rate": float(np.mean(result["failure_slot_fraction"]) * 100.0),
                 "decision_preview_calls_per_slot_mean": float(
                     np.mean(result["decision_preview_calls_per_slot"])
                 ),

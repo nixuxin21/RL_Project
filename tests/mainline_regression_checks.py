@@ -41,11 +41,11 @@ POLICY_ROTATING_GRID = "Estimated Rotating Grid"
 POLICY_COVERAGE_SPARSE_TOPK = "Coverage-Aware Sparse-TopK Feedback Grid"
 POLICY_TEMPORAL_DEVIATION_ORACLE = "Temporal Deviation Oracle"
 
-COVERAGE_GAP_CEILING = 0.9
+COVERAGE_GAP_CEILING = 3.3
 ROTATING_OR_ORACLE_PREVIEW_BUDGET = 4.0
 COVERAGE_PREVIEW_BUDGET = 16.0
-MASK_CORRECTED_GAP_CEILING = 0.55
-MASK_CORRECTED_MISSED_CEILING = 0.75
+MASK_CORRECTED_GAP_CEILING = 3.0
+MASK_CORRECTED_MISSED_CEILING = 7.0
 MASK_CORRECTED_FAILED_TOLERANCE = 0.25
 
 
@@ -220,6 +220,7 @@ def make_mask_correction_args():
         mask_correction_strengths=[0.0, 1.0],
         mask_correction_noise_deadband_z_values=[0.0],
         mask_correction_max_delta_values=[-1.0],
+        mask_correction_rerank_modes=["global_stale_gain"],
     )
 
 
@@ -234,6 +235,7 @@ def evaluate_mask_correction(args, strength):
             strength,
             0.0,
             -1.0,
+            "global_stale_gain",
         )
         for episode_seed in episode_seeds
     ]

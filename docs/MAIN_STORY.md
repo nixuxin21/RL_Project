@@ -17,10 +17,10 @@
 | 中成本主候选 | `Sparse-TopK B=4 sm=3` | 当前最适合报告的 medium-cost positive result |
 | 候选生成改进 | `Coverage-Aware B=4 cw=0.5 cpw=0` | 同等 preview 预算下缓解 missed opportunities 的 B=4 参照 |
 | 主线预算分配 | `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | 同等 preview 下把更多预算用于 stale candidate breadth 的设置 |
-| 当前最佳方法 | `Mask-Corrected Coverage-Aware B=3 mc=1` | 用 aggregate current feedback count 修正 stale invitation mask |
+| Mask-correction trade-off | `Mask-Corrected Coverage-Aware B=3 mc=1` | 用 aggregate current feedback count 修正 stale invitation mask；降低 slots/failed/missed 但 no-noise gap 回升 |
 | 自适应折中 | `Adaptive Sparse-TopK v2` | 展示 preview 成本和 execution gap 的连续折中 |
 | 高成本正向参照 | `Stale-TopK B=4` | full stale ranking + current feedback 的稳定正信号 |
-| 隐藏信息上界 | `Temporal Deviation Oracle B=4` | 证明同等 probe budget 下仍有 candidate-set headroom |
+| 隐藏信息 temporal diagnostic reference | `Temporal Deviation Oracle B=4` | 证明同等 probe budget 下仍有 candidate-set headroom，但不是 global upper bound |
 
 ## Current Main Result
 
@@ -35,15 +35,15 @@
 
 | 方法 | Slots | Preview | Gap | 判断 |
 |---|---:|---:|---:|---|
-| `Rotating B=8` | 3.429 | 8.00 | 0.726 | 低成本部署强 baseline |
-| `Adaptive V2 mt=0.05 pc=0.005` | 3.511 | 14.58 | 0.636 | 成本-质量中间点 |
-| `Adaptive V2 mt=0.05 pc=0.002` | 3.492 | 15.36 | 0.597 | 更偏性能的 adaptive 点 |
-| `Sparse-TopK B=4 sm=3` | 3.376 | 16.00 | 0.534 | 当前 reportable medium-cost baseline |
-| `Coverage-Aware B=4 cw=0.5 cpw=0` | 3.289 | 16.00 | 0.497 | B=4 coverage reference |
-| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | 3.189 | 16.00 | 0.432 | 当前 budget-split refinement |
-| `Mask-Corrected Coverage-Aware B=3 mc=1` | 2.684 | 16.00 | 0.292 | 当前同成本最佳方法 |
-| `Stale-TopK B=4` | 3.373 | 20.00 | 0.465 | 高成本正向参照 |
-| `Temporal Deviation Oracle B=4` | 2.985 | 4.00 | 0.345 | hidden-info upper bound |
+| `Rotating B=8` | 3.992 | 8.00 | 2.596 | 低成本部署强 baseline |
+| `Adaptive V2 mt=0.05 pc=0.005` | 3.857 | 14.57 | 2.439 | 成本-质量中间点 |
+| `Adaptive V2 mt=0.05 pc=0.002` | 3.814 | 15.27 | 2.396 | 更偏性能的 adaptive 点 |
+| `Sparse-TopK B=4 sm=3` | 3.770 | 16.00 | 2.334 | 当前 reportable medium-cost baseline |
+| `Coverage-Aware B=4 cw=0.5 cpw=0` | 3.649 | 16.00 | 2.246 | B=4 coverage reference |
+| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | 3.604 | 16.00 | 2.207 | no-noise same-preview gap reference |
+| `Mask-Corrected Coverage-Aware B=3 mc=1` | 3.232 | 16.00 | 2.382 | slots/failed trade-off; no-noise gap regression |
+| `Stale-TopK B=4` | 3.803 | 20.00 | 2.370 | 高成本正向参照 |
+| `Temporal Deviation Oracle B=4` | 3.359 | 4.00 | 2.162 | hidden-info temporal diagnostic |
 
 ## What To Continue
 
@@ -52,10 +52,10 @@
 1. 围绕 `Rotating B=8 -> Adaptive V2 -> Sparse-TopK sm=3 -> Coverage-Aware B=4 -> Coverage-Aware B=3 sm=4.1 -> Mask-Corrected Coverage-Aware B=3 -> Stale-TopK -> Temporal Deviation Oracle` 写清主线故事。
 2. 做更干净的 cost-quality frontier，而不是继续增加学习式分支数量。
 3. 以 `coverage_sparse_topk_feedback` 作为当前主线方法：formal power ablation 选择 `cpw=0`，weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平；budget split formal 选择 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0`，它在同样 preview `16` 下进一步降低 gap 和 missed opportunities。Neighbor-Coverage local reallocation pilot 没有超过它。
-4. `make coverage-b3-failure-diagnosis` 显示当前 B3 residual gap share 为 invitation `0.530`、selection `0.251`、confirmation `0.116`、pool `0.104`，说明继续只改 seed pool 或 final subset 不是最高优先级。
-5. `make invitation-mask-correction-formal` 验证了 mask correction 是当前最强同成本方法：`mc=1` 在 preview `16` 下达到 slots `2.684`、gap `0.292`、failed/missed `0.333/0.333`。
-6. `make invitation-mask-correction-noise-aware-formal` 已完成 high-noise robustness：低/中噪声仍用 direct `mc=1`，feedback-noise std `0.1` 时用 `mc=1 clip=2`，gap/failed/missed 从 direct `0.856/5.264/0.734` 降到 `0.818/3.275/0.599`。
-7. `make final-invitation-mask-analysis` 已生成最终论文级结果包：可靠反馈 direct `mc=1`，高噪声 `mc=1 clip=2`，以及 gap/noise 和 failed/missed/noise 图。
+4. `make coverage-b3-failure-diagnosis` 显示当前 B3 residual gap share 为 invitation `0.687`、selection `0.260`、confirmation `0.024`、pool `0.029`，说明继续只改 seed pool 或 final subset 不是最高优先级。
+5. `make invitation-mask-correction-formal` 验证了 mask correction 是同 preview trade-off：`mc=1` 在 preview `16` 下把 slots 从 `3.604` 降到 `3.232`，failed/missed 从 `5.804/5.438` 降到 `5.385/5.385`，但 no-noise gap 从 `2.207` 升到 `2.382`。
+6. `make invitation-mask-correction-noise-aware-formal` 已完成 high-noise boundary：feedback-noise std `0.1` 时 direct `mc=1` 是 gap-best correction，gap `2.080`；`mc=1 clip=2` 把 failed invitations 从 direct 的 `8.803` 降到 `8.395`，但 gap 较 direct 更高。
+7. `make final-invitation-mask-analysis` 已生成最终论文级结果包：no-noise direct `mc=1` trade-off，高噪声 direct gap-best，以及 `mc=1 clip=2` failed-invitation diagnostic。
 8. 下一步不应再开普通 candidate-generation heuristic，而应把这条 invitation-mask correction 线写成主贡献与补充鲁棒性表。
 9. 保留 learned shortlist 作为诊断表，不把当前线性 learned variants 当作主方法。
 

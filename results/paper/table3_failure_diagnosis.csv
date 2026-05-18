@@ -1,0 +1,11 @@
+Scope,TraceSlots,GapSlots,AvgGap,PoolShare,SelectionShare,ConfirmationShare,InvitationShare,DominantComponent,OracleNotInSeedRate,Failed,Missed
+overall,6596,4549,2.244,0.029,0.260,0.024,0.687,invitation,0.175,1.597,1.543
+"rho=0.7, delay=1",716,506,2.891,0.020,0.274,0.009,0.697,invitation,0.175,1.973,2.015
+"rho=0.7, delay=2",732,520,2.876,0.020,0.277,0.014,0.688,invitation,0.169,2.220,1.978
+"rho=0.7, delay=3",695,482,2.896,0.019,0.304,0.013,0.664,invitation,0.168,2.342,1.924
+"rho=0.9, delay=1",706,485,2.194,0.036,0.244,0.016,0.704,invitation,0.167,1.483,1.545
+"rho=0.9, delay=2",785,579,2.436,0.028,0.257,0.024,0.691,invitation,0.185,1.692,1.683
+"rho=0.9, delay=3",796,578,2.612,0.033,0.281,0.024,0.662,invitation,0.192,1.931,1.730
+"rho=0.98, delay=1",666,392,1.131,0.062,0.162,0.053,0.722,invitation,0.183,0.646,0.817
+"rho=0.98, delay=2",741,480,1.405,0.037,0.203,0.062,0.697,invitation,0.175,0.892,0.980
+"rho=0.98, delay=3",759,527,1.686,0.037,0.229,0.040,0.694,invitation,0.157,1.136,1.170

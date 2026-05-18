@@ -14,12 +14,12 @@ All values are equal-weight averages across the 9 temporal AR(1) rho/delay scena
 
 | Method | Scenarios | Samples | Seeds | Slots | Perfect % | Failed | Missed | Preview | Gap | Marginal | Overlap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Sparse-TopK B=4 sm=3 | 9 | 900 | 3 | 3.376 | 99.79 | 0.477 | 1.295 | 16.00 | 0.534 |  |  |
-| Coverage-Aware cw=0 cpw=0 | 9 | 900 | 3 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.095 | 0.705 |
-| Coverage-Aware cw=0.25 cpw=0 | 9 | 900 | 3 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.095 | 0.705 |
-| Coverage-Aware cw=0.5 cpw=0 | 9 | 900 | 3 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.095 | 0.705 |
-| Coverage-Aware cw=1 cpw=0 | 9 | 900 | 3 | 3.288 | 99.84 | 0.472 | 1.134 | 16.00 | 0.498 | 0.095 | 0.704 |
-| Coverage-Aware cw=2 cpw=0 | 9 | 900 | 3 | 3.288 | 99.84 | 0.472 | 1.134 | 16.00 | 0.498 | 0.095 | 0.704 |
+| Sparse-TopK B=4 sm=3 | 9 | 900 | 3 | 3.770 | 99.77 | 5.272 | 6.643 | 16.00 | 2.334 |  |  |
+| Coverage-Aware cw=0 cpw=0 | 9 | 900 | 3 | 3.648 | 99.77 | 5.269 | 6.129 | 16.00 | 2.245 | 0.093 | 0.713 |
+| Coverage-Aware cw=0.25 cpw=0 | 9 | 900 | 3 | 3.648 | 99.77 | 5.269 | 6.129 | 16.00 | 2.245 | 0.093 | 0.713 |
+| Coverage-Aware cw=0.5 cpw=0 | 9 | 900 | 3 | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 | 0.093 | 0.713 |
+| Coverage-Aware cw=1 cpw=0 | 9 | 900 | 3 | 3.647 | 99.79 | 5.264 | 6.154 | 16.00 | 2.252 | 0.093 | 0.713 |
+| Coverage-Aware cw=2 cpw=0 | 9 | 900 | 3 | 3.646 | 99.79 | 5.264 | 6.160 | 16.00 | 2.255 | 0.093 | 0.713 |
 
 
 ## Power Penalty Ablation
@@ -28,11 +28,11 @@ This sweep fixes `cw=0.5` and varies the stale power penalty `cpw`. Lower gap an
 
 | cpw | Slots | Perfect % | Failed | Missed | Preview | Gap | Marginal | Overlap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.095 | 0.705 |
-| 0.02 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.095 | 0.705 |
-| 0.05 | 3.374 | 99.70 | 0.443 | 1.232 | 16.00 | 0.511 | 0.094 | 0.671 |
-| 0.1 | 3.419 | 99.70 | 0.437 | 1.331 | 16.00 | 0.530 | 0.093 | 0.645 |
-| 0.2 | 3.438 | 99.73 | 0.453 | 1.456 | 16.00 | 0.557 | 0.093 | 0.609 |
+| 0 | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 | 0.093 | 0.713 |
+| 0.02 | 3.648 | 99.77 | 5.270 | 6.132 | 16.00 | 2.246 | 0.093 | 0.713 |
+| 0.05 | 3.715 | 99.73 | 5.244 | 6.203 | 16.00 | 2.234 | 0.092 | 0.688 |
+| 0.1 | 3.777 | 99.65 | 5.226 | 6.313 | 16.00 | 2.227 | 0.091 | 0.666 |
+| 0.2 | 3.800 | 99.68 | 5.213 | 6.426 | 16.00 | 2.240 | 0.091 | 0.654 |
 
 The selected main setting uses `cpw=0`. The formal sweep shows that `cpw=0` and `cpw=0.02` are tied on the main metrics, while larger power penalties reduce failed invitations slightly but increase missed opportunities, slots, and oracle gap. This is why the current mainline removes the stale power penalty.
 
@@ -46,13 +46,13 @@ The weight/power ablations above use the original `B=4 sm=3` split. A follow-up 
 
 | Setting | Slots | Perfect % | Failed | Missed | Preview | Gap |
 | --- | --- | --- | --- | --- | --- | --- |
-| B=4 sm=3 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 |
-| B=3 sm=4.1 | 3.189 | 99.93 | 0.546 | 0.864 | 16.00 | 0.432 |
-| B=5 sm=2.2 | 3.408 | 99.73 | 0.381 | 1.356 | 16.00 | 0.562 |
-| B=6 sm=1.6 | 3.566 | 99.77 | 0.347 | 1.715 | 16.00 | 0.647 |
-| B=8 sm=1 | 3.886 | 99.54 | 0.288 | 2.544 | 16.00 | 0.836 |
+| B=4 sm=3 | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 |
+| B=3 sm=4.1 | 3.604 | 99.94 | 5.804 | 5.438 | 16.00 | 2.207 |
+| B=5 sm=2.2 | 3.728 | 99.83 | 4.850 | 6.821 | 16.00 | 2.299 |
+| B=6 sm=1.6 | 3.841 | 99.81 | 4.537 | 7.583 | 16.00 | 2.374 |
+| B=8 sm=1 | 4.235 | 99.58 | 4.192 | 9.619 | 16.00 | 2.588 |
 
-The selected main setting is `B=3 sm=4.1`. It has the lowest formal gap in the near-preview-16 budget split table, with missed opportunities `0.864` and failed invitations `0.546`.
+The selected main setting is `B=3 sm=4.1`. It has the lowest formal gap in the near-preview-16 budget split table, with missed opportunities `5.438` and failed invitations `5.804`.
 
 
 
@@ -62,12 +62,12 @@ This pilot keeps the same total preview budget as `B=3 sm=4.1` but reallocates p
 
 | Setting | Slots | Perfect % | Failed | Missed | Preview | Gap | Neighbor previews | Selected neighbors |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| nr=1 nc=1 | 3.274 | 99.72 | 0.634 | 0.904 | 16.00 | 0.463 | 1.000 | 0.289 |
-| nr=1 nc=2 | 3.273 | 99.67 | 0.642 | 0.876 | 16.00 | 0.486 | 2.000 | 0.532 |
-| nr=1 nc=3 | 3.293 | 99.72 | 0.643 | 0.928 | 16.00 | 0.452 | 3.000 | 0.715 |
-| nr=2 nc=3 | 3.290 | 99.78 | 0.633 | 0.935 | 16.00 | 0.461 | 3.000 | 0.704 |
+| nr=1 nc=1 | 3.663 | 99.83 | 5.895 | 5.553 | 16.00 | 2.247 | 1.000 | 0.283 |
+| nr=1 nc=2 | 3.621 | 99.94 | 5.910 | 5.543 | 16.00 | 2.277 | 2.000 | 0.512 |
+| nr=1 nc=3 | 3.649 | 99.67 | 5.923 | 5.528 | 16.00 | 2.262 | 3.000 | 0.729 |
+| nr=2 nc=3 | 3.654 | 99.83 | 5.914 | 5.580 | 16.00 | 2.269 | 3.000 | 0.730 |
 
-The current selected B=3 setting remains better: gap `0.432` and slots `3.189` versus the best neighbor diagnostic gap `0.452` and slots `3.293`. The fixed local-neighbor reallocation is therefore a negative diagnostic, not a new mainline method.
+The current selected B=3 setting remains better: gap `2.207` and slots `3.604` versus the best neighbor diagnostic gap `2.247` and slots `3.663`. The fixed local-neighbor reallocation is therefore a negative diagnostic, not a new mainline method.
 
 
 ## Delta Vs Sparse-TopK
@@ -76,16 +76,16 @@ Negative deltas are improvements over `Sparse-TopK B=4 sm=3` at the same preview
 
 | cw | Delta slots | Delta failed | Delta missed | Delta gap | Marginal | Overlap |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | -0.087 | -0.004 | -0.164 | -0.037 | 0.095 | 0.705 |
-| 0.25 | -0.087 | -0.004 | -0.164 | -0.037 | 0.095 | 0.705 |
-| 0.5 | -0.087 | -0.004 | -0.164 | -0.037 | 0.095 | 0.705 |
-| 1 | -0.087 | -0.005 | -0.162 | -0.037 | 0.095 | 0.704 |
-| 2 | -0.087 | -0.005 | -0.161 | -0.037 | 0.095 | 0.704 |
+| 0 | -0.121 | -0.003 | -0.513 | -0.089 | 0.093 | 0.713 |
+| 0.25 | -0.121 | -0.003 | -0.513 | -0.089 | 0.093 | 0.713 |
+| 0.5 | -0.121 | -0.001 | -0.510 | -0.088 | 0.093 | 0.713 |
+| 1 | -0.123 | -0.008 | -0.488 | -0.082 | 0.093 | 0.713 |
+| 2 | -0.124 | -0.008 | -0.482 | -0.079 | 0.093 | 0.713 |
 
 ## Interpretation
 
-`Coverage-Aware cw=0.5 cpw=0` is the calibrated B=4 report setting. It changes gap from `0.534` to `0.497`, failed invitations from `0.477` to `0.473`, and missed opportunities from `1.295` to `1.131` at the same `16.00` preview calls per slot.
+`Coverage-Aware cw=0.5 cpw=0` is the calibrated B=4 report setting. It changes gap from `2.334` to `2.246`, failed invitations from `5.272` to `5.271`, and missed opportunities from `6.643` to `6.133` at the same `16.00` preview calls per slot.
 
-The best numeric gap in the weight ablation is `cw=0` with gap `0.497` and missed opportunities `1.131`. In this run, `cw=0`, `cw=0.25`, and `cw=0.5` are effectively tied on the main metrics; `cw=0.5` is retained as the report setting because it keeps the intended marginal-coverage fill interpretation without changing preview cost. Future replacements should beat the selected budget split near preview `16`, not only the original B=4 calibration point.
+The best numeric gap in the weight ablation is `cw=0` with gap `2.245` and missed opportunities `6.129`. In this run, `cw=0`, `cw=0.25`, and `cw=0.5` are effectively tied on the main metrics; `cw=0.5` is retained as the report setting because it keeps the intended marginal-coverage fill interpretation without changing preview cost. Future replacements should beat the selected budget split near preview `16`, not only the original B=4 calibration point.
 
 The mechanism is narrow and useful: the method does not change stale/limited CSI, the AirComp objective, or the current-feedback confirmation step. It only changes how non-anchor IRS candidates are generated inside the same sparse preview budget, and the selected budget split shifts more of that budget to stale candidate breadth. This is a clean candidate-generation improvement rather than a separate research branch.

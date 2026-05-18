@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 
 POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID = "Adaptive Execution-Risk Rotating Grid"
 

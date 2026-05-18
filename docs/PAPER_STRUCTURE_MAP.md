@@ -28,11 +28,11 @@
 
 1. A stale-CSI execution-mismatch evaluation framework for IRS-assisted multi-slot AirComp with limited preview and aggregate current feedback.
 2. A low-cost coverage-aware sparse candidate-generation strategy that improves same-preview performance by reducing missed opportunities.
-3. An aggregate-feedback invitation-mask correction mechanism that improves both failed invitations and missed opportunities without changing IRS candidate generation.
+3. An aggregate-feedback invitation-mask correction mechanism that changes the slots/failed/missed/gap trade-off without changing IRS candidate generation.
 
 可选第四条只在篇幅允许时加入：
 
-4. A robustness analysis showing that clipped target-count correction is preferable under high aggregate-feedback noise.
+4. A noise-boundary analysis showing that direct correction is gap-best under high aggregate-feedback noise while clipped target-count correction controls failed invitations.
 
 ## Main Table And Figure Plan
 
@@ -40,13 +40,13 @@
 
 | Order | Item | Content | Source |
 |---|---|---|---|
-| Table 1 | Main result table | Frozen main-text methods across 9 temporal AR(1) scenarios. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv`, `docs/PAPER_RESULT_PACKAGE.md` |
+| Table 1 | Main result table | Frozen main-text methods across 9 temporal AR(1) scenarios, plus scenario-level uncertainty companion. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `docs/PAPER_RESULT_PACKAGE.md` |
 | Figure 1 | System and feedback flow diagram | Stale CSI, limited IRS preview, aggregate confirmation, invitation-mask correction. | `docs/PAPER_FIGURE_TABLE_SPECS.md`, `docs/figures/figure1_system_flow.mmd` |
 | Figure 2 | Preview-gap frontier | Preview cost vs oracle gap for main methods. | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` |
 | Figure 3 | Failed/missed tradeoff | Failed invitations and missed opportunities across main methods. | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` |
-| Table 2 | Coverage-aware and budget split ablation | Why `cw=0.5 cpw=0` and why `B=3 sm=4.1`. | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` |
-| Table 3 | Failure diagnosis | Pool/selection/confirmation/invitation residual gap decomposition. | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` |
-| Figure 4 | Invitation-mask noise robustness | Reliable-feedback direct correction and high-noise clipped variant. | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` |
+| Table 2 | Coverage-aware and budget split ablation | Why `cw=0.5 cpw=0` and why `B=3 sm=4.1`. | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`, `docs/COVERAGE_AWARE_ANALYSIS.md` |
+| Table 3 | Failure diagnosis | Pool/selection/confirmation/invitation residual gap decomposition. | `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table3_failure_diagnosis.csv`, `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` |
+| Figure 4 | Invitation-mask noise boundary | Reliable-feedback trade-off, high-noise direct correction, and clipped failed-invitation diagnostic. | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` |
 
 如果期刊篇幅有限，Table 3 可以移到 appendix，但正文必须至少保留一句 diagnosis conclusion：residual gap is dominated by invitation-mask mismatch.
 
@@ -56,7 +56,7 @@
 
 ### Baseline Feedback Policies
 
-介绍 `Rotating B=8`、`Sparse-TopK B=4 sm=3`、`Stale-TopK B=4` 和 `Temporal Deviation Oracle B=4`。其中 `Temporal Deviation Oracle` 必须明确标注为 hidden-information diagnostic upper bound。
+介绍 `Rotating B=8`、`Sparse-TopK B=4 sm=3`、`Stale-TopK B=4` 和 `Temporal Deviation Oracle B=4`。其中 `Temporal Deviation Oracle` 必须明确标注为 hidden-information temporal diagnostic reference。
 
 ### Coverage-Aware Candidate Generation
 
@@ -64,13 +64,13 @@
 
 ### Invitation-Mask Correction
 
-这是 proposed method 的核心。应说明它保持 confirmed IRS 不变，只用 aggregate current feedback count 修正 stale invitation mask cardinality，因此不访问 per-device current CSI。
+这是 trade-off mechanism 的核心。应说明它保持 confirmed IRS 不变，用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 生成 corrected invitation mask，因此不访问 per-device current CSI。可靠反馈下它降低 slots、failed 和 missed，但在修正后的 temporal prehistory 模型下不降低 no-noise gap。
 
-### Noise-Aware Conservative Variant
+### Noise-Aware Boundary
 
-作为 robustness subsection，而不是主方法替代。可靠反馈下 direct `mc=1` 是主结果；feedback-noise std `0.1` 时报告 `mc=1 clip=2`。
+作为 boundary subsection，而不是主方法替代。可靠反馈下 direct `mc=1` 是 no-noise trade-off；feedback-noise std `0.1` 时 direct `mc=1` 是 gap-best correction，`mc=1 clip=2` 是 failed-invitation control diagnostic。
 
-Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-sweep 展示标签；`Clip2` 只表示 high-noise robustness variant，不应被写成替代 Table 1 proposed method 的新主方法。
+Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-sweep 展示标签；`Clip2` 只表示 failed-invitation control diagnostic，不应被写成替代 Table 1 trade-off method 的新主方法。
 
 ## Experiment Section Breakdown
 
@@ -79,7 +79,7 @@ Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-
 1. Main frontier: show frozen main methods and hidden-current headroom.
 2. Candidate generation ablation: show coverage-aware weight / power penalty / budget split.
 3. Residual gap diagnosis: show why invitation mismatch is the right next target.
-4. Mask correction and noise robustness: show final proposed method and clipped high-noise variant.
+4. Mask correction and noise boundary: show the no-noise trade-off, high-noise direct gap improvement, and clipped failed-invitation diagnostic.
 
 不要把 early policy comparison、SAC、imitation 或 learned probing 放在实验正文主线中；它们可以在 appendix 中支撑“why not RL / learned selectors yet”。
 
@@ -105,7 +105,7 @@ Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-
 - 不要把 learned shortlist 的负结果写得过重；一句 diagnosis + appendix 即可。
 - 不要把 `Temporal Deviation Oracle B=4` 写成可部署方法。
 - 不要声称 invitation-mask correction 使用 per-device current CSI；它使用 aggregate current feedback count。
-- 不要让 high-noise clipped variant 覆盖 reliable-feedback 主结果；它是 robustness variant。
+- 不要把 high-noise clipped variant 写成 gap-best；它是 failed-invitation control diagnostic。
 
 ## Pre-Writing Checklist
 
@@ -113,7 +113,7 @@ Figure 4 中的 `Direct` 是 `Mask-Corrected Coverage-Aware B=3 mc=1` 的 noise-
 
 1. 检查 Table 1、Figure 2、Figure 3 和 Figure 4 的 method naming 是否与 `docs/PAPER_FIGURE_TABLE_SPECS.md` 的 naming crosswalk 完全一致。
 2. 以 `docs/figures/figure1_system_flow.mmd` 为 Figure 1 的 canonical editable source；如果导出 SVG/PDF，导出件必须仍保持 stale CSI、limited IRS probes、aggregate feedback count 和 mask correction 的信息边界。
-3. 使用 `make paper-table1` 和 `make paper-figures` 生成正文 Table 1、Figure 2、Figure 3 和 Figure 4，不手工改数值或绘图点表。
-4. 按 `docs/PAPER_ASSET_GAP_CHECKLIST.md` 确认 Figure 1 export、Table 2 artifact 和 Table 3 artifact 的状态。
+3. 使用 `make paper-tables` 和 `make paper-figures` 生成正文 Table 1/2/3、Table 1 uncertainty companion、Figure 2、Figure 3 和 Figure 4，不手工改数值或绘图点表。
+4. 按 `docs/PAPER_ASSET_GAP_CHECKLIST.md` 确认 Figure 1 export、Table 2/3 placement 和图表版式状态。
 5. 从 `docs/RESULTS_INDEX.md` 抽出 appendix tables 的最小集合，避免附录过度膨胀。
 6. 跑 `make mainline-audit` 和 `make check`，确保 artifact chain 和数值趋势仍成立。

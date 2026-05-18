@@ -1,6 +1,6 @@
 """Decision dispatch for execution-mismatch evaluation policies."""
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 
 from ms_aircomp.adaptive_sparse_policies import (
     choose_adaptive_sparse_topk_feedback_decision,

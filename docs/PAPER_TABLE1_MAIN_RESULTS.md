@@ -10,20 +10,25 @@ Generated CSV: `results/paper/table1_main_results.csv`
 
 | Method | Role | Slots | Failed | Missed | Preview | Gap |
 |---|---|---:|---:|---:|---:|---:|
-| `Rotating B=8` | low-cost deployment baseline | 3.429 | 1.360 | 0.620 | 8.00 | 0.726 |
-| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.376 | 0.477 | 1.295 | 16.00 | 0.534 |
-| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.289 | 0.473 | 1.131 | 16.00 | 0.497 |
-| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | current budget-split refinement | 3.189 | 0.546 | 0.864 | 16.00 | 0.432 |
-| `Mask-Corrected Coverage-Aware B=3 mc=1` | current best same-preview method | 2.684 | 0.333 | 0.333 | 16.00 | 0.292 |
-| `Stale-TopK B=4` | high-cost positive reference | 3.373 | 0.444 | 1.321 | 20.00 | 0.465 |
-| `Temporal Deviation Oracle B=4` | hidden-info upper bound | 2.985 | 0.326 | 0.900 | 4.00 | 0.345 |
+| `Rotating B=8` | low-cost deployment baseline | 3.992 | 8.878 | 4.580 | 8.00 | 2.596 |
+| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.770 | 5.272 | 6.643 | 16.00 | 2.334 |
+| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.649 | 5.271 | 6.133 | 16.00 | 2.246 |
+| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | current budget-split refinement | 3.604 | 5.804 | 5.438 | 16.00 | 2.207 |
+| `Mask-Corrected Coverage-Aware B=3 mc=1` | slot/failed trade-off; no-noise gap regression | 3.232 | 5.385 | 5.385 | 16.00 | 2.382 |
+| `Stale-TopK B=4` | high-cost positive reference | 3.803 | 5.337 | 6.841 | 20.00 | 2.370 |
+| `Temporal Deviation Oracle B=4` | hidden-info temporal diagnostic | 3.359 | 5.129 | 5.642 | 4.00 | 2.162 |
 
 ## Caption
 
-Table 1. Main execution-mismatch results averaged over 9 temporal AR(1) stale-CSI scenarios. The proposed mask-corrected coverage-aware method keeps the same preview budget as the uncorrected coverage-aware baseline but reduces both failed invitations and missed opportunities. The temporal-deviation oracle is a hidden-information diagnostic upper bound, not a deployable method.
+Table 1. Main execution-mismatch results averaged over 9 temporal AR(1) stale-CSI scenarios. All non-oracle rows are deployable under the stated stale-CSI and aggregate-feedback information model. The mask-corrected coverage-aware method keeps the same preview budget as the uncorrected B3 baseline and reduces slots, failed invitations, and missed opportunities, but it increases the no-noise oracle gap under the corrected temporal prehistory model. The temporal-deviation oracle is a hidden-information temporal diagnostic reference, not a deployable method or a global upper bound. This compact table reports means only; use the companion scenario-level uncertainty table for variability and paired-delta evidence.
 
 ## Notes
 
 - Method order follows `docs/PAPER_FIGURE_TABLE_SPECS.md`.
-- `Rotating B=4`, Adaptive V2 continuum points and learned variants are excluded from the paper-facing main table.
+- Information-role taxonomy follows `docs/PAPER_FIGURE_TABLE_SPECS.md`: deployable methods use no hidden current-channel device-level CSI at decision time; diagnostics are appendix/supplement-only; hidden-information temporal diagnostics are non-deployable headroom/reference rows only.
+- All Table 1 rows except `Temporal Deviation Oracle B=4` are deployable comparisons or references under the stale-CSI / aggregate-feedback assumptions.
+- `Temporal Deviation Oracle B=4` is a hidden-information temporal diagnostic reference because it selects the temporal deviation using current-channel outcomes unavailable to a deployable policy. It is not a global upper bound for methods that also alter invitation-mask correction.
+- `Rotating B=4`, Adaptive V2 continuum points and learned variants are excluded from the paper-facing main table. Learned variants are diagnostics because their training labels may use hidden current-channel supervision even when closed-loop inference is deployable.
 - `Perfect %` is omitted from the compact main table because it is near-saturated; failed, missed, preview and gap carry the main mechanism evidence.
+- The compact main table is mean-only. Companion artifacts are generated at `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_scenario_uncertainty.csv`, and `results/paper/table1_paired_scenario_deltas.csv`.
+- The companion uncertainty is scenario-level: each scenario row has already been averaged over the available run seeds. Do not describe it as a full seed-level significance test.

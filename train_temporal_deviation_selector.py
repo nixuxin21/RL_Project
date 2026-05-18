@@ -18,7 +18,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 import evaluate_execution_channel_mismatch as mismatch
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from evaluate_policy_comparison import (
     ensure_parent_dir,
     format_float_for_suffix,
@@ -27,7 +27,7 @@ from evaluate_policy_comparison import (
 )
 from ms_aircomp.channel_models import (
     apply_channel_state,
-    build_temporal_channel_states,
+    build_temporal_channel_trace,
     capture_channel_state,
     delayed_channel_state,
 )
@@ -46,6 +46,12 @@ POLICY_DAGGER_WINDOW_TEMPORAL_DEVIATION = "DAgger Window Temporal Deviation"
 POLICY_DAGGER_GATED_TEMPORAL_DEVIATION = "DAgger Gated Temporal Deviation"
 POLICY_DAGGER_GATED_WINDOW_TEMPORAL_DEVIATION = "DAgger Gated Window Temporal Deviation"
 LEARNED_TEMPORAL_OFFSET = 0xA3C59AC3
+DIAGNOSTIC_METADATA = {
+    "result_role": "diagnostic",
+    "uses_hidden_training_labels": "true",
+    "inference_uses_hidden_current_csi": "false",
+    "supervision_signal": "hidden_current_channel_supervised_targets",
+}
 
 
 def parse_args():
@@ -622,12 +628,23 @@ def collect_dataset(args, episodes, seed, split_name):
         env._last_seed = episode_seed
         history = initialize_history(eval_args)
         behavior_rng = learned_rng(episode_seed, salt=13)
-        temporal_states = build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
+        temporal_history, temporal_states = build_temporal_channel_trace(
+            env,
+            eval_args,
+            episode_seed,
+            channel_rho,
+            prehistory_slots=csi_delay_slots,
+        )
         total_tx = 0
 
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(
+                temporal_states,
+                slot_idx,
+                csi_delay_slots,
+                history_states=temporal_history,
+            )
             feature = policy_features(
                 env,
                 history,
@@ -712,12 +729,23 @@ def collect_dagger_dataset(args, episodes, seed, iteration, model, mean, std, be
         env._last_seed = episode_seed
         history = initialize_history(eval_args)
         behavior_rng = learned_rng(episode_seed, salt=97 + int(iteration))
-        temporal_states = build_temporal_channel_states(env, eval_args, episode_seed, channel_rho)
+        temporal_history, temporal_states = build_temporal_channel_trace(
+            env,
+            eval_args,
+            episode_seed,
+            channel_rho,
+            prehistory_slots=csi_delay_slots,
+        )
         total_tx = 0
 
         for slot_idx in range(eval_args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(
+                temporal_states,
+                slot_idx,
+                csi_delay_slots,
+                history_states=temporal_history,
+            )
             feature = policy_features(
                 env,
                 history,
@@ -993,7 +1021,7 @@ def evaluate_learned_policy(
     failed_nodes = []
     missed_opportunities = []
     true_opportunities = []
-    failure_slots = []
+    failure_slot_fractions = []
     preview_calls_per_slot = []
     oracle_tx_gap_mean = []
     effective_risk_weights = []
@@ -1006,7 +1034,13 @@ def evaluate_learned_policy(
         env.reset(seed=episode_seed)
         env._last_seed = episode_seed
         history = initialize_history(args)
-        temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
+        temporal_history, temporal_states = build_temporal_channel_trace(
+            env,
+            args,
+            episode_seed,
+            channel_rho,
+            prehistory_slots=csi_delay_slots,
+        )
         episode_power = []
         episode_reward = 0.0
         episode_energy = 0.0
@@ -1023,7 +1057,12 @@ def evaluate_learned_policy(
 
         for slot_idx in range(args.num_slots):
             execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-            decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+            decision_state = delayed_channel_state(
+                temporal_states,
+                slot_idx,
+                csi_delay_slots,
+                history_states=temporal_history,
+            )
             feature = policy_features(env, history, args, channel_rho, csi_delay_slots, budget, slot_idx)
             scores = predict_offset_scores(model, feature, mean, std, device)
             chosen_offset = choose_offset_with_gate(scores, args.offsets, gate_margin)
@@ -1066,7 +1105,7 @@ def evaluate_learned_policy(
         failed_nodes.append(float(episode_failed))
         missed_opportunities.append(float(episode_missed))
         true_opportunities.append(float(episode_true_opportunities))
-        failure_slots.append(float(episode_failure_slots) / max(float(episode_slots), 1.0))
+        failure_slot_fractions.append(float(episode_failure_slots) / max(float(episode_slots), 1.0))
         preview_calls_per_slot.append(float(sum(episode_preview_calls)) / max(len(episode_preview_calls), 1))
         oracle_tx_gap_mean.append(float(np.mean(episode_oracle_gaps)) if episode_oracle_gaps else 0.0)
         effective_risk_weights.append(
@@ -1102,6 +1141,7 @@ def evaluate_learned_policy(
         "opportunity_deadline_gain": 0.0,
         "opportunity_backlog_gain": 0.0,
         "temporal_reliability_z": 0.0,
+        **DIAGNOSTIC_METADATA,
         "success_nodes": np.asarray(success_nodes, dtype=float),
         "avg_power": np.asarray(avg_power, dtype=float),
         "episode_reward": np.asarray(rewards, dtype=float),
@@ -1111,7 +1151,7 @@ def evaluate_learned_policy(
         "failed_nodes": np.asarray(failed_nodes, dtype=float),
         "missed_opportunities": np.asarray(missed_opportunities, dtype=float),
         "true_opportunities": np.asarray(true_opportunities, dtype=float),
-        "failure_slots": np.asarray(failure_slots, dtype=float),
+        "failure_slot_fraction": np.asarray(failure_slot_fractions, dtype=float),
         "decision_preview_calls_per_slot": np.asarray(preview_calls_per_slot, dtype=float),
         "oracle_tx_gap_mean": np.asarray(oracle_tx_gap_mean, dtype=float),
         "effective_risk_weight": np.asarray(effective_risk_weights, dtype=float),
@@ -1214,9 +1254,17 @@ def evaluate_suite(args, model, mean, std):
 def write_train_history(path, rows):
     """Write train/validation loss history."""
     ensure_parent_dir(path)
+    rows = [dict(row, **DIAGNOSTIC_METADATA) for row in rows]
     fieldnames = ["epoch", "train_loss", "val_loss"]
     if any("iteration" in row for row in rows):
         fieldnames = ["iteration"] + fieldnames
+    fieldnames = [
+        "result_role",
+        "uses_hidden_training_labels",
+        "inference_uses_hidden_current_csi",
+        "supervision_signal",
+        *fieldnames,
+    ]
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -1227,10 +1275,20 @@ def write_train_history(path, rows):
 def write_validation_metrics(path, rows):
     """Write validation diagnostics."""
     ensure_parent_dir(path)
+    rows = [dict(row, **DIAGNOSTIC_METADATA) for row in rows]
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
             csvfile,
-            fieldnames=["samples", "offset_hit_rate", "target_score_gap_mean", "target_tx_gap_mean"],
+            fieldnames=[
+                "result_role",
+                "uses_hidden_training_labels",
+                "inference_uses_hidden_current_csi",
+                "supervision_signal",
+                "samples",
+                "offset_hit_rate",
+                "target_score_gap_mean",
+                "target_tx_gap_mean",
+            ],
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -1255,6 +1313,7 @@ def save_checkpoint(path, model, mean, std, args):
             "gate_margin_thresholds": list(args.gate_margin_thresholds),
             "dagger_iterations": int(getattr(args, "dagger_iterations", 0)),
             "dagger_episodes": int(getattr(args, "dagger_episodes", 0)),
+            **DIAGNOSTIC_METADATA,
         },
         path,
     )

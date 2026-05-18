@@ -14,9 +14,10 @@ The top-level experiment scripts remain responsible for CLI parsing, scenario or
 | `execution_output.py` | Execution-mismatch output prefix naming, progress logging, console summaries, and plots |
 | `feedback.py` | Aggregate feedback record construction and feedback-based confirmed-index selection |
 | `confirmation.py` | Current aggregate-feedback confirmation flow over a selected IRS candidate set |
-| `invitation_mask_correction.py` | Aggregate-feedback invitation-mask target-count correction helpers |
+| `invitation_mask_correction.py` | Aggregate-feedback invitation-mask target-count correction and reranking-mode ablation helpers |
 | `probe_sets.py` | Ordered/diverse probe sets and coverage-aware sparse candidate selection |
 | `adaptive_sparse_policies.py` | Adaptive Sparse-TopK v1/v2/v3 policy gates, history/uncertainty helpers, and local-neighbor candidate generation |
+| `limited_csi.py` | Reusable limited-CSI policy constants, codebook grid selection, candidate construction, environment factory, progress logging, and limited-CSI slot execution |
 | `execution_policies.py` | Rotating, stale-TopK, sparse-TopK, coverage-aware sparse, and neighbor-coverage feedback policies |
 | `execution_policy_registry.py` | Execution-mismatch policy aliases, display labels, parameter-grid expansion, and mismatch scenario expansion |
 | `execution_result_summary.py` | Execution-mismatch result schema, seed aggregation, confidence intervals, CSV rows, and CSV writing |
@@ -34,13 +35,15 @@ from ms_aircomp.confirmation import confirm_index_with_current_feedback
 from ms_aircomp.execution_policies import choose_coverage_sparse_topk_feedback_decision
 ```
 
-Do not import helper symbols from `evaluate_execution_channel_mismatch.py`:
+Do not import helper symbols from top-level experiment runners such as
+`evaluate_execution_channel_mismatch.py` or `evaluate_limited_csi_ms_aircomp.py`:
 
 ```python
 from evaluate_execution_channel_mismatch import choose_sparse_topk_feedback_decision  # do not add
+import evaluate_limited_csi_ms_aircomp as limited  # do not add inside ms_aircomp
 ```
 
-Whole-module imports of the evaluator are allowed only for orchestration/test runners that call its CLI/parser/evaluation/summary functions. This boundary is checked by `tests/dependency_boundary_checks.py` and `make check`.
+Whole-module imports of the execution-mismatch evaluator are allowed only for orchestration/test runners that call its CLI/parser/evaluation functions. Limited-CSI reusable helpers should come from `ms_aircomp.limited_csi`; top-level limited evaluator imports are reserved for tests that exercise its reporting/summary surface. This boundary is checked by `tests/dependency_boundary_checks.py` and `make check`.
 
 ## API Stability
 

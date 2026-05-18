@@ -116,7 +116,7 @@ METHOD_SPECS = [
     {
         "label": "Mask-Corrected Coverage-Aware B=3 mc=1",
         "short_label": "MaskCorr",
-        "role": "current best same-preview method",
+        "role": "slot/failed trade-off; no-noise gap regression",
         "source_file": INVITATION_MASK_CORRECTION_FILE,
         "policy": "Mask-Corrected Coverage-Aware B=3 mc=1",
     },
@@ -130,7 +130,7 @@ METHOD_SPECS = [
     {
         "label": "Temporal Deviation Oracle B=4",
         "short_label": "TD Oracle",
-        "role": "hidden-info upper bound",
+        "role": "hidden-info temporal diagnostic",
         "source_file": FRONTIER_FILE,
         "policy": "Temporal Deviation Oracle B=4",
     },
@@ -358,7 +358,7 @@ def write_analysis_csv(rows, path):
     """Write per-scenario analysis rows."""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=OUTPUT_FIELDS)
+        writer = csv.DictWriter(csvfile, fieldnames=OUTPUT_FIELDS, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in OUTPUT_FIELDS})
@@ -587,15 +587,15 @@ Negative slot/gap deltas are improvements over the strongest low-cost deployment
 
 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` is the current main budget-split refinement. It keeps total preview at `{format_float(coverage_b3["decision_preview_calls_per_slot_mean"], 2)}` but shifts the split from `4` current feedback probes plus `12` stale seeds to `3` current feedback probes plus about `13` stale seeds. This lowers slots to `{format_float(coverage_b3["slots_mean"])}`, gap to `{format_float(coverage_b3["oracle_tx_gap_mean"])}`, and missed opportunities to `{format_float(coverage_b3["missed_opportunities_mean"])}`. The tradeoff is higher failed invitations than the B=4 coverage setting: `{format_float(coverage_b3["failed_nodes_mean"])}` versus `{format_float(coverage_b4["failed_nodes_mean"])}`.
 
-`Mask-Corrected Coverage-Aware B=3 mc=1` is the strongest same-preview method. It keeps the B3 candidate-generation and current aggregate confirmation steps, then uses the confirmed IRS aggregate feedback count to correct the stale invitation mask cardinality. At the same `{format_float(mask_corrected["decision_preview_calls_per_slot_mean"], 2)}` preview calls, it lowers slots/gap from `{format_float(coverage_b3["slots_mean"])}/{format_float(coverage_b3["oracle_tx_gap_mean"])}` to `{format_float(mask_corrected["slots_mean"])}/{format_float(mask_corrected["oracle_tx_gap_mean"])}` and lowers failed/missed from `{format_float(coverage_b3["failed_nodes_mean"])}/{format_float(coverage_b3["missed_opportunities_mean"])}` to `{format_float(mask_corrected["failed_nodes_mean"])}/{format_float(mask_corrected["missed_opportunities_mean"])}`.
+`Mask-Corrected Coverage-Aware B=3 mc=1` is now a same-preview trade-off rather than a gap-best main method. It keeps the B3 candidate-generation and current aggregate confirmation steps, then uses the confirmed IRS aggregate feedback count to set a target invitation cardinality and reranks remaining devices by stale gain under the confirmed IRS. At the same `{format_float(mask_corrected["decision_preview_calls_per_slot_mean"], 2)}` preview calls, it lowers slots from `{format_float(coverage_b3["slots_mean"])}` to `{format_float(mask_corrected["slots_mean"])}` and lowers failed/missed from `{format_float(coverage_b3["failed_nodes_mean"])}/{format_float(coverage_b3["missed_opportunities_mean"])}` to `{format_float(mask_corrected["failed_nodes_mean"])}/{format_float(mask_corrected["missed_opportunities_mean"])}`. Under the corrected temporal prehistory model, however, the no-noise oracle gap increases from `{format_float(coverage_b3["oracle_tx_gap_mean"])}` to `{format_float(mask_corrected["oracle_tx_gap_mean"])}`. The reportable reliable-feedback claim should therefore be a trade-off claim, not a strongest-method claim.
 
-`Stale-TopK B=4` is still a high-cost positive reference, but it costs `{format_float(stale["decision_preview_calls_per_slot_mean"], 2)}` previews per slot. After mask correction, the same-preview B3 method now beats this stale-ranking reference on slots and oracle gap.
+`Stale-TopK B=4` is still a high-cost positive reference, but it costs `{format_float(stale["decision_preview_calls_per_slot_mean"], 2)}` previews per slot. The same-preview B3 family must be compared against it metric by metric rather than presented as uniformly better.
 
 `Adaptive V2 pc=0.005` is best read as a cost-quality continuum point, not as the final method. It uses `{format_float(adaptive["decision_preview_calls_per_slot_mean"], 2)}` previews on average and lowers the gap versus `Rotating B=8` by `{format_float(-adaptive["gap_delta_vs_rotating_b8"])}`.
 
-The main mechanism is now clear: stale shortlist generation plus current aggregate confirmation fixes part of candidate selection, but the residual B3 gap is dominated by stale invitation-mask mismatch. Mask correction directly targets that mismatch using only aggregate current feedback count, which explains why it improves failed invitations and missed opportunities simultaneously.
+The main mechanism is now more limited than the previous frozen results suggested: stale shortlist generation plus current aggregate confirmation fixes part of candidate selection, and the residual B3 gap is still dominated by stale invitation-mask mismatch. Direct mask correction targets that mismatch using only aggregate current feedback count, but in reliable/no-noise feedback it mainly trades lower slots, failed invitations, and missed opportunities for a higher oracle gap.
 
-The separate invitation-mask noise-aware sweep shows the boundary of that mechanism. Direct `mc=1` remains the best gap setting through feedback-noise std `0.05`. At std `0.1`, clipped `mc=1 clip=2` improves direct `mc=1` on gap, failed invitations, and missed opportunities (`0.818/3.275/0.599` versus `0.856/5.264/0.734`). The reportable claim should therefore state the aggregate-count reliability assumption and include clipped target-count correction as the high-noise robustness variant.
+The separate invitation-mask noise-aware sweep shows the boundary of that mechanism. Direct `mc=1` becomes useful for gap under higher feedback noise, especially at std `0.05` and `0.1`. Clipped `mc=1 clip=2` reduces high-noise failed invitations relative to direct correction, but it is not the high-noise gap-best method in the corrected run.
 
 ## Generated Figures
 
@@ -604,7 +604,7 @@ The separate invitation-mask noise-aware sweep shows the boundary of that mechan
 
 ## Research Implication
 
-Do not continue broad SAC/imitation/bandit branches as main work. The invitation-mask correction result package is now the paper-facing entry point: direct `Mask-Corrected Coverage-Aware B=3 mc=1` is the reliable-feedback main point, and `mc=1 clip=2` is the high-noise robustness variant. Next work should be writing the paper table and narrative, not adding another heuristic branch.
+Do not continue broad SAC/imitation/bandit branches as main work until this corrected result package is resolved. The paper-facing story should now center on `Coverage-Aware B=3 sm=4.1` as the no-noise same-preview gap reference, direct `Mask-Corrected Coverage-Aware B=3 mc=1` as a slot/failed/missed trade-off and high-noise gap-improving correction, and `mc=1 clip=2` as a failed-invitation control diagnostic.
 """
     with open(path, "w", encoding="utf-8") as markdown_file:
         markdown_file.write(content)

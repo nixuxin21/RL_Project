@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.confirmation import confirm_index_with_current_feedback
 from ms_aircomp.probe_sets import (
     coverage_aware_sparse_indices,

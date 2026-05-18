@@ -15,11 +15,11 @@ os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from evaluate_policy_comparison import ensure_parent_dir, format_float_for_suffix
 from ms_aircomp.channel_models import (
     apply_channel_state,
-    build_temporal_channel_states,
+    build_temporal_channel_trace,
     capture_channel_state,
     delayed_channel_state,
 )
@@ -39,6 +39,14 @@ from ms_aircomp.learned_shortlist import (
     score_learned_shortlist_candidates,
 )
 from ms_aircomp.probe_sets import ordered_unique_prefix
+
+
+DIAGNOSTIC_METADATA = {
+    "result_role": "diagnostic",
+    "uses_hidden_training_labels": "true",
+    "inference_uses_hidden_current_csi": "false",
+    "supervision_signal": "hidden_current_channel_supervised_targets",
+}
 
 
 def parse_args():
@@ -408,12 +416,23 @@ def append_episode_rows(env, args, spec, feature_rows, labels, group_ids):
     csi_delay_slots = int(spec["delay"])
     env.reset(seed=episode_seed)
     env._last_seed = episode_seed
-    temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
+    temporal_history, temporal_states = build_temporal_channel_trace(
+        env,
+        args,
+        episode_seed,
+        channel_rho,
+        prehistory_slots=csi_delay_slots,
+    )
     confirmed_history = []
 
     for slot_idx in range(args.num_slots):
         execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-        decision_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+        decision_state = delayed_channel_state(
+            temporal_states,
+            slot_idx,
+            csi_delay_slots,
+            history_states=temporal_history,
+        )
         apply_channel_state(env, decision_state)
         context = learned_shortlist_context(
             env,
@@ -639,11 +658,24 @@ def write_diagnostics(path, train_metrics, val_metrics):
     """Write train/validation diagnostics."""
     rows = []
     for split, values in (("train", train_metrics), ("val", val_metrics)):
-        row = {"split": split}
+        row = {"split": split, **DIAGNOSTIC_METADATA}
         row.update(values)
         rows.append(row)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=["split", "rows", "mse", "corr", "top1_regret"])
+        writer = csv.DictWriter(
+            csvfile,
+            fieldnames=[
+                "split",
+                "result_role",
+                "uses_hidden_training_labels",
+                "inference_uses_hidden_current_csi",
+                "supervision_signal",
+                "rows",
+                "mse",
+                "corr",
+                "top1_regret",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved: {path}")
@@ -674,6 +706,12 @@ def save_model(path, args, model):
         label_preview_cost=np.asarray(args.label_preview_cost),
         fit_objective=np.asarray(model.get("fit_objective", "scalar")),
         pairwise_rows=np.asarray(model.get("pairwise_rows", 0)),
+        result_role=np.asarray(DIAGNOSTIC_METADATA["result_role"]),
+        uses_hidden_training_labels=np.asarray(DIAGNOSTIC_METADATA["uses_hidden_training_labels"]),
+        inference_uses_hidden_current_csi=np.asarray(
+            DIAGNOSTIC_METADATA["inference_uses_hidden_current_csi"]
+        ),
+        supervision_signal=np.asarray(DIAGNOSTIC_METADATA["supervision_signal"]),
     )
     print(f"Saved: {path}")
 

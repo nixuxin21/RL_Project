@@ -10,10 +10,11 @@
 
 ```bash
 make test
+./.venv/bin/python -m pytest
 make docs
 make execution-baseline-summary
 make main-results-analysis
-make paper-table1
+make paper-tables
 make paper-figures
 ```
 
@@ -21,6 +22,8 @@ make paper-figures
 
 - `make help`: 查看当前可复现实验入口。
 - `make test`: 编译主要脚本并运行轻量 smoke checks。
+- `./.venv/bin/python -m pytest` 或 `make pytest-test`: 用标准 pytest 入口运行项目检查 wrapper。
+- `make lint`: 运行 high-signal Ruff 检查，当前只启用语法/未定义名等低噪声规则。
 - `make policy-comparison`: 复现基础 No IRS / Random IRS / Feature Argmax / PowerTie / Greedy 对比。
 - `make sparse-topk-frontier`: 复现当前 Sparse-TopK frontier。
 - `make coverage-sparse-topk-pilot`: 运行 coverage-aware Sparse-TopK pilot，检验 device coverage diversity 是否能降低 missed opportunities。
@@ -34,8 +37,9 @@ make paper-figures
 - `make invitation-mask-correction-formal`: 复现 invitation mask correction formal result。
 - `make invitation-mask-correction-noise-sweep`: 复现 invitation mask correction 的 aggregate-feedback-noise robustness sweep。
 - `make invitation-mask-correction-noise-aware-formal`: 复现 clipped target-count correction 的 high-noise robustness result。
+- `make invitation-mask-rerank-ablation`: 诊断 mask correction 的收益来自 target-count correction 还是 stale-gain replacement。
 - `make final-invitation-mask-analysis`: 生成 invitation-mask correction 的最终论文表、gap-noise 图和 failed/missed-noise 图。
-- `make paper-table1`: 从 frozen mainline CSV 生成论文 Table 1 的 CSV 和 Markdown。
+- `make paper-tables`: 从 frozen mainline CSV 和 diagnosis CSV 生成论文 Table 1/2/3、scenario-level uncertainty companion 和 paired delta CSV。`make paper-table1` 保留为兼容入口。
 - `make paper-figures`: 从 frozen mainline CSV 生成论文版 Figure 2/3/4 PNG 和绘图点 CSV。
 - `make adaptive-sparse-topk-v2-pilot`: 复现 Adaptive Sparse-TopK v2 continuum。
 - `make execution-baseline-summary`: 生成 execution 主线汇总表。
@@ -53,8 +57,12 @@ make paper-figures
 | `docs/PAPER_TEXT_OUTLINE.md` | 论文正文最小骨架，固定每节 claim、证据和禁入内容 |
 | `docs/PAPER_ASSET_GAP_CHECKLIST.md` | 投稿前表图资产缺口清单，固定 Figure 1、Table 2/3 和图表美化状态 |
 | `docs/PAPER_FREEZE_MANIFEST.md` | 论文冻结结果包的 artifact 清单、验证命令和非冻结边界 |
+| `docs/ENVIRONMENT.md` | Python 版本、依赖锁定和 clean setup 命令 |
 | `docs/figures/figure1_system_flow.mmd` | Figure 1 系统与 feedback pipeline 的 Mermaid 可编辑源文件 |
-| `docs/PAPER_TABLE1_MAIN_RESULTS.md` | 由 `make paper-table1` 生成的论文 Table 1 Markdown 主表 |
+| `docs/PAPER_TABLE1_MAIN_RESULTS.md` | 由 `make paper-tables` 生成的论文 Table 1 Markdown 主表 |
+| `docs/PAPER_TABLE1_UNCERTAINTY.md` | 由 `make paper-tables` 生成的 Table 1 scenario-level uncertainty 和 paired delta companion |
+| `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md` | 由 `make paper-tables` 生成的 compact coverage-aware ablation / budget-split 表 |
+| `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md` | 由 `make paper-tables` 生成的 compact B3 failure diagnosis 表 |
 | `docs/MAIN_RESULTS_ANALYSIS.md` | 当前主线结果的机制分析和论文级解释 |
 | `docs/COVERAGE_AWARE_ANALYSIS.md` | Coverage-Aware Sparse-TopK 的 weight/power ablation、budget split 和主设定选择 |
 | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` | 当前 B3 主线 residual gap 的 pool/selection/confirmation/invitation 分解 |
@@ -88,25 +96,25 @@ results/execution_mismatch/main_frontier_failed_missed.png
 
 | Method | Role | Slots | Perfect % | Failed | Missed | Preview | Gap |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `Rotating B=4` | low-budget reference | 3.887 | 99.90 | 1.585 | 1.098 | 4.00 | 1.116 |
-| `Rotating B=8` | low-cost deployment baseline | 3.429 | 100.00 | 1.360 | 0.620 | 8.00 | 0.726 |
-| `Adaptive V2 pc=0.005` | adaptive continuum point | 3.511 | 99.44 | 0.497 | 1.524 | 14.58 | 0.636 |
-| `Adaptive V2 pc=0.002` | adaptive high-quality point | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 |
-| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.376 | 99.79 | 0.477 | 1.295 | 16.00 | 0.534 |
-| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 |
-| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | current budget-split refinement | 3.189 | 99.93 | 0.546 | 0.864 | 16.00 | 0.432 |
-| `Mask-Corrected Coverage-Aware B=3 mc=1` | current best same-preview method | 2.684 | 99.95 | 0.333 | 0.333 | 16.00 | 0.292 |
-| `Stale-TopK B=4` | high-cost positive reference | 3.373 | 99.78 | 0.444 | 1.321 | 20.00 | 0.465 |
-| `Temporal Deviation Oracle B=4` | hidden-info upper bound | 2.985 | 100.00 | 0.326 | 0.900 | 4.00 | 0.345 |
+| `Rotating B=4` | low-budget reference | 4.358 | 99.84 | 8.886 | 5.713 | 4.00 | 2.825 |
+| `Rotating B=8` | low-cost deployment baseline | 3.992 | 99.98 | 8.878 | 4.580 | 8.00 | 2.596 |
+| `Adaptive V2 pc=0.005` | adaptive continuum point | 3.857 | 99.61 | 5.232 | 7.066 | 14.57 | 2.439 |
+| `Adaptive V2 pc=0.002` | adaptive high-quality point | 3.814 | 99.67 | 5.268 | 6.878 | 15.27 | 2.396 |
+| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.770 | 99.77 | 5.272 | 6.643 | 16.00 | 2.334 |
+| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 |
+| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | no-noise same-preview gap reference | 3.604 | 99.94 | 5.804 | 5.438 | 16.00 | 2.207 |
+| `Mask-Corrected Coverage-Aware B=3 mc=1` | slot/failed trade-off; no-noise gap regression | 3.232 | 99.95 | 5.385 | 5.385 | 16.00 | 2.382 |
+| `Stale-TopK B=4` | high-cost positive reference | 3.803 | 99.69 | 5.337 | 6.841 | 20.00 | 2.370 |
+| `Temporal Deviation Oracle B=4` | hidden-info temporal diagnostic | 3.359 | 100.00 | 5.129 | 5.642 | 4.00 | 2.162 |
 
 当前解释：
 
 - `Rotating B=8` 是最强低成本部署 baseline。
 - `Sparse-TopK B=4 sm=3` 是当前最适合报告的 medium-cost positive result。
 - `Coverage-Aware B=4 cw=0.5 cpw=0` 是第一个 formal positive candidate-generation refinement；power penalty 消融支持移除 stale power penalty，weight 消融显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5` 作为解释性主设定。
-- `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 是当前主线预算分配版本：同样 preview `16`，把预算从 `4` 个 current feedback probes + `12` 个 stale seeds 调整到 `3` 个 feedback probes + `13` 个 stale seeds，进一步降低 gap 和 missed opportunities，但 failed invitations 高于 B=4 版本。
-- `Mask-Corrected Coverage-Aware B=3 mc=1` 是当前同 preview `16` 下最强结果：它不改 IRS candidate generation，只用 aggregate current feedback count 修正 confirmed IRS 的 stale invitation mask，把 gap 降到 `0.292`，failed/missed 同时降到 `0.333/0.333`。
-- `make invitation-mask-correction-noise-aware-formal` 显示 clipped target-count correction 是高噪声下的保守变体：feedback-noise std `0.1` 时，`mc=1 clip=2` 把 direct `mc=1` 的 gap/failed/missed 从 `0.856/5.264/0.734` 降到 `0.818/3.275/0.599`；低/中噪声下仍保留 unclipped `mc=1` 作为最佳 gap 设置。
+- `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 是当前 no-noise same-preview gap reference：同样 preview `16`，把预算从 `4` 个 current feedback probes + `12` 个 stale seeds 调整到 `3` 个 feedback probes + `13` 个 stale seeds，降低 no-noise gap 和 missed opportunities，但 failed invitations 高于 B=4 版本。
+- `Mask-Corrected Coverage-Aware B=3 mc=1` 是同 preview `16` 下的 trade-off result：它不改 IRS candidate generation，只用 aggregate current feedback count 修正 confirmed IRS 的 stale invitation mask，并用 stale-gain reranking 生成 corrected invitation mask；它降低 slots/failed/missed，但 no-noise gap 从 B3 的 `2.207` 升到 `2.382`。
+- `make invitation-mask-correction-noise-aware-formal` 显示 feedback-noise boundary：feedback-noise std `0.1` 时 direct `mc=1` 是 gap-best correction，gap `2.080`；`mc=1 clip=2` 把 direct failed invitations 从 `8.803` 降到 `8.395`，但 gap 更高，因此它是 failed-invitation control diagnostic，不是 high-noise gap-best method。
 - `make final-invitation-mask-analysis` 已把最终结论整理为论文表和初始图；论文正文 Figure 4 资产由 `make paper-figures` 生成到 `results/paper/figure4_invitation_mask_gap_noise.png`、`results/paper/figure4_invitation_mask_failed_missed_noise.png` 和 `results/paper/figure4_invitation_mask_noise_points.csv`。
 - `Coverage-Aware B=5/6/8` 的 near-preview-16 formal 对照没有超过 B=3：它们减少 failed invitations，但 missed opportunities 和 gap 明显退化。
 - `Adaptive Sparse-TopK v2` 更适合作为 cost-quality continuum，而不是最终主方法。
@@ -147,7 +155,7 @@ Rotating B=8
 - Neighbor-Coverage 的固定 local-neighbor reallocation。
 - 当前线性 learned set-value、execution-value、pairwise/cost-aware shortlist。
 
-这些内容的定位见 `docs/DEPRECATED_DIRECTIONS.md`。它们不是无效记录，而是 negative results / diagnostics，用于支撑论文讨论和避免重复探索。
+这些内容的定位见 `docs/DEPRECATED_DIRECTIONS.md`。它们不是无效记录，而是 negative results / diagnostics，用于支撑论文讨论和避免重复探索。新生成的 learned/hidden-label diagnostics 会写入 `result_role`、`uses_hidden_training_labels`、`inference_uses_hidden_current_csi` 和 `supervision_signal` metadata，避免被误读为正文可部署主方法。
 
 ## Repository Layout
 
@@ -180,7 +188,18 @@ Rotating B=8
 - 最大发射功率 `P_max=1.0 W`
 - 默认固定门限 `g_th=0.001`, `alpha_th=0.05`
 
-轻量依赖见 `requirements.txt`，完整锁定版本见 `requirements-lock.txt`。当前本地 `.venv` 关键版本：
+环境约束见 `.python-version`、`pyproject.toml` 和 `docs/ENVIRONMENT.md`。复现优先安装完整锁定版本：
+
+```bash
+python3.13 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -r requirements-lock.txt
+make test
+./.venv/bin/python -m pytest
+make mainline-audit
+```
+
+直接依赖的固定版本见 `requirements.txt`，完整锁定版本见 `requirements-lock.txt`。当前本地 `.venv` 关键版本：
 
 - Python 3.13.2
 - Stable-Baselines3 2.8.0
@@ -190,12 +209,38 @@ Rotating B=8
 
 注意：历史 SAC checkpoint 的元数据记录了不同训练环境版本。复现实验时应记录 Python / Gymnasium / NumPy 版本差异。
 
+## Quick Reproduction Audit
+
+Clean-room reviewer check from a fresh clone:
+
+```bash
+python3.13 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -r requirements-lock.txt
+make quick-audit
+```
+
+`make quick-audit` runs:
+
+| Step | Command | Writes |
+|---|---|---|
+| Compile, lint and pytest wrappers | `make check` | Python cache files only |
+| Frozen artifact/index audit | `make mainline-audit` | Python cache files only |
+| Tiny execution-mismatch dry-run | `make quick-audit-dry-run` | `/tmp/rl_project_quick_execution_mismatch.csv` only |
+
+This is the recommended first-pass reproducibility audit. It does not rerun the
+formal experiments and does not rewrite `results/`. Use the larger experiment
+targets below only when intentionally regenerating specific result families.
+
 ## Core Commands
 
 基础验证：
 
 ```bash
 make test
+make pytest-test
+make lint
+make quick-audit
 make smoke
 make docs
 make help
@@ -267,7 +312,7 @@ make learned-pairwise-shortlist-pilot
 - `No IRS`: 无 IRS 下界。
 - `Random IRS`: 最基本 IRS baseline，比 Fixed IRS 更适合作为“未优化 IRS”对照。
 - `Greedy IRS`: full-preview 高成本 reference。
-- `Feature Argmax IRS` / `Feature Argmax PowerTie IRS`: 早期完整 CSI 下的强规则 baseline。
+- `Feature Argmax IRS` / `Feature Argmax PowerTie IRS`: 早期完整 CSI 下的强规则 baseline；其公平 preview cost 应包含 exact codebook-feature acquisition，而不是只计算 tie-break preview。
 
 在当前 execution-mismatch 主线中，主表应优先报告：
 
@@ -286,29 +331,31 @@ make learned-pairwise-shortlist-pilot
 当前结论的边界：
 
 - 主线 execution mismatch 使用 temporal AR(1) stale CSI，当前汇总覆盖 `rho in {0.7, 0.9, 0.98}` 和 `delay in {1, 2, 3}`。
-- `Temporal Deviation Oracle` 使用 hidden current channel，只能作为上界诊断，不能作为可部署策略。
+- `Temporal Deviation Oracle` 使用 hidden current channel，只能作为 temporal diagnostic reference，不能作为可部署策略或 global upper bound。
 - `Stale-TopK B=4` 是高成本 reference，因为它使用完整 stale ranking 加 current aggregate feedback。
 - `Sparse-TopK` 和 `Adaptive V2` 的价值在于降低 stale ranking 成本，同时保留部分 current feedback 确认收益。
 - 当前 learned shortlist 结果仍弱于 `Adaptive V2` 和 `Sparse-TopK sm=3`，因此只作为 diagnostic。
-- `results/` 默认是本地生成物，不直接版本化；需要正式引用的结果通过 `docs/RESULTS_INDEX.md` 记录。
+- `results/` 默认是本地生成物；paper-freeze artifacts 和 summary `source_file` CSV 必须随仓库版本化，具体边界见 `docs/PAPER_FREEZE_MANIFEST.md` 和 `results/README.md`。
 
 ## Next Research Step
 
 当前最值得继续做的是：
 
-> 以 `Mask-Corrected Coverage-Aware B=3 mc=1` 作为可靠反馈下的主方法，以 `mc=1 clip=2` 作为 high-noise 保守变体；下一步应把这条 invitation-mask correction 线整理成论文主贡献和补充鲁棒性表。
+> 以 `Coverage-Aware B=3 sm=4.1` 作为 no-noise same-preview gap reference，把 `Mask-Corrected Coverage-Aware B=3 mc=1` 写成 reliable-feedback trade-off，并把 high-noise direct correction 与 `mc=1 clip=2` failed-invitation diagnostic 作为 noise-boundary 证据。
 
-`coverage_sparse_topk_feedback` 已接入主分析。它在 sparse stale pool 中保留 top stale anchors，再用 marginal device coverage gain 填充剩余 current-feedback probes；formal power ablation 选择 `cpw=0`，weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。budget split formal 结果显示，在同样 preview `16` 下，`B=3 sm=4.1` 比 `B=4 sm=3` 进一步降低 gap 和 missed opportunities，代价是 failed invitations 增加；逐场景检查也显示 B=3 在全部 9 个 `rho/delay` 场景上都是最低 gap/slots 的 split，因此没有简单的 scenario-adaptive B 选择空间。
+`coverage_sparse_topk_feedback` 已接入主分析。它在 sparse stale pool 中保留 top stale anchors，再用 marginal device coverage gain 填充剩余 current-feedback probes；formal power ablation 选择 `cpw=0`，weight ablation 显示 `cw=0/0.25/0.5` 在主指标上基本打平，因此保留 `cw=0.5 cpw=0`。budget split formal 结果显示，在同样 preview `16` 下，`B=3 sm=4.1` 是当前 no-noise same-preview gap reference，代价是 failed invitations 高于 B=4 版本；因此没有简单的 scenario-adaptive B 选择空间。
 
-`make coverage-b3-failure-diagnosis` 显示，当前 B3 residual gap 的主要来源不是 sparse stale pool，也不是 final B=3 subset，而是 invitation mask mismatch：总体 gap share 为 invitation `0.530`、selection `0.251`、confirmation `0.116`、pool `0.104`。因此下一步算法应优先做 confirmed IRS 下的 stale invitation-mask correction，而不是继续增加固定邻域或普通 candidate-generation heuristic。
+`make coverage-b3-failure-diagnosis` 显示，当前 B3 residual gap 的主要来源不是 sparse stale pool，也不是 final B=3 subset，而是 invitation mask mismatch：总体 gap share 为 invitation `0.687`、selection `0.260`、confirmation `0.024`、pool `0.029`。因此下一步算法应优先围绕 confirmed IRS 下的 stale invitation-mask mismatch 和 aggregate-feedback robustness，而不是继续增加固定邻域或普通 candidate-generation heuristic。
 
-`make invitation-mask-correction-formal` 已验证该方向有效：`mc=1` 在同样 preview `16` 下将 slots/gap 从 `3.189/0.432` 降到 `2.684/0.292`，failed/missed 从 `0.546/0.864` 降到 `0.333/0.333`。
+`make invitation-mask-correction-formal` 已验证该方向会形成 trade-off：该方法用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 生成 corrected invitation mask；`mc=1` 在同样 preview `16` 下把 slots 从 `3.604` 降到 `3.232`，failed/missed 从 `5.804/5.438` 降到 `5.385/5.385`，但 no-noise gap 从 `2.207` 升到 `2.382`。
 
-`make invitation-mask-correction-noise-sweep` 进一步完成 robustness boundary：feedback-noise std 为 `0.02/0.05` 时，`mc=1` 仍把 gap 分别从未修正的 `0.578/0.753` 降到 `0.503/0.668`；std 为 `0.1` 时，`mc=0.75` gap `0.842` 略好于 `mc=1` 的 `0.856`，且 failed invitations 更少。这个结果解释了为什么需要 target-count clipping。
+`make invitation-mask-correction-noise-sweep` 进一步完成 noise boundary：feedback-noise std 为 `0.05/0.1` 时，direct `mc=1` 开始改善 gap，分别把 B3 gap 从 `2.380/2.519` 降到 `2.184/2.080`。
 
-`make invitation-mask-correction-noise-aware-formal` 已完成 clipping 版 target-count correction。deadband `z>0` 的 broad pilot 会压掉有用修正，因此没有进入 formal；formal 只保留 direct 与 `clip=2`。结果显示，`mc=1 clip=2` 在 feedback-noise std `0.1` 下把 gap 从 direct `mc=1` 的 `0.856` 降到 `0.818`，failed 从 `5.264` 降到 `3.275`，missed 从 `0.734` 降到 `0.599`。低/中噪声下 direct `mc=1` 仍是最低 gap，因此最终表述应是可靠反馈使用 unclipped `mc=1`，高噪声使用 clipped conservative variant。
+`make invitation-mask-correction-noise-aware-formal` 已完成 clipping 版 target-count correction。deadband `z>0` 的 broad pilot 会压掉有用修正，因此没有进入 formal；formal 只保留 direct 与 `clip=2`。结果显示，feedback-noise std `0.1` 下 direct `mc=1` 是 gap-best correction，gap `2.080`；`mc=1 clip=2` 把 direct failed invitations 从 `8.803` 降到 `8.395`，但 gap 升到 `2.291`。因此最终表述应是 reliable-feedback trade-off + high-noise direct gap-best + clipped failed-invitation diagnostic。
 
-最新 Neighbor-Coverage pilot 尝试把 `B=3 sm=4.1` 的部分 stale preview 从均匀 grid seed 改成 stale leader 的 local neighbors，但最佳 gap `0.452` 仍弱于当前主线 `0.432`，因此只保留为 negative diagnostic。
+`make invitation-mask-rerank-ablation` 是新增诊断入口，不属于 frozen paper result。它把原始 `global_stale_gain` correction 和 `prune_only` ablation 放在同一个 `Coverage-Aware B=3` candidate-generation 设置下比较：前者在 target count 变化时允许从所有 remaining devices 中按 stale gain 重排，后者只能 prune 原 stale-valid mask、不能添加 stale-invalid devices。100 episodes × 2 seeds × 9 scenarios 的 pilot 显示，`prune_only` 把 failed 降到 `5.238`，但 slots/missed/gap 退化到 `3.755/6.891/2.538`；`global_stale_gain` 为 `3.267/5.392/5.392/2.384`。因此 mask-correction 不能写成纯 cardinality correction，必须表述为 aggregate target-count correction + stale-gain replacement。
+
+最新 Neighbor-Coverage pilot 尝试把 `B=3 sm=4.1` 的部分 stale preview 从均匀 grid seed 改成 stale leader 的 local neighbors；修正 temporal prehistory 后仍未超过当前 B3 no-noise gap reference，因此只保留为 negative diagnostic。
 
 具体判断标准：
 

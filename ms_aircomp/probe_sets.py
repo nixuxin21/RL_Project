@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 
 __all__ = [
     "circular_codebook_distance",

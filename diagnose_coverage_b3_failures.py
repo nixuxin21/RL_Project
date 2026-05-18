@@ -21,10 +21,10 @@ import os
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.channel_models import (
     apply_channel_state,
-    build_temporal_channel_states,
+    build_temporal_channel_trace,
     capture_channel_state,
     delayed_channel_state,
 )
@@ -221,10 +221,24 @@ def primary_gap_type(pool_gap, selection_gap, confirmation_gap, invitation_gap, 
     return label if value > 0 else "none"
 
 
-def trace_one_slot(args, env, episode_seed, channel_rho, csi_delay_slots, temporal_states, slot_idx):
+def trace_one_slot(
+    args,
+    env,
+    episode_seed,
+    channel_rho,
+    csi_delay_slots,
+    temporal_history,
+    temporal_states,
+    slot_idx,
+):
     """Run one diagnostic slot and return a trace row plus done flag."""
     execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-    stale_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+    stale_state = delayed_channel_state(
+        temporal_states,
+        slot_idx,
+        csi_delay_slots,
+        history_states=temporal_history,
+    )
     remaining_before = int(np.sum(~env.transmitted_flags))
 
     apply_channel_state(env, execution_state)
@@ -400,11 +414,12 @@ def run_trace(args):
                     env = make_env(args)
                     env.reset(seed=episode_seed)
                     env._last_seed = episode_seed
-                    temporal_states = build_temporal_channel_states(
+                    temporal_history, temporal_states = build_temporal_channel_trace(
                         env,
                         args,
                         episode_seed,
                         channel_rho,
+                        prehistory_slots=csi_delay_slots,
                     )
                     for slot_idx in range(args.num_slots):
                         row, done = trace_one_slot(
@@ -413,6 +428,7 @@ def run_trace(args):
                             episode_seed,
                             channel_rho,
                             csi_delay_slots,
+                            temporal_history,
                             temporal_states,
                             slot_idx,
                         )

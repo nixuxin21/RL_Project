@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test boundary-test regression-test mainline-audit check py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -19,6 +19,7 @@ py-compile:
 		ms_aircomp/feedback.py \
 		ms_aircomp/invitation_mask_correction.py \
 		ms_aircomp/learned_shortlist.py \
+		ms_aircomp/limited_csi.py \
 		ms_aircomp/probe_sets.py \
 		ms_aircomp/temporal_policies.py \
 		test_env.py \
@@ -54,12 +55,21 @@ py-compile:
 		diagnose_coverage_b3_failures.py \
 		evaluate_invitation_mask_correction.py \
 		tests/dependency_boundary_checks.py \
+		tests/__init__.py \
+		tests/test_project_checks.py \
 		tests/mainline_artifact_checks.py \
+		tests/validation_checks.py \
 		tests/smoke_checks.py \
 		tests/mainline_regression_checks.py
 
 test: py-compile
 	$(PYTHON) tests/smoke_checks.py
+
+pytest-test:
+	$(PYTHON) -m pytest
+
+lint:
+	$(PYTHON) -m ruff check .
 
 boundary-test:
 	$(PYTHON) tests/dependency_boundary_checks.py
@@ -70,7 +80,28 @@ regression-test: py-compile
 mainline-audit: py-compile
 	$(PYTHON) tests/mainline_artifact_checks.py
 
-check: test boundary-test regression-test
+check: py-compile lint pytest-test
+
+quick-audit: check mainline-audit quick-audit-dry-run
+
+quick-audit-dry-run:
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 1 \
+		--num-seeds 1 \
+		--probe-budgets 2 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.9 \
+		--csi-delay-slots 1 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--policies rotating_feedback_confirm,sparse_topk_feedback \
+		--num-nodes 6 \
+		--num-slots 3 \
+		--num-codebook-states 4 \
+		--num-irs-elements 8 \
+		--fixed-irs-index 1 \
+		--no-plots \
+		--output-prefix /tmp/rl_project_quick_execution_mismatch
 
 smoke: test
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -558,6 +589,22 @@ invitation-mask-correction-noise-aware-formal:
 		--output-prefix results/execution_mismatch/invitation_mask_correction_noise_aware_formal_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_mc0-0p75-1_clipinf-2_fbn0-0p02-0p05-0p1 \
 		--doc-output docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md
 
+invitation-mask-rerank-ablation:
+	$(PYTHON) evaluate_invitation_mask_correction.py \
+		--episodes 100 \
+		--num-seeds 2 \
+		--channel-rho-values 0.7,0.9,0.98 \
+		--csi-delay-slots 1,2,3 \
+		--probe-budget 3 \
+		--sparse-topk-seed-multiplier 4.1 \
+		--sparse-topk-fraction 0.75 \
+		--coverage-sparse-weight 0.5 \
+		--coverage-sparse-power-weight 0 \
+		--mask-correction-strengths 0,1 \
+		--mask-correction-rerank-modes global_stale_gain,prune_only \
+		--output-prefix results/execution_mismatch/invitation_mask_rerank_ablation_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_mc0-1_modesglobal-prune \
+		--doc-output docs/INVITATION_MASK_RERANK_ABLATION.md
+
 adaptive-sparse-topk-pilot:
 	$(PYTHON) evaluate_execution_channel_mismatch.py \
 		--episodes 100 \
@@ -781,6 +828,8 @@ final-invitation-mask-analysis:
 paper-table1:
 	$(PYTHON) generate_paper_tables.py
 
+paper-tables: paper-table1
+
 paper-figures:
 	$(PYTHON) generate_paper_figures.py
 
@@ -804,9 +853,17 @@ docs:
 		'Paper text outline: docs/PAPER_TEXT_OUTLINE.md' \
 		'Paper asset gap checklist: docs/PAPER_ASSET_GAP_CHECKLIST.md' \
 		'Paper freeze manifest: docs/PAPER_FREEZE_MANIFEST.md' \
+		'Environment: docs/ENVIRONMENT.md' \
 		'Paper Figure 1 source: docs/figures/figure1_system_flow.mmd' \
 		'Paper Table 1 main results: docs/PAPER_TABLE1_MAIN_RESULTS.md' \
 		'Paper Table 1 CSV: results/paper/table1_main_results.csv' \
+		'Paper Table 1 uncertainty: docs/PAPER_TABLE1_UNCERTAINTY.md' \
+		'Paper Table 1 scenario uncertainty CSV: results/paper/table1_scenario_uncertainty.csv' \
+		'Paper Table 1 paired deltas CSV: results/paper/table1_paired_scenario_deltas.csv' \
+		'Paper Table 2 coverage-aware ablation: docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md' \
+		'Paper Table 2 CSV: results/paper/table2_coverage_aware_ablation.csv' \
+		'Paper Table 3 failure diagnosis: docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md' \
+		'Paper Table 3 CSV: results/paper/table3_failure_diagnosis.csv' \
 		'Paper Figure 2/3 points: results/paper/figure2_figure3_points.csv' \
 		'Paper Figure 2 preview-gap: results/paper/figure2_preview_gap_frontier.png' \
 		'Paper Figure 3 failed-missed: results/paper/figure3_failed_missed_tradeoff.png' \
@@ -824,6 +881,7 @@ docs:
 		'Invitation mask correction: docs/INVITATION_MASK_CORRECTION.md' \
 		'Invitation mask correction noise: docs/INVITATION_MASK_CORRECTION_NOISE.md' \
 		'Invitation mask correction noise-aware: docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md' \
+		'Invitation mask rerank ablation: docs/INVITATION_MASK_RERANK_ABLATION.md' \
 		'Deprecated directions: docs/DEPRECATED_DIRECTIONS.md' \
 		'Experiment report: EXPERIMENT_REPORT.md'
 
@@ -831,16 +889,21 @@ help:
 	@printf '%s\n' \
 		'Core targets:' \
 		'  make test                  Compile scripts and run smoke checks' \
+		'  make pytest-test           Run standard pytest wrappers for project checks' \
+		'  make lint                  Run high-signal Ruff checks' \
 		'  make boundary-test         Check evaluator dependency boundaries' \
 		'  make regression-test       Run fixed-seed mainline numerical checks' \
 		'  make mainline-audit        Check existing mainline result artifacts and CSV links' \
-		'  make check                 Run smoke, dependency-boundary, and mainline regression checks' \
+		'  make check                 Run compile, lint, and pytest project checks' \
+		'  make quick-audit           Run clean-room compile/lint/tests, artifact audit, and /tmp dry-run' \
+		'  make quick-audit-dry-run   Run one tiny execution-mismatch dry-run writing only /tmp' \
 		'  make smoke                 Run broader one-shot smoke experiments' \
 		'  make policy-comparison     Run the main baseline table' \
 		'  make policy-comparison-learning  Add SAC/Codebook-Aware SAC baselines' \
 		'  make policy-comparison-static    Add Fixed/Best Fixed IRS ablations' \
 		'  make runtime               Reproduce the runtime benchmark' \
 		'  make docs                  Show documentation entry points' \
+		'  make paper-tables          Generate paper-facing Table 1/2/3 artifacts' \
 		'' \
 		'Current execution-mismatch frontier:' \
 		'  make sparse-topk-cost-pilot' \
@@ -859,6 +922,7 @@ help:
 		'  make invitation-mask-correction-noise-sweep' \
 		'  make invitation-mask-correction-noise-aware-pilot' \
 		'  make invitation-mask-correction-noise-aware-formal' \
+		'  make invitation-mask-rerank-ablation' \
 		'  make adaptive-sparse-topk-v2-pilot' \
 		'  make execution-baseline-summary' \
 		'  make main-results-analysis' \

@@ -7,17 +7,17 @@ All values are equal-weight averages across the 9 temporal AR(1) rho/delay scena
 
 | Label | Role | Slots | Perfect % | Failed | Missed | Preview | Gap | Expansion | Extra |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Rotating B=4 | low-budget reference | 3.887 | 99.90 | 1.585 | 1.098 | 4.00 | 1.116 | 0.000 | 0.000 |
-| Rotating B=8 | low-cost deployment baseline | 3.429 | 100.00 | 1.360 | 0.620 | 8.00 | 0.726 | 0.000 | 0.000 |
-| Sparse-TopK B=4 sm=2 | negative boundary | 3.635 | 99.64 | 0.517 | 1.609 | 12.00 | 0.736 | 0.000 | 0.000 |
-| Adaptive V2 mt=0.05 pc=0.005 | adaptive continuum point | 3.511 | 99.44 | 0.497 | 1.524 | 14.58 | 0.636 | 0.645 | 0.000 |
-| Adaptive V2 mt=0.05 pc=0.002 | adaptive high-quality point | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 | 0.839 | 0.000 |
-| Sparse-TopK B=4 sm=3 | reportable medium-cost baseline | 3.376 | 99.79 | 0.477 | 1.295 | 16.00 | 0.534 | 0.000 | 0.000 |
-| Coverage-Aware B=4 cw=0.5 cpw=0 | same-cost B=4 coverage reference | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 | 0.000 | 0.000 |
-| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | current budget-split refinement | 3.189 | 99.93 | 0.546 | 0.864 | 16.00 | 0.432 | 0.000 | 0.000 |
-| Mask-Corrected Coverage-Aware B=3 mc=1 | current best same-preview method | 2.684 | 99.95 | 0.333 | 0.333 | 16.00 | 0.292 | 0.000 | 0.000 |
-| Stale-TopK B=4 | high-cost positive reference | 3.373 | 99.78 | 0.444 | 1.321 | 20.00 | 0.465 | 0.000 | 0.000 |
-| Temporal Deviation Oracle B=4 | hidden-info upper bound | 2.985 | 100.00 | 0.326 | 0.900 | 4.00 | 0.345 | 0.000 | 0.000 |
+| Rotating B=4 | low-budget reference | 4.358 | 99.84 | 8.886 | 5.713 | 4.00 | 2.825 | 0.000 | 0.000 |
+| Rotating B=8 | low-cost deployment baseline | 3.992 | 99.98 | 8.878 | 4.580 | 8.00 | 2.596 | 0.000 | 0.000 |
+| Sparse-TopK B=4 sm=2 | negative boundary | 3.990 | 99.67 | 5.239 | 7.425 | 12.00 | 2.478 | 0.000 | 0.000 |
+| Adaptive V2 mt=0.05 pc=0.005 | adaptive continuum point | 3.857 | 99.61 | 5.232 | 7.066 | 14.57 | 2.439 | 0.641 | 0.000 |
+| Adaptive V2 mt=0.05 pc=0.002 | adaptive high-quality point | 3.814 | 99.67 | 5.268 | 6.878 | 15.27 | 2.396 | 0.818 | 0.000 |
+| Sparse-TopK B=4 sm=3 | reportable medium-cost baseline | 3.770 | 99.77 | 5.272 | 6.643 | 16.00 | 2.334 | 0.000 | 0.000 |
+| Coverage-Aware B=4 cw=0.5 cpw=0 | same-cost B=4 coverage reference | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 | 0.000 | 0.000 |
+| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | current budget-split refinement | 3.604 | 99.94 | 5.804 | 5.438 | 16.00 | 2.207 | 0.000 | 0.000 |
+| Mask-Corrected Coverage-Aware B=3 mc=1 | slot/failed trade-off; no-noise gap regression | 3.232 | 99.95 | 5.385 | 5.385 | 16.00 | 2.382 | 0.000 | 0.000 |
+| Stale-TopK B=4 | high-cost positive reference | 3.803 | 99.69 | 5.337 | 6.841 | 20.00 | 2.370 | 0.000 | 0.000 |
+| Temporal Deviation Oracle B=4 | hidden-info temporal diagnostic | 3.359 | 100.00 | 5.129 | 5.642 | 4.00 | 2.162 | 0.000 | 0.000 |
 
 ## Learned Diagnostics
 
@@ -32,7 +32,8 @@ All values are equal-weight averages across the 9 temporal AR(1) rho/delay scena
 ## Interpretation
 
 - Main reportable baseline stack: `Rotating B=8`, adaptive v2 continuum, `Sparse-TopK B=4 sm=3`, `Coverage-Aware B=4`, `Coverage-Aware B=3 sm=4.1`, `Mask-Corrected Coverage-Aware B=3 mc=1`, `Stale-TopK B=4`, and `Temporal Deviation Oracle B=4`.
+- `Temporal Deviation Oracle B=4` is a hidden-information temporal diagnostic reference, not a global upper bound: the proposed mask-corrected method can have lower observed gap because it changes invitation-mask correction rather than only the temporal probe offset.
 - `Sparse-TopK B=4 sm=2` is a negative boundary: it no longer beats `Rotating B=8` after the formal frontier sweep.
-- `Mask-Corrected Coverage-Aware B=3 mc=1` is the current strongest same-preview method; it keeps B3 candidate generation but corrects the stale invitation mask using aggregate feedback count.
-- The separate clipped target-count sweep shows the high-noise robustness boundary: direct `mc=1` remains best by gap through feedback-noise std `0.05`, while `mc=1 clip=2` is better at std `0.1`.
+- `Mask-Corrected Coverage-Aware B=3 mc=1` is a same-preview invitation-mask correction trade-off: under the corrected temporal prehistory model it lowers slots, failed invitations, and missed opportunities versus B3, but it does not lower the no-noise oracle gap.
+- The feedback-noise sweep should be reported as a boundary result: direct `mc=1` improves gap under higher feedback noise, while `mc=1 clip=2` is a failed-invitation control diagnostic rather than the high-noise gap-best method.
 - Learned shortlist variants remain useful diagnostics, but the best learned point is still weaker than adaptive v2 and `Sparse-TopK sm=3`.

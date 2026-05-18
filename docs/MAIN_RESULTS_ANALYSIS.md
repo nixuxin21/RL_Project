@@ -14,16 +14,16 @@ All values are equal-weight averages across the 9 temporal AR(1) rho/delay scena
 
 | Method | Role | Scenarios | Samples | Seeds | Slots | Perfect % | Failed | Missed | Preview | Gap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Rotating B=4 | low-budget reference | 9 | 900 | 3 | 3.887 | 99.90 | 1.585 | 1.098 | 4.00 | 1.116 |
-| Rotating B=8 | low-cost deployment baseline | 9 | 900 | 3 | 3.429 | 100.00 | 1.360 | 0.620 | 8.00 | 0.726 |
-| Adaptive V2 pc=0.005 | adaptive continuum point | 9 | 200 | 2 | 3.511 | 99.44 | 0.497 | 1.524 | 14.58 | 0.636 |
-| Adaptive V2 pc=0.002 | adaptive high-quality point | 9 | 200 | 2 | 3.492 | 99.44 | 0.505 | 1.492 | 15.36 | 0.597 |
-| Sparse-TopK B=4 sm=3 | reportable medium-cost baseline | 9 | 900 | 3 | 3.376 | 99.79 | 0.477 | 1.295 | 16.00 | 0.534 |
-| Coverage-Aware B=4 cw=0.5 cpw=0 | same-cost B=4 coverage reference | 9 | 900 | 3 | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 |
-| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | current budget-split refinement | 9 | 900 | 3 | 3.189 | 99.93 | 0.546 | 0.864 | 16.00 | 0.432 |
-| Mask-Corrected Coverage-Aware B=3 mc=1 | current best same-preview method | 9 | 900 | 3 | 2.684 | 99.95 | 0.333 | 0.333 | 16.00 | 0.292 |
-| Stale-TopK B=4 | high-cost positive reference | 9 | 900 | 3 | 3.373 | 99.78 | 0.444 | 1.321 | 20.00 | 0.465 |
-| Temporal Deviation Oracle B=4 | hidden-info upper bound | 9 | 900 | 3 | 2.985 | 100.00 | 0.326 | 0.900 | 4.00 | 0.345 |
+| Rotating B=4 | low-budget reference | 9 | 900 | 3 | 4.358 | 99.84 | 8.886 | 5.713 | 4.00 | 2.825 |
+| Rotating B=8 | low-cost deployment baseline | 9 | 900 | 3 | 3.992 | 99.98 | 8.878 | 4.580 | 8.00 | 2.596 |
+| Adaptive V2 pc=0.005 | adaptive continuum point | 9 | 200 | 2 | 3.857 | 99.61 | 5.232 | 7.066 | 14.57 | 2.439 |
+| Adaptive V2 pc=0.002 | adaptive high-quality point | 9 | 200 | 2 | 3.814 | 99.67 | 5.268 | 6.878 | 15.27 | 2.396 |
+| Sparse-TopK B=4 sm=3 | reportable medium-cost baseline | 9 | 900 | 3 | 3.770 | 99.77 | 5.272 | 6.643 | 16.00 | 2.334 |
+| Coverage-Aware B=4 cw=0.5 cpw=0 | same-cost B=4 coverage reference | 9 | 900 | 3 | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 |
+| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | current budget-split refinement | 9 | 900 | 3 | 3.604 | 99.94 | 5.804 | 5.438 | 16.00 | 2.207 |
+| Mask-Corrected Coverage-Aware B=3 mc=1 | slot/failed trade-off; no-noise gap regression | 9 | 900 | 3 | 3.232 | 99.95 | 5.385 | 5.385 | 16.00 | 2.382 |
+| Stale-TopK B=4 | high-cost positive reference | 9 | 900 | 3 | 3.803 | 99.69 | 5.337 | 6.841 | 20.00 | 2.370 |
+| Temporal Deviation Oracle B=4 | hidden-info temporal diagnostic | 9 | 900 | 3 | 3.359 | 100.00 | 5.129 | 5.642 | 4.00 | 2.162 |
 
 ## Delta Vs Rotating B=8
 
@@ -31,35 +31,35 @@ Negative slot/gap deltas are improvements over the strongest low-cost deployment
 
 | Method | Delta slots | Delta failed | Delta missed | Delta preview | Delta gap |
 | --- | --- | --- | --- | --- | --- |
-| Rotating B=4 | 0.459 | 0.225 | 0.478 | -4.00 | 0.390 |
-| Adaptive V2 pc=0.005 | 0.082 | -0.863 | 0.904 | 6.58 | -0.090 |
-| Adaptive V2 pc=0.002 | 0.064 | -0.855 | 0.872 | 7.36 | -0.129 |
-| Sparse-TopK B=4 sm=3 | -0.053 | -0.883 | 0.675 | 8.00 | -0.192 |
-| Coverage-Aware B=4 cw=0.5 cpw=0 | -0.140 | -0.886 | 0.510 | 8.00 | -0.229 |
-| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | -0.240 | -0.814 | 0.244 | 8.00 | -0.294 |
-| Mask-Corrected Coverage-Aware B=3 mc=1 | -0.744 | -1.026 | -0.287 | 8.00 | -0.434 |
-| Stale-TopK B=4 | -0.056 | -0.916 | 0.701 | 12.00 | -0.262 |
-| Temporal Deviation Oracle B=4 | -0.444 | -1.034 | 0.280 | -4.00 | -0.381 |
+| Rotating B=4 | 0.365 | 0.007 | 1.132 | -4.00 | 0.229 |
+| Adaptive V2 pc=0.005 | -0.136 | -3.646 | 2.486 | 6.57 | -0.157 |
+| Adaptive V2 pc=0.002 | -0.178 | -3.610 | 2.298 | 7.27 | -0.200 |
+| Sparse-TopK B=4 sm=3 | -0.223 | -3.606 | 2.062 | 8.00 | -0.262 |
+| Coverage-Aware B=4 cw=0.5 cpw=0 | -0.344 | -3.607 | 1.552 | 8.00 | -0.350 |
+| Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0 | -0.388 | -3.074 | 0.858 | 8.00 | -0.389 |
+| Mask-Corrected Coverage-Aware B=3 mc=1 | -0.760 | -3.493 | 0.805 | 8.00 | -0.214 |
+| Stale-TopK B=4 | -0.190 | -3.541 | 2.261 | 12.00 | -0.226 |
+| Temporal Deviation Oracle B=4 | -0.633 | -3.749 | 1.061 | -4.00 | -0.434 |
 
 ## Mechanism Interpretation
 
-`Rotating B=8` remains the most important low-cost deployment baseline: it reaches slots `3.429` with only `8.00` previews and gap `0.726`.
+`Rotating B=8` remains the most important low-cost deployment baseline: it reaches slots `3.992` with only `8.00` previews and gap `2.596`.
 
-`Sparse-TopK B=4 sm=3` is the current reportable medium-cost positive point. Relative to `Rotating B=8`, it reduces the oracle gap by `0.192` and failed invitations by `0.883`, but increases preview by `8.00` and missed opportunities by `0.675`.
+`Sparse-TopK B=4 sm=3` is the current reportable medium-cost positive point. Relative to `Rotating B=8`, it reduces the oracle gap by `0.262` and failed invitations by `3.606`, but increases preview by `8.00` and missed opportunities by `2.062`.
 
-`Coverage-Aware B=4 cw=0.5 cpw=0` is the first same-cost refinement of `Sparse-TopK B=4 sm=3`: at the same `16.00` preview calls per slot, it changes gap from `0.534` to `0.497` and missed opportunities from `1.295` to `1.131` in the formal frontier sweep. The separate power ablation supports removing the stale power penalty; the coverage-weight ablation shows low sensitivity among `cw=0`, `cw=0.25`, and `cw=0.5`.
+`Coverage-Aware B=4 cw=0.5 cpw=0` is the first same-cost refinement of `Sparse-TopK B=4 sm=3`: at the same `16.00` preview calls per slot, it changes gap from `2.334` to `2.246` and missed opportunities from `6.643` to `6.133` in the formal frontier sweep. The separate power ablation supports removing the stale power penalty; the coverage-weight ablation shows low sensitivity among `cw=0`, `cw=0.25`, and `cw=0.5`.
 
-`Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` is the current main budget-split refinement. It keeps total preview at `16.00` but shifts the split from `4` current feedback probes plus `12` stale seeds to `3` current feedback probes plus about `13` stale seeds. This lowers slots to `3.189`, gap to `0.432`, and missed opportunities to `0.864`. The tradeoff is higher failed invitations than the B=4 coverage setting: `0.546` versus `0.473`.
+`Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` is the current main budget-split refinement. It keeps total preview at `16.00` but shifts the split from `4` current feedback probes plus `12` stale seeds to `3` current feedback probes plus about `13` stale seeds. This lowers slots to `3.604`, gap to `2.207`, and missed opportunities to `5.438`. The tradeoff is higher failed invitations than the B=4 coverage setting: `5.804` versus `5.271`.
 
-`Mask-Corrected Coverage-Aware B=3 mc=1` is the strongest same-preview method. It keeps the B3 candidate-generation and current aggregate confirmation steps, then uses the confirmed IRS aggregate feedback count to correct the stale invitation mask cardinality. At the same `16.00` preview calls, it lowers slots/gap from `3.189/0.432` to `2.684/0.292` and lowers failed/missed from `0.546/0.864` to `0.333/0.333`.
+`Mask-Corrected Coverage-Aware B=3 mc=1` is now a same-preview trade-off rather than a gap-best main method. It keeps the B3 candidate-generation and current aggregate confirmation steps, then uses the confirmed IRS aggregate feedback count to set a target invitation cardinality and reranks remaining devices by stale gain under the confirmed IRS. At the same `16.00` preview calls, it lowers slots from `3.604` to `3.232` and lowers failed/missed from `5.804/5.438` to `5.385/5.385`. Under the corrected temporal prehistory model, however, the no-noise oracle gap increases from `2.207` to `2.382`. The reportable reliable-feedback claim should therefore be a trade-off claim, not a strongest-method claim.
 
-`Stale-TopK B=4` is still a high-cost positive reference, but it costs `20.00` previews per slot. After mask correction, the same-preview B3 method now beats this stale-ranking reference on slots and oracle gap.
+`Stale-TopK B=4` is still a high-cost positive reference, but it costs `20.00` previews per slot. The same-preview B3 family must be compared against it metric by metric rather than presented as uniformly better.
 
-`Adaptive V2 pc=0.005` is best read as a cost-quality continuum point, not as the final method. It uses `14.58` previews on average and lowers the gap versus `Rotating B=8` by `0.090`.
+`Adaptive V2 pc=0.005` is best read as a cost-quality continuum point, not as the final method. It uses `14.57` previews on average and lowers the gap versus `Rotating B=8` by `0.157`.
 
-The main mechanism is now clear: stale shortlist generation plus current aggregate confirmation fixes part of candidate selection, but the residual B3 gap is dominated by stale invitation-mask mismatch. Mask correction directly targets that mismatch using only aggregate current feedback count, which explains why it improves failed invitations and missed opportunities simultaneously.
+The main mechanism is now more limited than the previous frozen results suggested: stale shortlist generation plus current aggregate confirmation fixes part of candidate selection, and the residual B3 gap is still dominated by stale invitation-mask mismatch. Direct mask correction targets that mismatch using only aggregate current feedback count, but in reliable/no-noise feedback it mainly trades lower slots, failed invitations, and missed opportunities for a higher oracle gap.
 
-The separate invitation-mask noise-aware sweep shows the boundary of that mechanism. Direct `mc=1` remains the best gap setting through feedback-noise std `0.05`. At std `0.1`, clipped `mc=1 clip=2` improves direct `mc=1` on gap, failed invitations, and missed opportunities (`0.818/3.275/0.599` versus `0.856/5.264/0.734`). The reportable claim should therefore state the aggregate-count reliability assumption and include clipped target-count correction as the high-noise robustness variant.
+The separate invitation-mask noise-aware sweep shows the boundary of that mechanism. Direct `mc=1` becomes useful for gap under higher feedback noise, especially at std `0.05` and `0.1`. Clipped `mc=1 clip=2` reduces high-noise failed invitations relative to direct correction, but it is not the high-noise gap-best method in the corrected run.
 
 ## Generated Figures
 
@@ -68,4 +68,4 @@ The separate invitation-mask noise-aware sweep shows the boundary of that mechan
 
 ## Research Implication
 
-Do not continue broad SAC/imitation/bandit branches as main work. The invitation-mask correction result package is now the paper-facing entry point: direct `Mask-Corrected Coverage-Aware B=3 mc=1` is the reliable-feedback main point, and `mc=1 clip=2` is the high-noise robustness variant. Next work should be writing the paper table and narrative, not adding another heuristic branch.
+Do not continue broad SAC/imitation/bandit branches as main work until this corrected result package is resolved. The paper-facing story should now center on `Coverage-Aware B=3 sm=4.1` as the no-noise same-preview gap reference, direct `Mask-Corrected Coverage-Aware B=3 mc=1` as a slot/failed/missed trade-off and high-noise gap-improving correction, and `mc=1 clip=2` as a failed-invitation control diagnostic.

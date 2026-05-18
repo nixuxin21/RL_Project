@@ -22,32 +22,32 @@ Use the `results/paper/` files for the paper main text. The `results/execution_m
 
 | Use | Method | Noise std | Slots | Failed | Missed | Gap | Gap delta vs B3 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Reliable feedback main | Direct mc=1 | 0 | 2.684 | 0.333 | 0.333 | 0.292 | -0.140 |
-| High-noise robust | mc=1 clip=2 | 0.1 | 3.403 | 3.275 | 0.599 | 0.818 | -0.043 |
+| No-noise trade-off | Direct mc=1 | 0 | 3.232 | 5.385 | 5.385 | 2.382 | 0.176 |
+| High-noise failed-control | mc=1 clip=2 | 0.1 | 3.878 | 8.395 | 4.025 | 2.291 | -0.228 |
 
-The reliable-feedback main result is direct `mc=1`: at the same preview cost `16`, it lowers the no-noise B3 gap from `0.432` to `0.292`. The high-noise robustness result is `mc=1 clip=2`: at feedback-noise std `0.1`, it lowers the B3 gap from `0.861` to `0.818`.
+The no-noise result is a trade-off, not a gap improvement: direct `mc=1` lowers slots from `3.604` to `3.232` and failed/missed from `5.804/5.438` to `5.385/5.385`, but increases gap from `2.207` to `2.382`. At feedback-noise std `0.1`, direct `mc=1` is the gap-best correction, lowering B3 gap from `2.519` to `2.080`. The clipped `mc=1 clip=2` variant is a failed-invitation control diagnostic: at std `0.1`, it lowers failed invitations from `8.803` to `8.395` but has higher gap than direct correction.
 
 ## Noise Sweep
 
 | Noise std | B3 gap | Direct gap | Clip2 gap | Best | Best gap |
 | --- | --- | --- | --- | --- | --- |
-| 0 | 0.432 | 0.292 | 0.296 | Direct | 0.292 |
-| 0.02 | 0.578 | 0.503 | 0.508 | Direct | 0.503 |
-| 0.05 | 0.753 | 0.668 | 0.670 | Direct | 0.668 |
-| 0.1 | 0.861 | 0.856 | 0.818 | Clip2 | 0.818 |
+| 0 | 2.207 | 2.382 | 2.345 | B3 | 2.207 |
+| 0.02 | 2.240 | 2.257 | 2.256 | B3 | 2.240 |
+| 0.05 | 2.380 | 2.184 | 2.265 | Direct | 2.184 |
+| 0.1 | 2.519 | 2.080 | 2.291 | Direct | 2.080 |
 
-Direct `mc=1` remains the lowest-gap method through feedback-noise std `0.05`. At std `0.1`, clipping the per-slot target-count correction to at most two nodes becomes better.
+The best-by-gap setting is noise-dependent. Uncorrected B3 remains best at no noise, direct `mc=1` is competitive around std `0.02`, and direct `mc=1` is the lowest-gap setting at std `0.05` and `0.1`. Clipping the per-slot target-count correction to at most two nodes controls failed invitations, but is not the high-noise gap-best setting in this corrected run.
 
 ## High-Noise Tradeoff
 
 | Method | Slots | Failed | Missed | Gap |
 | --- | --- | --- | --- | --- |
-| Direct mc=1 | 3.407 | 5.264 | 0.734 | 0.856 |
-| mc=1 clip=2 | 3.403 | 3.275 | 0.599 | 0.818 |
-| Clip2 delta | -0.004 | -1.989 | -0.135 | -0.038 |
+| Direct mc=1 | 3.790 | 8.803 | 3.319 | 2.080 |
+| mc=1 clip=2 | 3.878 | 8.395 | 4.025 | 2.291 |
+| Clip2 delta | 0.088 | -0.408 | 0.705 | 0.211 |
 
-The clipped variant is not the low-noise main method: it slightly worsens low-noise gap. Its value is high-noise robustness because it reduces over-invitation when the aggregate feedback count is noisy.
+The clipped variant is not a low-noise or high-noise gap-best method in this corrected run. Its value is diagnostic: it reduces over-invitation/failed invitations when the aggregate feedback count is noisy, at the cost of higher missed opportunities and gap relative to direct correction.
 
 ## Paper Claim
 
-The final contribution should be stated as invitation-mask correction after IRS confirmation. The method does not change candidate generation or preview cost. It uses aggregate current feedback count to repair the stale invitation mask for the confirmed IRS. Reliable aggregate feedback uses exact direct correction (`mc=1`); high-noise aggregate feedback uses clipped target-count correction (`mc=1 clip=2`).
+The final contribution should be stated more narrowly as invitation-mask correction after IRS confirmation. The method does not change candidate generation or preview cost. It uses aggregate current feedback count to repair the stale invitation mask for the confirmed IRS. Under corrected temporal prehistory, reliable/no-noise feedback supports a trade-off claim rather than a gap-best claim; higher feedback-noise settings support direct correction as a gap-improving correction, while clipped correction is a failed-invitation control diagnostic.

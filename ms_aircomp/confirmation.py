@@ -1,6 +1,6 @@
 """Current aggregate-feedback confirmation flow."""
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.channel_models import apply_channel_state, capture_channel_state
 from ms_aircomp.execution_candidates import execution_candidates
 from ms_aircomp.feedback import confirmation_feedback, confirmed_index_from_feedback

@@ -26,7 +26,7 @@ Must say:
 2. Full current-channel CSI and exhaustive preview are not deployable assumptions.
 3. The method uses low-cost coverage-aware IRS candidate generation plus aggregate current feedback.
 4. Aggregate feedback is used twice: IRS confirmation and invitation-mask correction.
-5. The main method is `Mask-Corrected Coverage-Aware B=3 mc=1`; high-noise feedback uses clipped correction only as a robustness variant.
+5. `Mask-Corrected Coverage-Aware B=3 mc=1` is a no-noise trade-off, while direct correction is gap-best under higher feedback noise and `mc=1 clip=2` is a failed-invitation control diagnostic.
 
 Evidence to cite later in the paper:
 
@@ -39,7 +39,7 @@ Must not say:
 
 - that the method observes per-device current CSI;
 - that `Temporal Deviation Oracle B=4` is deployable;
-- that `mc=1 clip=2` replaces the reliable-feedback main method.
+- that `mc=1 clip=2` is the high-noise gap-best method.
 
 ## Introduction
 
@@ -50,8 +50,8 @@ Must not say:
 | Stale CSI and execution-channel mismatch make full-current-CSI scheduling unrealistic. | `docs/PAPER_RESULT_PACKAGE.md`, `docs/MAIN_RESULTS_ANALYSIS.md` | Opening motivation |
 | IRS-assisted MS-AirComp under limited feedback has two coupled decisions: IRS state and invited devices. | Figure 1 source: `docs/figures/figure1_system_flow.mmd` | Problem paragraph |
 | Low-cost candidate generation alone improves the frontier but leaves invitation-mask mismatch. | Figure 2, Figure 3, Table 2, Table 3 | Gap paragraph |
-| Aggregate-feedback invitation-mask correction improves both failed and missed opportunities at the same preview budget. | Table 1, Figure 3 | Main result paragraph |
-| High-noise aggregate feedback needs a conservative clipped variant. | Figure 4 | Robustness paragraph |
+| Aggregate-feedback invitation-mask correction improves slots and failed invitations, slightly improves missed opportunities, but increases no-noise gap at the same preview budget. | Table 1, Figure 3 | Main result paragraph |
+| High-noise aggregate feedback changes the trade-off: direct correction improves gap, while clipped correction controls failed invitations. | Figure 4 | Boundary paragraph |
 
 ### Contribution Bullets
 
@@ -59,8 +59,8 @@ Use exactly these contribution types unless new evidence is added:
 
 1. A stale-CSI execution-mismatch evaluation framework for IRS-assisted multi-slot AirComp with limited preview and aggregate current feedback.
 2. A low-cost coverage-aware sparse candidate-generation strategy that improves same-preview performance by reducing missed opportunities.
-3. An aggregate-feedback invitation-mask correction mechanism that improves both failed invitations and missed opportunities without changing IRS candidate generation.
-4. Optional, if space allows: a robustness analysis showing clipped target-count correction is preferable under high aggregate-feedback noise.
+3. An aggregate-feedback invitation-mask correction mechanism that changes the slots/failed/missed/gap trade-off without changing IRS candidate generation.
+4. Optional, if space allows: a noise-boundary analysis showing direct correction is high-noise gap-best while clipped target-count correction controls failed invitations.
 
 ### Keep Out
 
@@ -112,7 +112,7 @@ Use exactly these contribution types unless new evidence is added:
 
 1. Deployable policies can use stale CSI, limited IRS previews, and aggregate current feedback.
 2. Deployable policies cannot use per-device current CSI.
-3. The hidden current-channel oracle is an evaluation / diagnostic upper bound.
+3. The hidden current-channel oracle is an evaluation / diagnostic reference.
 4. The main budget comparison is same-preview `16` for Sparse-TopK / Coverage-Aware / Mask-Corrected B3.
 5. Failed invitations and missed opportunities are both needed because a method can reduce one while increasing the other.
 
@@ -137,16 +137,16 @@ Do not introduce extra RL policy notation, learned scorer notation, or appendix-
 |---|---|---|
 | Candidate generation | Rotating, Sparse-TopK, Coverage-Aware and why B3 budget split is retained. | `docs/COVERAGE_AWARE_ANALYSIS.md`, `ms_aircomp/probe_sets.py` |
 | Aggregate confirmation | Candidate IRS states are confirmed using aggregate current feedback only. | `ms_aircomp/confirmation.py`, `ms_aircomp/feedback.py` |
-| Invitation-mask correction | Confirmed IRS remains fixed; aggregate feedback count corrects stale invitation mask cardinality. | `evaluate_invitation_mask_correction.py`, `docs/INVITATION_MASK_CORRECTION.md` |
+| Invitation-mask correction | Confirmed IRS remains fixed; aggregate feedback count sets a target cardinality, then stale-gain reranking under the confirmed IRS forms the corrected invited set. | `evaluate_invitation_mask_correction.py`, `docs/INVITATION_MASK_CORRECTION.md` |
 | High-noise clipped variant | Clip target-count correction under noisy aggregate feedback. | `docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md`, Figure 4 |
 
 ### Method Naming
 
 Use `docs/PAPER_FIGURE_TABLE_SPECS.md` naming crosswalk:
 
-- Main method: `Mask-Corrected Coverage-Aware B=3 mc=1`.
+- Main trade-off method: `Mask-Corrected Coverage-Aware B=3 mc=1`.
 - Figure 4 `Direct`: same method under direct target-count correction.
-- Figure 4 `Clip2`: high-noise robustness variant only.
+- Figure 4 `Clip2`: failed-invitation control diagnostic only.
 - Oracle: `Temporal Deviation Oracle B=4`, hidden-information diagnostic only.
 
 ### Keep Out
@@ -154,6 +154,7 @@ Use `docs/PAPER_FIGURE_TABLE_SPECS.md` naming crosswalk:
 - Do not describe learned shortlist internals in the main method.
 - Do not present `Adaptive Sparse-TopK v2` as the proposed method.
 - Do not state or imply that mask correction changes IRS candidate generation.
+- Do not describe mask correction as count-only; it uses aggregate count for cardinality and stale gains for deployable device reranking.
 
 ## Experiments
 
@@ -172,12 +173,12 @@ Must include:
 
 | Order | Evidence | Required Message |
 |---|---|---|
-| Table 1 | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv` | `Mask-Corrected Coverage-Aware B=3 mc=1` is the strongest same-preview method and improves failed/missed simultaneously. |
-| Figure 2 | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` | Same-preview quality improves from Sparse-TopK to Coverage-Aware to Mask-Corrected B3; oracle remains diagnostic headroom. |
-| Figure 3 | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` | Candidate generation trades failed against missed; mask correction improves both. |
-| Table 2 | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` | `cw=0.5 cpw=0` and `B=3 sm=4.1` are retained as interpretable same-preview choices. |
-| Table 3 | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` | Residual gap is dominated by invitation-mask mismatch. |
-| Figure 4 | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` | Direct correction is the reliable-feedback main method; clipping is a high-noise robustness variant. |
+| Table 1 | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv` | `Coverage-Aware B=3` is the no-noise same-preview gap reference; `Mask-Corrected Coverage-Aware B=3 mc=1` is a no-noise trade-off that lowers slots/failed/missed but increases gap. |
+| Figure 2 | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` | Same-preview gap improves from Sparse-TopK to Coverage-Aware B3, while Mask-Corrected B3 trades gap for lower slots/failed/missed; oracle remains diagnostic headroom. |
+| Figure 3 | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` | Candidate generation and mask correction expose a failed/missed trade-off rather than a single monotonic improvement. |
+| Table 2 | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`, `docs/COVERAGE_AWARE_ANALYSIS.md` | `cw=0.5 cpw=0` and `B=3 sm=4.1` are retained as interpretable same-preview choices. |
+| Table 3 | `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table3_failure_diagnosis.csv`, `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` | Residual gap is dominated by invitation-mask mismatch. |
+| Figure 4 | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` | Direct correction is high-noise gap-best; `mc=1 clip=2` is a failed-invitation control diagnostic. |
 
 ### Keep Out
 
@@ -192,7 +193,7 @@ Must include:
 
 1. The method is deployable under aggregate current feedback, not per-device current CSI.
 2. The remaining gap to `Temporal Deviation Oracle B=4` is a diagnostic headroom, not a failure of the deployable method.
-3. High-noise aggregate feedback changes the correction rule: clipped target-count correction is safer at std `0.1`.
+3. High-noise aggregate feedback changes the correction trade-off: direct target-count correction is gap-best at std `0.1`, while clipped correction is safer on failed invitations.
 4. Learning-based and ordinary heuristic branches are retained as diagnostics, not discarded.
 5. Future work should target invitation-mask mismatch and aggregate-feedback robustness, not broad heuristic proliferation.
 
@@ -222,20 +223,21 @@ Before drafting each paragraph, verify:
 2. Every method name matches `docs/PAPER_FIGURE_TABLE_SPECS.md`.
 3. Every appendix reference is allowed by `docs/PAPER_APPENDIX_BOUNDARY.md`.
 4. Hidden current-channel information is described only as oracle / diagnostic.
-5. `Mask-Corrected Coverage-Aware B=3 mc=1` remains the reliable-feedback main method.
-6. `mc=1 clip=2` remains high-noise robustness only.
-7. No learned or RL branch is reintroduced as a main method.
+5. `Mask-Corrected Coverage-Aware B=3 mc=1` is a no-noise trade-off, not the reliable-feedback gap-best method.
+6. Table 1 is mean-only and should be paired with `docs/PAPER_TABLE1_UNCERTAINTY.md` when making scenario-robust improvement claims.
+7. `mc=1 clip=2` is a failed-invitation control diagnostic, not the high-noise gap-best method.
+8. No learned or RL branch is reintroduced as a main method.
 
 ## Pre-Draft Commands
 
 Run these before writing the actual manuscript:
 
 ```bash
-make paper-table1
+make paper-tables
 make paper-figures
 make docs
 make mainline-audit
 make check
 ```
 
-Also check `docs/PAPER_ASSET_GAP_CHECKLIST.md` before manuscript assembly. Figure 1 export and compact Table 2/3 paper artifacts are presentation tasks, not new experiments.
+Also check `docs/PAPER_ASSET_GAP_CHECKLIST.md` before manuscript assembly. Figure 1 export, Table 2/3 placement, and final table/figure formatting are presentation tasks, not new experiments.

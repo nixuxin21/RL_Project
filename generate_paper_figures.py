@@ -46,8 +46,8 @@ FIGURE4_COLUMNS = [
     "Gap",
     "Failed",
     "Missed",
-    "IsReliableFeedbackMain",
-    "IsHighNoiseVariant",
+    "IsNoNoiseCorrectionTradeoff",
+    "IsHighNoiseGapBest",
 ]
 
 SHORT_LABELS = {
@@ -152,11 +152,11 @@ def format_figure4_point(row):
         "Gap": f"{float(row['oracle_tx_gap_mean']):.3f}",
         "Failed": f"{float(row['failed_nodes_mean']):.3f}",
         "Missed": f"{float(row['missed_opportunities_mean']):.3f}",
-        "IsReliableFeedbackMain": str(
+        "IsNoNoiseCorrectionTradeoff": str(
             label == "Direct Mask Correction mc=1" and abs(noise) < 1e-12
         ),
-        "IsHighNoiseVariant": str(
-            label == "Clipped Mask Correction mc=1 clip=2" and abs(noise - 0.1) < 1e-12
+        "IsHighNoiseGapBest": str(
+            label == "Direct Mask Correction mc=1" and abs(noise - 0.1) < 1e-12
         ),
     }
 
@@ -172,7 +172,7 @@ def build_figure4_points(source_rows):
 def write_points_csv(path, rows, fieldnames):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

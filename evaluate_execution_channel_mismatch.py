@@ -14,12 +14,12 @@ import argparse
 import os
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from evaluate_policy_comparison import make_episode_seeds, make_run_seeds
 from ms_aircomp.channel_models import (
     apply_channel_state,
     ar1_predict_channel_state,
-    build_temporal_channel_states,
+    build_temporal_channel_trace,
     delayed_channel_state,
     temporal_uncertainty_std,
 )
@@ -72,6 +72,14 @@ from ms_aircomp.execution_result_summary import (
     seed_summary,
     summarize_results,
     write_csv,
+)
+from ms_aircomp.experiment_utils import (
+    validate_common_experiment_args,
+    validate_nonempty_values,
+    validate_nonnegative_values,
+    validate_positive_values,
+    validate_probe_budget_values,
+    validate_probability_values,
 )
 from ms_aircomp.learned_shortlist import (
     load_learned_set_shortlist_model,
@@ -262,25 +270,12 @@ def parse_args():
 
 def validate_args(args):
     """Validate arguments and parse list-like options."""
-    if args.episodes <= 0:
-        raise ValueError("--episodes must be positive")
-    if args.num_seeds <= 0:
-        raise ValueError("--num-seeds must be positive")
-    for name in ("num_nodes", "num_slots", "num_irs_elements", "num_codebook_states"):
-        if getattr(args, name) <= 0:
-            raise ValueError(f"--{name.replace('_', '-')} must be positive")
-    if args.num_codebook_states <= 1:
-        raise ValueError("--num-codebook-states must be greater than 1")
-    if args.g_th <= 0.0:
-        raise ValueError("--g-th must be positive")
-    if args.alpha_th <= 0.0:
-        raise ValueError("--alpha-th must be positive")
-
-    args.probe_budgets = sorted(
-        {min(int(value), args.num_codebook_states) for value in limited.parse_int_list(args.probe_budgets)}
+    validate_common_experiment_args(args)
+    args.probe_budgets = validate_probe_budget_values(
+        limited.parse_int_list(args.probe_budgets),
+        args.num_codebook_states,
+        "--probe-budgets",
     )
-    if not args.probe_budgets or any(value <= 0 for value in args.probe_budgets):
-        raise ValueError("--probe-budgets must contain positive integers")
 
     args.mismatch_models = parse_csv_items(args.mismatch_models)
     unknown_models = [name for name in args.mismatch_models if name not in MISMATCH_CHOICES]
@@ -290,25 +285,21 @@ def validate_args(args):
         raise ValueError(f"Unknown mismatch models: {unknown_models}")
     args.channel_rho_values = limited.parse_float_list(args.channel_rho_values)
     args.csi_delay_slots = limited.parse_int_list(args.csi_delay_slots)
-    if not args.channel_rho_values:
-        raise ValueError("--channel-rho-values must not be empty")
-    if not args.csi_delay_slots:
-        raise ValueError("--csi-delay-slots must not be empty")
-    if any(value < 0.0 or value > 1.0 for value in args.channel_rho_values):
-        raise ValueError("--channel-rho-values must be in [0, 1]")
-    if any(value < 0 for value in args.csi_delay_slots):
-        raise ValueError("--csi-delay-slots must be non-negative")
+    validate_probability_values(args.channel_rho_values, "--channel-rho-values")
+    validate_nonnegative_values(args.csi_delay_slots, "--csi-delay-slots")
 
     args.decision_error_std_values = limited.parse_float_list(args.decision_error_std_values)
     args.execution_error_std_values = limited.parse_float_list(args.execution_error_std_values)
-    if not args.decision_error_std_values or not args.execution_error_std_values:
-        raise ValueError("error std lists must not be empty")
-    if any(value < 0.0 for value in args.decision_error_std_values + args.execution_error_std_values):
-        raise ValueError("error std values must be non-negative")
-    if args.confirmation_feedback_noise_std < 0.0:
-        raise ValueError("--confirmation-feedback-noise-std must be non-negative")
-    if args.confirmation_feedback_power_weight < 0.0:
-        raise ValueError("--confirmation-feedback-power-weight must be non-negative")
+    validate_nonnegative_values(args.decision_error_std_values, "--decision-error-std-values")
+    validate_nonnegative_values(args.execution_error_std_values, "--execution-error-std-values")
+    validate_nonnegative_values(
+        [args.confirmation_feedback_noise_std],
+        "--confirmation-feedback-noise-std",
+    )
+    validate_nonnegative_values(
+        [args.confirmation_feedback_power_weight],
+        "--confirmation-feedback-power-weight",
+    )
 
     args.policies = parse_csv_items(args.policies)
     unknown_policies = [name for name in args.policies if name not in POLICY_CHOICES]
@@ -360,64 +351,75 @@ def validate_args(args):
         "learned_shortlist_extra_counts",
         "learned_set_extra_counts",
     ):
-        if not getattr(args, name):
-            raise ValueError(f"--{name.replace('_', '-')} must not be empty")
-    if any(value <= 0.0 for value in args.robust_gain_margins):
-        raise ValueError("--robust-gain-margins must be positive")
-    if any(value <= 0.0 for value in args.robust_power_margins):
-        raise ValueError("--robust-power-margins must be positive")
-    if any(value < 0.0 for value in args.risk_weights + args.risk_power_weights):
-        raise ValueError("risk weights must be non-negative")
-    if any(value < 0.0 or value > 1.0 for value in args.risk_invite_thresholds):
-        raise ValueError("--risk-invite-thresholds must be in [0, 1]")
-    if any(value < 0.0 for value in args.adaptive_risk_base_weights):
-        raise ValueError("--adaptive-risk-base-weights must be non-negative")
-    if any(value < 0.0 for value in args.opportunity_failure_costs):
-        raise ValueError("--opportunity-failure-costs must be non-negative")
-    if any(value < 0.0 for value in args.opportunity_missed_costs):
-        raise ValueError("--opportunity-missed-costs must be non-negative")
-    if any(value < 0.0 for value in args.opportunity_deadline_gains):
-        raise ValueError("--opportunity-deadline-gains must be non-negative")
-    if any(value < 0.0 for value in args.opportunity_backlog_gains):
-        raise ValueError("--opportunity-backlog-gains must be non-negative")
-    if any(value < 0.0 for value in args.temporal_reliability_z_values):
-        raise ValueError("--temporal-reliability-z-values must be non-negative")
-    if any(value <= 0.0 for value in args.sparse_topk_seed_multipliers):
-        raise ValueError("--sparse-topk-seed-multipliers must be positive")
-    if any(value <= 0.0 or value > 1.0 for value in args.sparse_topk_fractions):
+        validate_nonempty_values(getattr(args, name), f"--{name.replace('_', '-')}")
+    validate_positive_values(args.robust_gain_margins, "--robust-gain-margins")
+    validate_positive_values(args.robust_power_margins, "--robust-power-margins")
+    validate_nonnegative_values(args.risk_weights, "--risk-weights")
+    validate_nonnegative_values(args.risk_power_weights, "--risk-power-weights")
+    validate_probability_values(args.risk_invite_thresholds, "--risk-invite-thresholds")
+    validate_nonnegative_values(args.adaptive_risk_base_weights, "--adaptive-risk-base-weights")
+    validate_positive_values([args.adaptive_risk_error_ref], "--adaptive-risk-error-ref")
+    validate_nonnegative_values([args.adaptive_risk_error_gain], "--adaptive-risk-error-gain")
+    validate_nonnegative_values(
+        [args.adaptive_risk_deadline_relief],
+        "--adaptive-risk-deadline-relief",
+    )
+    validate_nonnegative_values(
+        [args.adaptive_risk_backlog_relief],
+        "--adaptive-risk-backlog-relief",
+    )
+    validate_nonnegative_values(args.opportunity_failure_costs, "--opportunity-failure-costs")
+    validate_nonnegative_values(args.opportunity_missed_costs, "--opportunity-missed-costs")
+    validate_nonnegative_values(args.opportunity_deadline_gains, "--opportunity-deadline-gains")
+    validate_nonnegative_values(args.opportunity_backlog_gains, "--opportunity-backlog-gains")
+    validate_nonnegative_values(args.temporal_reliability_z_values, "--temporal-reliability-z-values")
+    validate_positive_values(args.sparse_topk_seed_multipliers, "--sparse-topk-seed-multipliers")
+    validate_probability_values(args.sparse_topk_fractions, "--sparse-topk-fractions")
+    if any(value <= 0.0 for value in args.sparse_topk_fractions):
         raise ValueError("--sparse-topk-fractions must be in (0, 1]")
-    if any(value < 0.0 for value in args.coverage_sparse_weights):
-        raise ValueError("--coverage-sparse-weights must be non-negative")
-    if any(value < 0.0 for value in args.coverage_sparse_power_weights):
-        raise ValueError("--coverage-sparse-power-weights must be non-negative")
-    if any(value < 0.0 for value in args.adaptive_sparse_margin_thresholds):
-        raise ValueError("--adaptive-sparse-margin-thresholds must be non-negative")
-    if args.adaptive_sparse_base_multiplier <= 0.0:
-        raise ValueError("--adaptive-sparse-base-multiplier must be positive")
+    validate_nonnegative_values(args.coverage_sparse_weights, "--coverage-sparse-weights")
+    validate_nonnegative_values(args.coverage_sparse_power_weights, "--coverage-sparse-power-weights")
+    validate_nonnegative_values(
+        args.adaptive_sparse_margin_thresholds,
+        "--adaptive-sparse-margin-thresholds",
+    )
+    validate_positive_values(
+        [args.adaptive_sparse_base_multiplier],
+        "--adaptive-sparse-base-multiplier",
+    )
+    validate_positive_values(
+        [args.adaptive_sparse_expanded_multiplier],
+        "--adaptive-sparse-expanded-multiplier",
+    )
     if args.adaptive_sparse_expanded_multiplier < args.adaptive_sparse_base_multiplier:
         raise ValueError("--adaptive-sparse-expanded-multiplier must be at least the base multiplier")
-    if any(value < 0.0 for value in args.adaptive_sparse_v2_preview_costs):
-        raise ValueError("--adaptive-sparse-v2-preview-costs must be non-negative")
-    if args.adaptive_sparse_v2_uncertainty_weight < 0.0:
-        raise ValueError("--adaptive-sparse-v2-uncertainty-weight must be non-negative")
-    if args.adaptive_sparse_v2_urgency_weight < 0.0:
-        raise ValueError("--adaptive-sparse-v2-urgency-weight must be non-negative")
-    if args.adaptive_sparse_v2_history_weight < 0.0:
-        raise ValueError("--adaptive-sparse-v2-history-weight must be non-negative")
+    validate_nonnegative_values(args.adaptive_sparse_v2_preview_costs, "--adaptive-sparse-v2-preview-costs")
+    validate_nonnegative_values(
+        [args.adaptive_sparse_v2_uncertainty_weight],
+        "--adaptive-sparse-v2-uncertainty-weight",
+    )
+    validate_nonnegative_values(
+        [args.adaptive_sparse_v2_urgency_weight],
+        "--adaptive-sparse-v2-urgency-weight",
+    )
+    validate_nonnegative_values(
+        [args.adaptive_sparse_v2_history_weight],
+        "--adaptive-sparse-v2-history-weight",
+    )
     if args.adaptive_sparse_history_window <= 0:
         raise ValueError("--adaptive-sparse-history-window must be positive")
-    if args.adaptive_sparse_history_prior_threshold < 0.0 or args.adaptive_sparse_history_prior_threshold > 1.0:
-        raise ValueError("--adaptive-sparse-history-prior-threshold must be in [0, 1]")
+    validate_probability_values(
+        [args.adaptive_sparse_history_prior_threshold],
+        "--adaptive-sparse-history-prior-threshold",
+    )
     if args.adaptive_sparse_v3_neighbor_radius < 0:
         raise ValueError("--adaptive-sparse-v3-neighbor-radius must be non-negative")
     if args.adaptive_sparse_v3_neighbor_count < 0:
         raise ValueError("--adaptive-sparse-v3-neighbor-count must be non-negative")
     if args.adaptive_sparse_v3_history_count < 0:
         raise ValueError("--adaptive-sparse-v3-history-count must be non-negative")
-    if any(value < 0 for value in args.learned_shortlist_extra_counts):
-        raise ValueError("--learned-shortlist-extra-counts must be non-negative")
-    if any(value < 0 for value in args.learned_set_extra_counts):
-        raise ValueError("--learned-set-extra-counts must be non-negative")
+    validate_nonnegative_values(args.learned_shortlist_extra_counts, "--learned-shortlist-extra-counts")
+    validate_nonnegative_values(args.learned_set_extra_counts, "--learned-set-extra-counts")
     if any(POLICY_CHOICES.get(alias) == POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID for alias in args.policies):
         if not args.learned_shortlist_model:
             raise ValueError("--learned-shortlist-model is required for learned shortlist feedback")
@@ -429,7 +431,9 @@ def validate_args(args):
         if not os.path.exists(args.learned_set_shortlist_model):
             raise ValueError(f"Learned set shortlist model not found: {args.learned_set_shortlist_model}")
 
-    args.fixed_irs_index = int(np.clip(args.fixed_irs_index, 0, args.num_codebook_states - 1))
+    if args.fixed_irs_index < 0 or args.fixed_irs_index >= args.num_codebook_states:
+        raise ValueError("--fixed-irs-index must be in [0, --num-codebook-states)")
+    args.fixed_irs_index = int(args.fixed_irs_index)
     args.learned_shortlist_model_data = (
         load_learned_shortlist_model(args.learned_shortlist_model)
         if getattr(args, "learned_shortlist_model", "")
@@ -522,7 +526,7 @@ def evaluate_policy(
     failed_nodes = []
     missed_opportunities = []
     true_opportunities = []
-    failure_slots = []
+    failure_slot_fractions = []
     preview_calls_per_slot = []
     oracle_tx_gap_mean = []
     effective_risk_weights = []
@@ -548,9 +552,16 @@ def evaluate_policy(
     for ep, episode_seed in enumerate(episode_seeds, start=1):
         env.reset(seed=episode_seed)
         env._last_seed = episode_seed  # local metadata for policy-independent execution drift
+        temporal_history = None
         temporal_states = None
         if mismatch_model == MISMATCH_TEMPORAL_AR1:
-            temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
+            temporal_history, temporal_states = build_temporal_channel_trace(
+                env,
+                args,
+                episode_seed,
+                channel_rho,
+                prehistory_slots=csi_delay_slots,
+            )
         episode_power = []
         episode_reward = 0.0
         episode_energy = 0.0
@@ -582,7 +593,12 @@ def evaluate_policy(
         for slot_idx in range(args.num_slots):
             if temporal_states is not None:
                 execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-                stale_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+                stale_state = delayed_channel_state(
+                    temporal_states,
+                    slot_idx,
+                    csi_delay_slots,
+                    history_states=temporal_history,
+                )
                 if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
                     decision_state = ar1_predict_channel_state(stale_state, channel_rho, csi_delay_slots)
                     temporal_error_std = temporal_uncertainty_std(
@@ -711,7 +727,7 @@ def evaluate_policy(
         failed_nodes.append(float(episode_failed))
         missed_opportunities.append(float(episode_missed))
         true_opportunities.append(float(episode_true_opportunities))
-        failure_slots.append(float(episode_failure_slots) / max(float(episode_slots), 1.0))
+        failure_slot_fractions.append(float(episode_failure_slots) / max(float(episode_slots), 1.0))
         preview_calls_per_slot.append(
             float(sum(episode_preview_calls)) / max(float(len(episode_preview_calls)), 1.0)
         )
@@ -953,7 +969,7 @@ def evaluate_policy(
         "failed_nodes": np.asarray(failed_nodes, dtype=float),
         "missed_opportunities": np.asarray(missed_opportunities, dtype=float),
         "true_opportunities": np.asarray(true_opportunities, dtype=float),
-        "failure_slots": np.asarray(failure_slots, dtype=float),
+        "failure_slot_fraction": np.asarray(failure_slot_fractions, dtype=float),
         "decision_preview_calls_per_slot": np.asarray(preview_calls_per_slot, dtype=float),
         "oracle_tx_gap_mean": np.asarray(oracle_tx_gap_mean, dtype=float),
         "effective_risk_weight": np.asarray(effective_risk_weights, dtype=float),

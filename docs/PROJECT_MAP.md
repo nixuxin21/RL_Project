@@ -20,7 +20,7 @@
 - `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 投稿前资产缺口清单，固定哪些表图 ready、source-only、analysis-layer 或 deferred。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结结果包的 artifact 清单、验证命令和非冻结边界。
 - `docs/figures/figure1_system_flow.mmd`: Figure 1 的 Mermaid 可编辑源文件，展示 system mismatch 和 deployable feedback pipeline。
-- `generate_paper_tables.py`: 从 frozen mainline CSV 生成论文主表 artifact；入口是 `make paper-table1`。
+- `generate_paper_tables.py`: 从 frozen mainline CSV、coverage-aware analysis CSV 和 failure-diagnosis CSV 生成论文 Table 1/2/3 artifact；入口是 `make paper-tables`。
 - `generate_paper_figures.py`: 从 frozen mainline CSV 生成论文版 Figure 2/3/4 artifact；入口是 `make paper-figures`。
 - `summarize_execution_baselines.py`: 从已有 execution mismatch CSV 生成最终主线 baseline 和 learned 诊断汇总表；入口是 `make execution-baseline-summary`。
 - `analyze_main_frontier.py`: 从已有 execution mismatch CSV 生成主线机制分析、preview-gap frontier 图和 failed/missed tradeoff 图；入口是 `make main-results-analysis`。
@@ -30,7 +30,7 @@
 
 ## 基础评估
 
-- `evaluate_policy_comparison.py`: 默认基础比较入口。主表聚焦 No IRS、Random IRS、Feature Argmax、Feature Argmax PowerTie 和 Greedy；学习式策略与 Fixed IRS 静态消融显式开启。
+- `evaluate_policy_comparison.py`: 默认基础比较入口。主表聚焦 No IRS、Random IRS、Feature Argmax、Feature Argmax PowerTie 和 Greedy；Feature baselines 的 preview cost 包含 exact codebook-feature acquisition，学习式策略与 validation-selected Fixed IRS 静态消融显式开启。
 - `benchmark_policy_runtime.py`: 决策耗时、环境 step 耗时和 preview 调用数 benchmark。
 - `diagnose_policy_actions.py`: SAC / Codebook-Aware SAC / Greedy 的动作和 oracle gap 诊断。
 - `evaluate_parameter_sweep.py`: `K/N/M/C` 一因子参数扫描。
@@ -46,15 +46,15 @@
 - `evaluate_execution_channel_mismatch.py`: 决策信道和执行信道分离，覆盖 independent drift、temporal AR(1) stale CSI、feedback confirmation、Sparse-TopK 和 Adaptive Sparse-TopK 等。
 - `active_diverse_feedback` / `sparse_topk_feedback` / `coverage_sparse_topk_feedback` / `adaptive_sparse_topk_feedback` / `adaptive_sparse_topk_v2_feedback` / `adaptive_sparse_topk_v3_feedback` / `learned_sparse_shortlist_feedback` / `learned_set_shortlist_feedback`: `evaluate_execution_channel_mismatch.py` 中的低成本 active probe-set baselines，用 sparse stale preview、candidate generation 和 current aggregate feedback 替代 full stale ranking。
 - `diagnose_coverage_b3_failures.py`: 当前 `Coverage-Aware B=3 sm=4.1` 主线的 residual oracle gap 诊断，把 gap 分解为 pool、selection、confirmation 和 stale invitation-mask mismatch。
-- `evaluate_invitation_mask_correction.py`: 在 confirmed IRS 后用 aggregate current feedback count 修正 stale invitation mask cardinality；当前 formal `mc=1` 是同 preview `16` 下最强结果，并支持 feedback-noise 和 clipped target-count robustness sweep。
-- `train_learned_sparse_shortlist.py`: 训练 `learned_sparse_shortlist_feedback` / `learned_set_shortlist_feedback` 使用的线性 ranker，支持 absolute-score、marginal-gain、set-value hidden labels、closed-loop execution-value labels 和 pairwise execution differences；闭环评估不访问 hidden current labels。
+- `evaluate_invitation_mask_correction.py`: 在 confirmed IRS 后用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 生成 corrected invitation mask；当前 formal `mc=1` 是同 preview `16` 下的 no-noise trade-off，并支持 high-noise direct correction、clipped failed-invitation diagnostic sweep 和 `global_stale_gain` vs `prune_only` rerank ablation。rerank ablation 显示 `prune_only` 降 failed 但显著增加 missed/gap，因此方法应写成 target-count correction + stale-gain replacement。
+- `train_learned_sparse_shortlist.py`: 训练 `learned_sparse_shortlist_feedback` / `learned_set_shortlist_feedback` 使用的线性 ranker，支持 absolute-score、marginal-gain、set-value hidden labels、closed-loop execution-value labels 和 pairwise execution differences；闭环评估不访问 hidden current labels。新生成模型和 diagnostics CSV 写入 `result_role=diagnostic`、`uses_hidden_training_labels=true` 等 metadata。
 
 ## 学习式探索和诊断
 
 - `train_greedy_imitation_selector.py`: 监督学习模仿 Greedy IRS index。
 - `train_bandit_feedback_selector.py`: feedback-conditioned probing selector。
-- `train_temporal_deviation_selector.py`: temporal AR(1) stale-CSI 下学习 probe-window offset。
-- `train_learned_sparse_shortlist.py`: learned sparse shortlist 诊断。当前 best learned point 仍弱于 Adaptive V2 和 Sparse-TopK sm=3，不作为主方法。
+- `train_temporal_deviation_selector.py`: temporal AR(1) stale-CSI 下学习 probe-window offset；训练目标来自 hidden current-channel outcomes，新生成 checkpoint、诊断 CSV 和 evaluation CSV 写入 diagnostic metadata。
+- `train_learned_sparse_shortlist.py`: learned sparse shortlist 诊断。当前 best learned point 仍弱于 Adaptive V2 和 Sparse-TopK sm=3，不作为主方法；新生成 artifacts 必须保留 hidden-label metadata。
 
 这些脚本目前更多承担“验证学习式方法是否有增益”的研究作用；根据现有报告，多个学习式分支是负结果或诊断结果。具体停止投入边界见 `docs/DEPRECATED_DIRECTIONS.md`。
 
@@ -80,7 +80,9 @@
 - `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 论文资产缺口层，作为 manuscript assembly 前检查 Figure 1 export、Table 2/3 paper artifacts 和图表版式状态的默认依据。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结清单层，作为提交 frozen CSV/PNG/MD artifact 前的默认依据。
 - `docs/figures/figure1_system_flow.mmd`: Figure 1 系统图源文件；暂不要求本地 Mermaid 渲染工具链。
-- `docs/PAPER_TABLE1_MAIN_RESULTS.md`: 由 `make paper-table1` 生成的论文 Table 1 Markdown 主表。
+- `docs/PAPER_TABLE1_MAIN_RESULTS.md`: 由 `make paper-tables` 生成的论文 Table 1 Markdown 主表。
+- `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`: 由 `make paper-tables` 生成的 compact coverage-aware ablation / budget-split 表。
+- `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`: 由 `make paper-tables` 生成的 compact B3 failure diagnosis 表。
 - `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure3_failed_missed_tradeoff.png`: 由 `make paper-figures` 生成的论文版 Figure 2/3。
 - `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`: 由 `make paper-figures` 生成的论文版 Figure 4。
 - `EXPERIMENT_REPORT.md`: 当前研究结论和下一阶段路线。
@@ -91,6 +93,7 @@
 - `docs/INVITATION_MASK_CORRECTION_NOISE.md`: Mask-Corrected Coverage-Aware 的 aggregate-feedback-noise 鲁棒性边界。
 - `docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md`: clipped target-count correction 的 high-noise robustness result。
 - `docs/FINAL_INVITATION_MASK_ANALYSIS.md`: invitation-mask correction 的最终论文级表格、图和贡献表述。
+- `docs/INVITATION_MASK_RERANK_ABLATION.md`: invitation-mask correction 的 reranking-mode 诊断协议，用于区分 aggregate target-count correction 与 stale-gain replacement 的贡献。
 - `docs/DEPRECATED_DIRECTIONS.md`: 负结果和不再继续投入方向的归档索引。
 - `Makefile`: 测试、smoke、主实验 target。
 - `tests/smoke_checks.py`: 轻量行为回归测试。
@@ -110,6 +113,7 @@
 - `ms_aircomp/feedback.py`: aggregate feedback 打分和 confirmed index 选择 helper。
 - `ms_aircomp/invitation_mask_correction.py`: invitation-mask correction 的 target count、remaining rank 和 mask update 纯函数。
 - `ms_aircomp/learned_shortlist.py`: learned sparse/set shortlist 的特征、模型加载、variant scoring 和 deployable feedback policy helper。
+- `ms_aircomp/limited_csi.py`: limited-CSI policy 常量、grid 采样、candidate 构造和 slot execution helper。
 - `ms_aircomp/probe_sets.py`: ordered/diverse probe set 和 coverage-aware sparse candidate selection helper。
 - `ms_aircomp/temporal_policies.py`: temporal-reliability rotating policy 和 temporal-deviation oracle probe-set diagnostic。
 - `ms_aircomp/experiment_utils.py`: 新增的无状态公共实验工具函数。

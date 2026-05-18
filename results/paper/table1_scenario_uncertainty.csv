@@ -1,0 +1,29 @@
+Method,Metric,Mean,ScenarioStd,ScenarioSE,ScenarioCI95,ScenarioCount,SamplesPerScenario,Seeds
+Rotating B=8,Slots,3.992346,0.332984,0.110995,0.255954,9,900,3
+Rotating B=8,Failed,8.878272,3.094379,1.031460,2.378546,9,900,3
+Rotating B=8,Missed,4.580247,1.641234,0.547078,1.261562,9,900,3
+Rotating B=8,Gap,2.596002,0.717496,0.239165,0.551516,9,900,3
+Sparse-TopK B=4 sm=3,Slots,3.769506,0.247157,0.082386,0.189982,9,900,3
+Sparse-TopK B=4 sm=3,Failed,5.272222,1.900245,0.633415,1.460655,9,900,3
+Sparse-TopK B=4 sm=3,Missed,6.642593,2.245088,0.748363,1.725725,9,900,3
+Sparse-TopK B=4 sm=3,Gap,2.333832,0.712092,0.237364,0.547361,9,900,3
+Coverage-Aware B=4 cw=0.5 cpw=0,Slots,3.648765,0.228620,0.076207,0.175733,9,900,3
+Coverage-Aware B=4 cw=0.5 cpw=0,Failed,5.271481,1.962372,0.654124,1.508410,9,900,3
+Coverage-Aware B=4 cw=0.5 cpw=0,Missed,6.132716,1.764298,0.588099,1.356157,9,900,3
+Coverage-Aware B=4 cw=0.5 cpw=0,Gap,2.246051,0.653901,0.217967,0.502632,9,900,3
+Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0,Slots,3.604198,0.237226,0.079075,0.182348,9,900,3
+Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0,Failed,5.804074,2.215471,0.738490,1.702958,9,900,3
+Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0,Missed,5.438148,1.609406,0.536469,1.237097,9,900,3
+Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0,Gap,2.206635,0.664906,0.221635,0.511091,9,900,3
+Mask-Corrected Coverage-Aware B=3 mc=1,Slots,3.232469,0.180286,0.060095,0.138580,9,900,3
+Mask-Corrected Coverage-Aware B=3 mc=1,Failed,5.385185,2.106423,0.702141,1.619137,9,900,3
+Mask-Corrected Coverage-Aware B=3 mc=1,Missed,5.385185,2.106423,0.702141,1.619137,9,900,3
+Mask-Corrected Coverage-Aware B=3 mc=1,Gap,2.382168,0.881655,0.293885,0.677699,9,900,3
+Stale-TopK B=4,Slots,3.802593,0.300991,0.100330,0.231362,9,900,3
+Stale-TopK B=4,Failed,5.337037,1.872234,0.624078,1.439124,9,900,3
+Stale-TopK B=4,Missed,6.840864,2.634758,0.878253,2.025251,9,900,3
+Stale-TopK B=4,Gap,2.369918,0.775353,0.258451,0.595988,9,900,3
+Temporal Deviation Oracle B=4,Slots,3.359136,0.187284,0.062428,0.143959,9,900,3
+Temporal Deviation Oracle B=4,Failed,5.129259,1.472675,0.490892,1.131996,9,900,3
+Temporal Deviation Oracle B=4,Missed,5.641728,2.184994,0.728331,1.679532,9,900,3
+Temporal Deviation Oracle B=4,Gap,2.162410,0.679537,0.226512,0.522337,9,900,3

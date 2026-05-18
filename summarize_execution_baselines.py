@@ -255,7 +255,7 @@ def build_summary(results_dir):
         rows,
         "main_frontier",
         "Mask-Corrected Coverage-Aware B=3 mc=1",
-        "current best same-preview method",
+        "slot/failed trade-off; no-noise gap regression",
         results_dir,
         INVITATION_MASK_CORRECTION_FILE,
         "Mask-Corrected Coverage-Aware B=3 mc=1",
@@ -273,7 +273,7 @@ def build_summary(results_dir):
         rows,
         "main_frontier",
         "Temporal Deviation Oracle B=4",
-        "hidden-info upper bound",
+        "hidden-info temporal diagnostic",
         results_dir,
         FRONTIER_FILE,
         "Temporal Deviation Oracle B=4",
@@ -328,7 +328,7 @@ def write_csv(path, rows):
     """Write compact summary CSV."""
     ensure_parent_dir(path)
     with open(path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=FIELDNAMES)
+        writer = csv.DictWriter(csvfile, fieldnames=FIELDNAMES, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved: {path}")
@@ -390,9 +390,10 @@ def write_markdown(path, rows):
         "## Interpretation",
         "",
         "- Main reportable baseline stack: `Rotating B=8`, adaptive v2 continuum, `Sparse-TopK B=4 sm=3`, `Coverage-Aware B=4`, `Coverage-Aware B=3 sm=4.1`, `Mask-Corrected Coverage-Aware B=3 mc=1`, `Stale-TopK B=4`, and `Temporal Deviation Oracle B=4`.",
+        "- `Temporal Deviation Oracle B=4` is a hidden-information temporal diagnostic reference, not a global upper bound: the proposed mask-corrected method can have lower observed gap because it changes invitation-mask correction rather than only the temporal probe offset.",
         "- `Sparse-TopK B=4 sm=2` is a negative boundary: it no longer beats `Rotating B=8` after the formal frontier sweep.",
-        "- `Mask-Corrected Coverage-Aware B=3 mc=1` is the current strongest same-preview method; it keeps B3 candidate generation but corrects the stale invitation mask using aggregate feedback count.",
-        "- The separate clipped target-count sweep shows the high-noise robustness boundary: direct `mc=1` remains best by gap through feedback-noise std `0.05`, while `mc=1 clip=2` is better at std `0.1`.",
+        "- `Mask-Corrected Coverage-Aware B=3 mc=1` is a same-preview invitation-mask correction trade-off: under the corrected temporal prehistory model it lowers slots, failed invitations, and missed opportunities versus B3, but it does not lower the no-noise oracle gap.",
+        "- The feedback-noise sweep should be reported as a boundary result: direct `mc=1` improves gap under higher feedback noise, while `mc=1 clip=2` is a failed-invitation control diagnostic rather than the high-noise gap-best method.",
         "- Learned shortlist variants remain useful diagnostics, but the best learned point is still weaker than adaptive v2 and `Sparse-TopK sm=3`.",
         "",
     ]

@@ -24,7 +24,7 @@
 | Pure active diversity | `active_diverse_feedback` | gap 小幅下降但 slots/preview 不理想 | negative result |
 | Temporal learned offset / DAgger / window | `train_temporal_deviation_selector.py` | 历史 offset/window reranking 不稳定，未超过 rotating | diagnostics |
 | Adaptive Sparse-TopK v3 | `adaptive_sparse_topk_v3_feedback` | 固定 history/local-neighbor 降成本但没有改善 gap | negative result |
-| Neighbor-Coverage local reallocation | `neighbor_coverage_sparse_topk_feedback` | 同样 preview `16` 下把部分 uniform stale seeds 换成 stale leader local neighbors，最佳 gap `0.452` 仍弱于当前 B=3 主线 `0.432` | negative result |
+| Neighbor-Coverage local reallocation | `neighbor_coverage_sparse_topk_feedback` | 同样 preview `16` 下把部分 uniform stale seeds 换成 stale leader local neighbors；修正 temporal prehistory 后仍弱于当前 B3 no-noise gap reference | negative result |
 | Learned set-value shortlist | `learned_set_shortlist_feedback` | 离线 regret 低，但闭环不如 absolute learned diagnostic | diagnostics |
 | Learned execution-value shortlist | `learned_set_shortlist_feedback` with execution labels | 修正部分目标错配，但仍弱于 absolute learned diagnostic | diagnostics |
 | Learned pairwise/cost-aware shortlist | pairwise execution labels | 成本可控但 gap 退化；不应继续在线性 set features 上调标签 | diagnostics |

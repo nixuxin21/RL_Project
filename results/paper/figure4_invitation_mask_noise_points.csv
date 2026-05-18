@@ -1,13 +1,13 @@
-Label,ShortLabel,Role,FeedbackNoiseStd,Gap,Failed,Missed,IsReliableFeedbackMain,IsHighNoiseVariant
-Coverage-Aware B=3,B3,uncorrected baseline,0,0.432,0.546,0.864,False,False
-Direct Mask Correction mc=1,Direct,reliable-feedback main method,0,0.292,0.333,0.333,True,False
-Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0,0.296,0.333,0.346,False,False
-Coverage-Aware B=3,B3,uncorrected baseline,0.02,0.578,0.881,0.857,False,False
-Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.02,0.503,1.613,0.477,False,False
-Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.02,0.508,1.589,0.495,False,False
-Coverage-Aware B=3,B3,uncorrected baseline,0.05,0.753,1.206,0.898,False,False
-Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.05,0.668,3.434,0.482,False,False
-Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.05,0.670,2.769,0.494,False,False
-Coverage-Aware B=3,B3,uncorrected baseline,0.1,0.861,1.317,0.899,False,False
-Direct Mask Correction mc=1,Direct,reliable-feedback main method,0.1,0.856,5.264,0.734,False,False
-Clipped Mask Correction mc=1 clip=2,Clip2,high-noise robustness variant,0.1,0.818,3.275,0.599,False,True
+Label,ShortLabel,Role,FeedbackNoiseStd,Gap,Failed,Missed,IsNoNoiseCorrectionTradeoff,IsHighNoiseGapBest
+Coverage-Aware B=3,B3,uncorrected baseline,0,2.207,5.804,5.438,False,False
+Direct Mask Correction mc=1,Direct,slot/failed trade-off; high-noise gap-best,0,2.382,5.385,5.385,True,False
+Clipped Mask Correction mc=1 clip=2,Clip2,failed-invitation control diagnostic,0,2.345,5.439,5.262,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.02,2.240,6.356,5.370,False,False
+Direct Mask Correction mc=1,Direct,slot/failed trade-off; high-noise gap-best,0.02,2.257,6.200,5.025,False,False
+Clipped Mask Correction mc=1 clip=2,Clip2,failed-invitation control diagnostic,0.02,2.256,6.240,4.990,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.05,2.380,7.217,5.292,False,False
+Direct Mask Correction mc=1,Direct,slot/failed trade-off; high-noise gap-best,0.05,2.184,7.563,4.226,False,False
+Clipped Mask Correction mc=1 clip=2,Clip2,failed-invitation control diagnostic,0.05,2.265,7.463,4.471,False,False
+Coverage-Aware B=3,B3,uncorrected baseline,0.1,2.519,7.873,5.281,False,False
+Direct Mask Correction mc=1,Direct,slot/failed trade-off; high-noise gap-best,0.1,2.080,8.803,3.319,False,True
+Clipped Mask Correction mc=1 clip=2,Clip2,failed-invitation control diagnostic,0.1,2.291,8.395,4.025,False,False

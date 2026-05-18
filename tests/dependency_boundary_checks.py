@@ -3,7 +3,8 @@ Lightweight dependency-boundary checks for the refactored experiment layer.
 
 The reusable helpers should live under ``ms_aircomp``. Top-level orchestration
 scripts may call the execution-mismatch evaluator as a runner, but new code
-should not import helper symbols from it.
+should not import helper symbols from it or reuse the limited-CSI evaluator as
+a helper module.
 """
 
 import ast
@@ -13,6 +14,13 @@ import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BLOCKED_MODULE = "evaluate_execution_channel_mismatch"
+LIMITED_EVALUATOR_MODULE = "evaluate_limited_csi_ms_aircomp"
+BLOCKED_PACKAGE_IMPORTS = {
+    LIMITED_EVALUATOR_MODULE: (
+        "ms_aircomp package code must import limited-CSI helpers from "
+        "ms_aircomp.limited_csi, not from the top-level evaluator"
+    ),
+}
 EVALUATOR_PATH = Path("evaluate_execution_channel_mismatch.py")
 MAX_EVALUATOR_LINES = 1300
 ALLOWED_EVALUATOR_FUNCTIONS = {
@@ -25,6 +33,9 @@ ALLOWED_EVALUATOR_FUNCTIONS = {
 ALLOWED_WHOLE_IMPORTS = {
     Path("train_temporal_deviation_selector.py"),
     Path("tests/mainline_regression_checks.py"),
+}
+ALLOWED_LIMITED_EVALUATOR_IMPORTS = {
+    Path("tests/smoke_checks.py"),
 }
 FORBIDDEN_EVALUATOR_MODULE_IMPORTS = {
     "csv",
@@ -85,6 +96,37 @@ def import_violations(path):
                             "whole evaluator import is only allowed for approved orchestration/test runners",
                         )
                     )
+        if isinstance(node, ast.ImportFrom) and node.module == LIMITED_EVALUATOR_MODULE:
+            if relative not in ALLOWED_LIMITED_EVALUATOR_IMPORTS:
+                violations.append(
+                    (
+                        node.lineno,
+                        "direct limited-CSI evaluator import is not allowed; "
+                        "import reusable helpers from ms_aircomp.limited_csi instead",
+                    )
+                )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name != LIMITED_EVALUATOR_MODULE:
+                    continue
+                if relative not in ALLOWED_LIMITED_EVALUATOR_IMPORTS:
+                    violations.append(
+                        (
+                            node.lineno,
+                            "whole limited-CSI evaluator import is not allowed for helper reuse; "
+                            "use ms_aircomp.limited_csi",
+                        )
+                    )
+        if relative.parts and relative.parts[0] == "ms_aircomp":
+            if isinstance(node, ast.ImportFrom):
+                reason = BLOCKED_PACKAGE_IMPORTS.get(node.module or "")
+                if reason is not None:
+                    violations.append((node.lineno, reason))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    reason = BLOCKED_PACKAGE_IMPORTS.get(alias.name)
+                    if reason is not None:
+                        violations.append((node.lineno, reason))
     return violations
 
 

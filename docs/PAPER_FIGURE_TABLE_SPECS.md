@@ -8,10 +8,31 @@
 
 - 正文图表必须服务于 stale CSI、execution-channel mismatch、limited aggregate feedback 和 invitation-mask correction 这条主线。
 - 不把 early SAC、Codebook-Aware SAC、imitation、learned probing 或 learned shortlist 放进正文主图主表。
-- 不把 hidden current-channel oracle 画成可部署方法输入；它只能作为 evaluation / diagnostic upper bound。
-- 不声称方法使用 per-device current CSI；deployable feedback 是 aggregate current feedback count。
+- 不把 hidden current-channel oracle 画成可部署方法输入；`Temporal Deviation Oracle` 只能作为 temporal diagnostic reference，不能作为 global upper bound。
+- 不声称方法使用 per-device current CSI；deployable feedback 是 aggregate current feedback count，device-level ordering comes only from stale-gain reranking under the confirmed IRS。
 - 图表中的方法命名必须与 `docs/PAPER_RESULT_PACKAGE.md` 的 frozen main-text methods 保持一致。
 - 数字精度默认与当前结果文档一致：slots / failed / missed / gap 保留 3 位小数，preview 保留 2 位小数，perfect rate 保留 2 位小数。
+- Table 1 is a compact mean-only table. Use `docs/PAPER_TABLE1_UNCERTAINTY.md` as the scenario-level uncertainty companion, and do not describe it as a full seed-level significance test.
+
+## Information-Role Taxonomy
+
+Paper-facing tables and figures must use the same information-role boundary:
+
+| Role label | Meaning | Paper handling |
+|---|---|---|
+| `deployable` | The method does not use hidden current-channel device-level CSI at decision time. It may use stale CSI, limited codebook preview, and aggregate current feedback counts. | Main-text method, baseline, or reference is allowed. |
+| `diagnostic` | The method is useful for mechanism analysis or negative results but is not proposed as a deployable main method; learned diagnostics may use hidden current-channel supervision during training. | Appendix or supplement unless explicitly needed for a reviewer question. |
+| `hidden-information temporal diagnostic` | The method uses hidden current-channel outcomes during temporal offset evaluation or selection. | Non-deployable headroom/reference only; never describe as a global upper bound. |
+
+For Table 1 and Figures 2/3, `Rotating B=8`, `Sparse-TopK B=4 sm=3`,
+`Coverage-Aware B=4 cw=0.5 cpw=0`, `Coverage-Aware B=3 sm=4.1
+cw=0.5 cpw=0`, `Mask-Corrected Coverage-Aware B=3 mc=1`, and
+`Stale-TopK B=4` are deployable under the stated stale-CSI /
+aggregate-feedback assumptions. `Temporal Deviation Oracle B=4` is a
+hidden-information temporal diagnostic reference, not a global upper bound.
+Learned shortlist, learned temporal, RL, and
+bandit-learning variants remain diagnostics and should not be mixed into the
+main deployable-vs-oracle comparison.
 
 ## Naming Crosswalk
 
@@ -20,23 +41,24 @@
 | Context | Full / Source Label | Figure Label | Meaning |
 |---|---|---|---|
 | Table 1, Figure 2, Figure 3 | `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | `Cov B3` | uncorrected same-preview B3 candidate-generation method |
-| Table 1, Figure 2, Figure 3 | `Mask-Corrected Coverage-Aware B=3 mc=1` | `MaskCorr` | proposed reliable-feedback main method |
-| Table 1, Figure 2, Figure 3 | `Temporal Deviation Oracle B=4` | `Oracle` | hidden-current diagnostic upper bound, not deployable |
+| Table 1, Figure 2, Figure 3 | `Mask-Corrected Coverage-Aware B=3 mc=1` | `MaskCorr` | same-preview slot/failed trade-off; no-noise gap regression |
+| Table 1, Figure 2, Figure 3 | `Temporal Deviation Oracle B=4` | `Oracle` | hidden-information temporal diagnostic reference, not deployable or globally bounding |
 | Figure 4 source CSV | `Coverage-Aware B=3` | `B3` | abbreviation of `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` |
-| Figure 4 source CSV | `Direct Mask Correction mc=1` | `Direct` | same method as `Mask-Corrected Coverage-Aware B=3 mc=1` under direct target-count correction |
-| Figure 4 source CSV | `Clipped Mask Correction mc=1 clip=2` | `Clip2` | high-noise robustness variant, not a Table 1 main method |
+| Figure 4 source CSV | `Direct Mask Correction mc=1` | `Direct` | no-noise trade-off and high-noise gap-best direct target-count correction |
+| Figure 4 source CSV | `Clipped Mask Correction mc=1 clip=2` | `Clip2` | failed-invitation control diagnostic, not a Table 1 main method |
 
 ## Main Figure And Table Plan
 
 | Order | Item | Purpose | Source |
 |---|---|---|---|
 | Table 1 | Main result table | 展示 frozen main-text methods 在 9 个 temporal AR(1) 场景上的主结果。 | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv`, `results/execution_mismatch/final_execution_baseline_summary.csv` |
+| Table 1 companion | Scenario uncertainty and paired deltas | 展示 Table 1 指标的 9-scenario variability 和 same-preview paired deltas。 | `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv` |
 | Figure 1 | System and feedback flow | 展示 stale CSI、limited probes、aggregate count、confirmation 和 mask correction 的 deployable information flow。 | `docs/figures/figure1_system_flow.mmd` |
 | Figure 2 | Preview-gap frontier | 展示 preview budget 与 oracle gap 的 cost-quality frontier。 | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` |
 | Figure 3 | Failed/missed tradeoff | 展示 failed invitations 与 missed opportunities 的机制权衡。 | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` |
-| Table 2 | Coverage-aware ablation | 展示 `cw=0.5 cpw=0` 和 `B=3 sm=4.1` 的选择依据。 | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` |
-| Table 3 | Failure diagnosis | 展示 pool / selection / confirmation / invitation residual gap decomposition。 | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` |
-| Figure 4 | Noise robustness | 展示 reliable-feedback direct correction 和 high-noise clipped variant。 | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` |
+| Table 2 | Coverage-aware ablation | 展示 `cw=0.5 cpw=0` 和 `B=3 sm=4.1` 的选择依据。 | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`, `docs/COVERAGE_AWARE_ANALYSIS.md` |
+| Table 3 | Failure diagnosis | 展示 pool / selection / confirmation / invitation residual gap decomposition。 | `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table3_failure_diagnosis.csv`, `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` |
+| Figure 4 | Noise boundary | 展示 reliable-feedback trade-off、high-noise direct correction 和 clipped failed-invitation diagnostic。 | `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png`, `results/paper/figure4_invitation_mask_noise_points.csv` |
 
 ## Table 1: Main Result Table
 
@@ -44,11 +66,14 @@ Generated artifacts:
 
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`
 - `results/paper/table1_main_results.csv`
+- `docs/PAPER_TABLE1_UNCERTAINTY.md`
+- `results/paper/table1_scenario_uncertainty.csv`
+- `results/paper/table1_paired_scenario_deltas.csv`
 
 Regenerate them with:
 
 ```bash
-make paper-table1
+make paper-tables
 ```
 
 ### Method Order
@@ -64,6 +89,11 @@ Table 1 固定使用以下方法顺序：
 7. `Temporal Deviation Oracle B=4`
 
 `Rotating B=4`、Adaptive V2 continuum 和 learned variants 不进入 Table 1；如需要，放 appendix / diagnostics。
+
+All Table 1 rows except `Temporal Deviation Oracle B=4` are deployable
+comparisons or references. The oracle row must be visually or textually marked
+as a hidden-information temporal diagnostic reference, not as a method available
+to the proposed pipeline and not as a global upper bound.
 
 ### Columns
 
@@ -81,11 +111,24 @@ Recommended columns:
 
 `Perfect %` may be included if the journal format permits a wider table. If included, use 2 decimals. If space is tight, omit `Perfect %` because it is near-saturated and less explanatory than failed / missed / gap.
 
+### Uncertainty Companion
+
+The compact Table 1 is intentionally narrow and reports means only.
+`docs/PAPER_TABLE1_UNCERTAINTY.md` is the companion generated by
+`make paper-tables`. It reports scenario-level standard deviations / CI and
+paired deltas for `Mask-Corrected Coverage-Aware B=3 mc=1` against the
+same-preview baselines. The paired deltas currently support a slots/failed
+trade-off claim versus `Coverage-Aware B=3`: slots and failed improve in 9/9
+scenarios, missed improves in 6/9 scenarios, and gap improves in only 3/9
+scenarios. Because the stored source CSVs do not retain per-seed values for
+every Table 1 metric, describe this as scenario-level uncertainty, not as a
+full seed-level significance test.
+
 ### Caption Direction
 
 Candidate caption:
 
-> Table 1. Main execution-mismatch results averaged over 9 temporal AR(1) stale-CSI scenarios. The proposed mask-corrected coverage-aware method keeps the same preview budget as the uncorrected coverage-aware baseline but reduces both failed invitations and missed opportunities. The temporal-deviation oracle is a hidden-information diagnostic upper bound, not a deployable method.
+> Table 1. Main execution-mismatch results averaged over 9 temporal AR(1) stale-CSI scenarios. All non-oracle rows are deployable under the stated stale-CSI and aggregate-feedback information model. The mask-corrected coverage-aware method keeps the same preview budget as the uncorrected B3 baseline and reduces slots, failed invitations, and missed opportunities, but it increases the no-noise oracle gap under the corrected temporal prehistory model. The temporal-deviation oracle is a hidden-information temporal diagnostic reference, not a deployable method or a global upper bound. This compact table reports means only; use the companion scenario-level uncertainty table for variability and paired-delta evidence.
 
 ## Figure 1: System And Feedback Flow
 
@@ -124,7 +167,7 @@ Use two panels:
 | `Aggregate count` | `Confirmed IRS` | select confirmed IRS |
 | `Confirmed IRS` | `Stale invitation mask` | stale invitation estimate |
 | `Aggregate count` | `Mask correction` | target count |
-| `Stale invitation mask` | `Mask correction` | stale mask cardinality |
+| `Stale invitation mask` | `Mask correction` | stale mask cardinality and stale-gain reranking |
 | `Mask correction` | `Corrected invitation mask` | corrected invited set |
 | `Corrected invitation mask` | `Execution metrics` | current-channel execution |
 
@@ -144,7 +187,7 @@ Avoid decorative gradients, 3D effects, dense math and method strings such as `C
 
 Candidate caption:
 
-> Figure 1. Deployable information flow under stale CSI and execution-channel mismatch. Stale CSI generates a small coverage-aware IRS candidate set; limited aggregate current probes confirm the IRS state and provide a target count for correcting the stale invitation mask before current-channel execution. Hidden current-channel information is used only for evaluation and oracle diagnostics.
+> Figure 1. Deployable information flow under stale CSI and execution-channel mismatch. Stale CSI generates a small coverage-aware IRS candidate set; limited aggregate current probes confirm the IRS state and provide a target count for correcting the stale invitation mask; device-level correction uses stale-gain reranking under the confirmed IRS before current-channel execution. Hidden current-channel information is used only for evaluation and oracle diagnostics.
 
 ### Source Maintenance
 
@@ -174,15 +217,18 @@ make paper-figures
 Rules:
 
 - Use the same method labels and colors across both figures.
-- Mark `Mask-Corrected Coverage-Aware B=3 mc=1` as the proposed method.
-- Mark `Temporal Deviation Oracle B=4` as hidden-information oracle / diagnostic.
+- Mark `Mask-Corrected Coverage-Aware B=3 mc=1` as a same-preview trade-off, not as the no-noise gap-best method.
+- Mark `Temporal Deviation Oracle B=4` as hidden-information temporal diagnostic, not as a global upper bound.
+- Mark all non-oracle Table 1 methods in these figures as deployable
+  comparisons under stale CSI plus aggregate feedback, even when they are
+  high-cost references such as `Stale-TopK B=4`.
 - Do not use Random IRS or early RL methods in these plots.
 - Do not imply lower preview alone is always better; the point is cost-quality tradeoff.
 
 Caption directions:
 
-- Figure 2 should say the proposed mask-corrected B3 method is the best same-preview point and that the oracle is a hidden-information diagnostic.
-- Figure 3 should say mask correction improves both failed invitations and missed opportunities, while candidate-generation variants mainly trade one against the other.
+- Figure 2 should say `Coverage-Aware B=3` remains the no-noise same-preview gap reference and that the oracle is a hidden-information diagnostic.
+- Figure 3 should say mask correction reduces failed invitations and slightly reduces missed opportunities versus B3, while increasing the no-noise oracle gap.
 
 ## Table 2: Coverage-Aware Ablation
 
@@ -193,6 +239,7 @@ Table 2 should justify the coverage-aware candidate-generation setting:
 - `B=3 sm=4.1` is selected as the same-preview refinement at preview 16.
 
 Caption should emphasize budget split and missed-opportunity reduction.
+Paper-facing artifacts are `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md` and `results/paper/table2_coverage_aware_ablation.csv`.
 
 ## Table 3: Failure Diagnosis
 
@@ -203,14 +250,15 @@ Required message:
 > The residual gap is dominated by invitation-mask mismatch, not by ordinary candidate-pool miss alone.
 
 If page budget is tight, Table 3 can move to appendix, but the main text must retain the conclusion and cite the diagnosis.
+Paper-facing artifacts are `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md` and `results/paper/table3_failure_diagnosis.csv`.
 
-## Figure 4: Noise Robustness
+## Figure 4: Noise Boundary
 
-Figure 4 should show reliable-feedback direct correction and high-noise clipped correction:
+Figure 4 should show the boundary of aggregate-feedback correction:
 
-- reliable feedback: direct `mc=1` is the main result;
-- high-noise feedback std `0.1`: `mc=1 clip=2` is the conservative robustness variant;
-- do not present clipped correction as replacing direct correction in low/no-noise settings.
+- reliable feedback: direct `mc=1` is a no-noise trade-off, not a gap improvement;
+- high-noise feedback std `0.1`: direct `mc=1` is the gap-best correction;
+- clipped `mc=1 clip=2` is a failed-invitation control diagnostic because it reduces high-noise failed invitations relative to direct correction but has higher gap.
 
 Generated artifacts:
 
@@ -227,13 +275,14 @@ make paper-figures
 Rules:
 
 - Keep `Coverage-Aware B=3`, direct `mc=1`, and clipped `mc=1 clip=2` in the same color/label order across Figure 4 panels.
-- Mark direct `mc=1` at feedback-noise std `0` as the reliable-feedback main point in the source CSV.
-- Mark clipped `mc=1 clip=2` at feedback-noise std `0.1` as the high-noise robustness point in the source CSV.
+- Mark direct `mc=1` at feedback-noise std `0` as the no-noise correction trade-off in the source CSV.
+- Mark direct `mc=1` at feedback-noise std `0.1` as the high-noise gap-best point in the source CSV.
+- Keep clipped `mc=1 clip=2` at feedback-noise std `0.1` visible as the failed-invitation control diagnostic.
 - Do not collapse the reliable-feedback and high-noise conclusions into a single winner statement.
 
 Caption direction:
 
-> Figure 4. Noise robustness of aggregate-feedback invitation-mask correction. Direct target-count correction is the reliable-feedback main method; clipping the correction to at most two devices is reported only as a conservative high-noise variant. All correction variants keep the same coverage-aware B3 candidate generation and preview budget.
+> Figure 4. Noise boundary of aggregate-feedback invitation-mask correction. Direct target-count correction is a no-noise trade-off and becomes the high-noise gap-best correction at feedback-noise std 0.1; clipping the correction to at most two devices is a failed-invitation control diagnostic rather than the gap-best variant. All correction variants keep the same coverage-aware B3 candidate generation and preview budget.
 
 ## Checklist
 

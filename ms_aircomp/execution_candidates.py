@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.channel_models import drift_channels, execution_rng
 
 __all__ = [
@@ -15,19 +15,32 @@ __all__ = [
 
 def execution_candidates(env, args, indices=None, execution_error_std=0.0, slot_idx=0, no_irs=False):
     """Build drifted execution candidates for selected indices or no-IRS."""
-    rng = execution_rng(getattr(env, "_last_seed", None), execution_error_std, slot_idx, no_irs=no_irs)
+    episode_seed = getattr(env, "_last_seed", None)
     if no_irs:
+        rng = execution_rng(
+            episode_seed,
+            execution_error_std,
+            slot_idx,
+            no_irs=True,
+            candidate_index=-2,
+        )
         h_ref = limited.effective_channels(env, no_irs=True)
         h_exec = drift_channels(h_ref, execution_error_std, rng)
         return [limited.build_candidate(env, args, -2, h_exec[0], no_irs=True)]
 
     clean_indices = [int(np.clip(index, 0, args.num_codebook_states - 1)) for index in indices]
     h_ref = limited.effective_channels(env, clean_indices)
-    h_exec = drift_channels(h_ref, execution_error_std, rng)
-    return [
-        limited.build_candidate(env, args, index, h_exec[row_idx])
-        for row_idx, index in enumerate(clean_indices)
-    ]
+    candidates = []
+    for row_idx, index in enumerate(clean_indices):
+        rng = execution_rng(
+            episode_seed,
+            execution_error_std,
+            slot_idx,
+            candidate_index=index,
+        )
+        h_exec = drift_channels(h_ref[row_idx : row_idx + 1], execution_error_std, rng)[0]
+        candidates.append(limited.build_candidate(env, args, index, h_exec))
+    return candidates
 
 
 def execution_candidate_for_decision(env, args, decision_candidate, execution_error_std, slot_idx):

@@ -18,6 +18,12 @@ __all__ = [
     "make_episode_seeds",
     "make_run_seeds",
     "physical_to_action",
+    "validate_common_experiment_args",
+    "validate_nonempty_values",
+    "validate_nonnegative_values",
+    "validate_positive_values",
+    "validate_probe_budget_values",
+    "validate_probability_values",
     "update_energy",
 ]
 
@@ -79,6 +85,81 @@ def make_episode_seed_list(seed, episodes):
     else:
         rng = np.random.default_rng(seed)
     return [int(value) for value in rng.integers(0, 2**31 - 1, size=episodes)]
+
+
+def _option_name(attribute_name):
+    """Convert an argparse attribute name into its CLI option spelling."""
+    return f"--{attribute_name.replace('_', '-')}"
+
+
+def validate_common_experiment_args(args):
+    """Validate common MS-AirComp dimensions and seed controls."""
+    if args.episodes <= 0:
+        raise ValueError("--episodes must be positive")
+    if args.num_seeds <= 0:
+        raise ValueError("--num-seeds must be positive")
+    if hasattr(args, "seed_stride") and args.seed_stride <= 0:
+        raise ValueError("--seed-stride must be positive")
+
+    for name in ("num_nodes", "num_slots", "num_irs_elements", "num_codebook_states"):
+        if getattr(args, name) <= 0:
+            raise ValueError(f"{_option_name(name)} must be positive")
+    if args.num_codebook_states <= 1:
+        raise ValueError("--num-codebook-states must be greater than 1")
+    if args.g_th <= 0.0:
+        raise ValueError("--g-th must be positive")
+    if args.alpha_th <= 0.0:
+        raise ValueError("--alpha-th must be positive")
+
+
+def validate_nonempty_values(values, option_name):
+    """Require a parsed comma-list option to contain at least one value."""
+    values = list(values)
+    if not values:
+        raise ValueError(f"{option_name} must not be empty")
+    return values
+
+
+def _validate_finite_values(values, option_name):
+    """Require a parsed numeric option list to contain only finite values."""
+    values = validate_nonempty_values(values, option_name)
+    if any(not np.isfinite(float(value)) for value in values):
+        raise ValueError(f"{option_name} must contain finite values")
+    return values
+
+
+def validate_nonnegative_values(values, option_name):
+    """Require parsed numeric values to be finite and non-negative."""
+    values = _validate_finite_values(values, option_name)
+    if any(float(value) < 0.0 for value in values):
+        raise ValueError(f"{option_name} must be non-negative")
+    return values
+
+
+def validate_positive_values(values, option_name):
+    """Require parsed numeric values to be finite and positive."""
+    values = _validate_finite_values(values, option_name)
+    if any(float(value) <= 0.0 for value in values):
+        raise ValueError(f"{option_name} must be positive")
+    return values
+
+
+def validate_probability_values(values, option_name):
+    """Require parsed numeric values to be finite probabilities."""
+    values = _validate_finite_values(values, option_name)
+    if any(float(value) < 0.0 or float(value) > 1.0 for value in values):
+        raise ValueError(f"{option_name} must be in [0, 1]")
+    return values
+
+
+def validate_probe_budget_values(values, num_codebook_states, option_name):
+    """Validate and normalize one or more codebook probe budgets."""
+    budgets = [int(value) for value in validate_nonempty_values(values, option_name)]
+    if any(value <= 0 for value in budgets):
+        raise ValueError(f"{option_name} must contain positive integers")
+    if any(value > num_codebook_states for value in budgets):
+        raise ValueError(f"{option_name} must not exceed --num-codebook-states")
+    return sorted(set(budgets))
 
 
 def update_energy(episode_energy, info):

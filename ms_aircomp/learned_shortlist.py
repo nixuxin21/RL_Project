@@ -4,7 +4,7 @@ import itertools
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.adaptive_sparse_policies import (
     adaptive_sparse_history_signal,
     sparse_topk_count_margin,

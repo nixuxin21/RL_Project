@@ -11,7 +11,7 @@
 - Feature Argmax PowerTie IRS：只在最大 feature 并列候选中额外比较功率。
 - Greedy IRS：每时隙 preview 全部码本并按调度数/功率排序。
 - No IRS / Random IRS：主线基础 baseline。
-- Random Fixed IRS / Best Fixed IRS / Fixed IRS：显式开启的静态 IRS 消融。
+- Random Fixed IRS / validation-selected Best Fixed IRS / Fixed IRS：显式开启的静态 IRS 消融。
 
 脚本的核心设计是“共享随机性”：每个策略在同一批 episode seeds 上评估，
 从而让差异主要来自策略本身，而不是信道随机采样。
@@ -36,6 +36,7 @@ from ms_aircomp.experiment_utils import (
     codebook_index_to_action,
     ensure_parent_dir,
     format_float_for_suffix,
+    make_episode_seed_list,
     make_episode_seeds,
     make_run_seeds,
     physical_to_action,
@@ -56,6 +57,20 @@ NUMERIC_RESULT_KEYS = (
     "decision_preview_calls_per_slot",
     "tie_candidates_mean",
 )
+
+BEST_FIXED_VALIDATION_SEED_OFFSET = 0x5BF15ED
+
+
+def codebook_feature_preview_cost(args, include_codebook_features=True):
+    """Return the per-slot preview cost of exact codebook-quality features."""
+    return float(args.num_codebook_states) if include_codebook_features else 0.0
+
+
+def make_best_fixed_validation_seeds(args, run_seed):
+    """Generate held-out seeds used only to select the Best Fixed IRS index."""
+    if run_seed is None or int(run_seed) < 0:
+        return make_episode_seed_list(None, args.episodes)
+    return make_episode_seed_list(int(run_seed) + BEST_FIXED_VALIDATION_SEED_OFFSET, args.episodes)
 
 
 def parse_args():
@@ -541,6 +556,8 @@ def evaluate_codebook_aware_sac_policy(
     tx_per_slot = []
     slots_used = []
     total_energy = []
+    decision_preview_calls_per_slot = []
+    tie_candidates_mean = []
 
     print(f"Running {name}...")
     try:
@@ -553,9 +570,11 @@ def evaluate_codebook_aware_sac_policy(
             episode_tx = []
             episode_slots = args.num_slots
             episode_energy = 0.0
+            episode_preview_calls = 0.0
             total_tx = 0
 
             for _slot in range(args.num_slots):
+                episode_preview_calls += codebook_feature_preview_cost(args, include_codebook_features)
                 policy_obs = (
                     zero_codebook_features(obs, args)
                     if ablate_codebook_features and include_codebook_features
@@ -591,6 +610,9 @@ def evaluate_codebook_aware_sac_policy(
                 episode_energy,
             )
             tx_per_slot.append(episode_tx)
+            active_slots = max(len(episode_tx), 1)
+            decision_preview_calls_per_slot.append(float(episode_preview_calls) / active_slots)
+            tie_candidates_mean.append(0.0)
 
             print_progress(name, ep, args.episodes, success_nodes, args.num_nodes)
     finally:
@@ -605,6 +627,8 @@ def evaluate_codebook_aware_sac_policy(
         tx_per_slot,
         slots_used,
         total_energy,
+        decision_preview_calls_per_slot=decision_preview_calls_per_slot,
+        tie_candidates_mean=tie_candidates_mean,
     )
 
 
@@ -733,7 +757,7 @@ def feature_argmax_power_tie_index(env, args, obs):
     在 Feature Argmax 的最大调度候选集合内执行功率 tie-break。
 
     Returns:
-        `(irs_index, preview_calls, tie_count)`。这里的 preview_calls 只统计
+        `(irs_index, extra_preview_calls, tie_count)`。这里的 preview_calls 只统计
         在 codebook features 已经可用之后，决策阶段额外调用 preview 的次数。
     """
     candidate_indices = feature_argmax_candidates(obs, args)
@@ -764,6 +788,7 @@ def evaluate_feature_argmax_irs_policy(episode_seeds, args, base_action):
 
     环境观测尾部的 C 维 codebook features 表示每个码本预计可调度节点比例。
     本策略直接选择最大 feature 对应的码本，不做神经网络推理，也不额外 preview 功率。
+    C 维 codebook feature acquisition 本身按每 slot C 次 preview 计入成本。
     """
     env = make_feature_env(args)
     success_nodes = []
@@ -827,7 +852,7 @@ def evaluate_feature_argmax_irs_policy(episode_seeds, args, base_action):
         )
         tx_per_slot.append(episode_tx)
         selected_indices.append(episode_indices)
-        decision_preview_calls_per_slot.append(0.0)
+        decision_preview_calls_per_slot.append(codebook_feature_preview_cost(args))
         tie_candidates_mean.append(float(np.mean(episode_tie_candidates)) if episode_tie_candidates else 0.0)
 
         print_progress("Feature Argmax IRS", ep, args.episodes, success_nodes, args.num_nodes)
@@ -853,6 +878,7 @@ def evaluate_feature_argmax_power_tie_irs_policy(episode_seeds, args, base_actio
 
     该策略先用观测中的 codebook features 找到最大预计调度数量的候选集合，
     只在这些并列候选里额外 preview 平均功率，并选择 Greedy tie-break 下最优的码本。
+    总 preview 成本计为 codebook feature acquisition 的 C 次，加上 tie-break preview。
     """
     env = make_feature_env(args)
     success_nodes = []
@@ -882,7 +908,7 @@ def evaluate_feature_argmax_power_tie_irs_policy(episode_seeds, args, base_actio
 
         for _slot in range(args.num_slots):
             irs_index, preview_calls, tie_count = feature_argmax_power_tie_index(env, args, obs)
-            episode_preview_calls += int(preview_calls)
+            episode_preview_calls += codebook_feature_preview_cost(args) + int(preview_calls)
             episode_tie_candidates.append(int(tie_count))
             action = base_action.copy()
             action[2] = codebook_index_to_action(irs_index, args.num_codebook_states)
@@ -1017,23 +1043,18 @@ def evaluate_episode_random_fixed_irs_policy(episode_seeds, args, base_action):
     )
 
 
-def evaluate_best_fixed_irs_policy(episode_seeds, args, base_action):
-    """
-    搜索并评估最佳固定 IRS 码本。
-
-    对每个码本索引都跑一次固定策略，然后按成功节点数、完美覆盖率、
-    更低时延、更低能耗的顺序选择最佳固定码本。
-    """
-    print("Running Best Fixed IRS search...")
+def select_best_fixed_irs_index(validation_episode_seeds, args, base_action):
+    """Select a fixed IRS index on held-out validation seeds."""
+    print("Running Best Fixed IRS validation search...")
     candidate_results = []
     for irs_index in range(args.num_codebook_states):
         action = base_action.copy()
         action[2] = codebook_index_to_action(irs_index, args.num_codebook_states)
         result = evaluate_fixed_action_policy(
-            f"Fixed IRS {irs_index}",
+            f"Fixed IRS {irs_index} validation",
             "codebook",
             action,
-            episode_seeds,
+            validation_episode_seeds,
             args,
             show_progress=False,
         )
@@ -1049,12 +1070,40 @@ def evaluate_best_fixed_irs_policy(episode_seeds, args, base_action):
         return success, perfect_rate, -latency, -energy
 
     best_result = max(candidate_results, key=candidate_key)
-    best_index = best_result["fixed_irs_index"]
-    best_result = best_result.copy()
-    best_result["name"] = f"Best Fixed IRS {best_index}"
+    return int(best_result["fixed_irs_index"]), best_result
+
+
+def evaluate_best_fixed_irs_policy(episode_seeds, args, base_action, validation_episode_seeds=None):
+    """
+    Select and evaluate a fixed IRS codebook index.
+
+    The index is selected on held-out validation seeds, then evaluated on the
+    provided episode seeds. This avoids tuning the static baseline on the same
+    test episodes used for reporting.
+    """
+    if validation_episode_seeds is None:
+        validation_episode_seeds = make_best_fixed_validation_seeds(args, args.seed)
+    best_index, validation_result = select_best_fixed_irs_index(
+        validation_episode_seeds,
+        args,
+        base_action,
+    )
+    best_action = base_action.copy()
+    best_action[2] = codebook_index_to_action(best_index, args.num_codebook_states)
+    best_result = evaluate_fixed_action_policy(
+        f"Best Fixed IRS {best_index} (val-selected)",
+        "codebook",
+        best_action,
+        episode_seeds,
+        args,
+        show_progress=False,
+    )
+    best_result["fixed_irs_index"] = best_index
+    best_result["best_fixed_validation_episodes"] = len(validation_episode_seeds)
     print(
-        f"  Best Fixed IRS: index={best_index}, "
-        f"mean success={np.mean(best_result['success_nodes']):.2f}/{args.num_nodes}"
+        f"  Best Fixed IRS validation-selected: index={best_index}, "
+        f"validation mean success={np.mean(validation_result['success_nodes']):.2f}/{args.num_nodes}, "
+        f"test mean success={np.mean(best_result['success_nodes']):.2f}/{args.num_nodes}"
     )
     return best_result
 
@@ -1134,6 +1183,7 @@ def run_policy_suite(
     g_action,
     alpha_action,
     include_best_fixed=True,
+    best_fixed_validation_seeds=None,
 ):
     """
     在同一批 episode seeds 上执行一整套策略。
@@ -1187,7 +1237,14 @@ def run_policy_suite(
     if args.include_fixed_irs_baselines:
         results.append(evaluate_episode_random_fixed_irs_policy(episode_seeds, args, fixed_action))
         if include_best_fixed:
-            results.append(evaluate_best_fixed_irs_policy(episode_seeds, args, fixed_action))
+            results.append(
+                evaluate_best_fixed_irs_policy(
+                    episode_seeds,
+                    args,
+                    fixed_action,
+                    validation_episode_seeds=best_fixed_validation_seeds,
+                )
+            )
         results.append(
             evaluate_fixed_action_policy(
                 f"Fixed IRS {args.fixed_irs_index}",
@@ -1200,16 +1257,32 @@ def run_policy_suite(
     return results
 
 
-def evaluate_global_best_fixed_irs_policy(episode_seed_sets, args, base_action):
+def evaluate_global_best_fixed_irs_policy(
+    episode_seed_sets,
+    args,
+    base_action,
+    validation_episode_seed_sets=None,
+):
     """
     多 seed 场景下搜索全局 Best Fixed IRS。
 
-    若每个 seed 各自搜索最佳固定码本，会引入“按测试集挑最优”的不公平问题。
-    因此这里先在所有 episode seeds 上找一个全局固定 index，再分别回填到每个 seed。
+    The fixed index is selected on held-out validation seeds and then evaluated
+    on the report/test seeds for each run.
     """
-    all_episode_seeds = [episode_seed for seeds in episode_seed_sets for episode_seed in seeds]
-    search_result = evaluate_best_fixed_irs_policy(all_episode_seeds, args, base_action)
-    best_index = search_result["fixed_irs_index"]
+    if validation_episode_seed_sets is None:
+        validation_episode_seed_sets = [
+            make_best_fixed_validation_seeds(args, args.seed)
+        ]
+    validation_episode_seeds = [
+        episode_seed
+        for seeds in validation_episode_seed_sets
+        for episode_seed in seeds
+    ]
+    best_index, validation_result = select_best_fixed_irs_index(
+        validation_episode_seeds,
+        args,
+        base_action,
+    )
     best_action = base_action.copy()
     best_action[2] = codebook_index_to_action(best_index, args.num_codebook_states)
 
@@ -1218,7 +1291,7 @@ def evaluate_global_best_fixed_irs_policy(episode_seed_sets, args, base_action):
         seed_result_sets.append(
             [
                 evaluate_fixed_action_policy(
-                    f"Best Fixed IRS {best_index}",
+                    f"Best Fixed IRS {best_index} (val-selected)",
                     "codebook",
                     best_action,
                     episode_seeds,
@@ -1226,9 +1299,16 @@ def evaluate_global_best_fixed_irs_policy(episode_seed_sets, args, base_action):
                     show_progress=False,
                 )
             ]
-        )
+    )
 
-    return aggregate_seed_results(seed_result_sets)[0]
+    aggregated = aggregate_seed_results(seed_result_sets)[0]
+    aggregated["fixed_irs_index"] = best_index
+    aggregated["best_fixed_validation_episodes"] = len(validation_episode_seeds)
+    print(
+        f"  Global Best Fixed IRS validation-selected: index={best_index}, "
+        f"validation mean success={np.mean(validation_result['success_nodes']):.2f}/{args.num_nodes}"
+    )
+    return aggregated
 
 
 def summarize(results, args):
@@ -1393,13 +1473,21 @@ def main():
 
     seed_result_sets = []
     episode_seed_sets = []
+    validation_episode_seed_sets = []
     include_best_fixed_per_run = args.include_fixed_irs_baselines and len(run_seeds) == 1
     for run_idx, run_seed in enumerate(run_seeds, start=1):
         print("=" * 96)
         print(f"Run seed [{run_idx}/{len(run_seeds)}]: {run_seed}")
         print("=" * 96)
         episode_seeds = make_episode_seeds(args, run_seed)
+        best_fixed_validation_seeds = (
+            make_best_fixed_validation_seeds(args, run_seed)
+            if args.include_fixed_irs_baselines
+            else None
+        )
         episode_seed_sets.append(episode_seeds)
+        if best_fixed_validation_seeds is not None:
+            validation_episode_seed_sets.append(best_fixed_validation_seeds)
         seed_result_sets.append(
             run_policy_suite(
                 episode_seeds,
@@ -1409,12 +1497,18 @@ def main():
                 g_action,
                 alpha_action,
                 include_best_fixed=include_best_fixed_per_run,
+                best_fixed_validation_seeds=best_fixed_validation_seeds,
             )
         )
 
     results = aggregate_seed_results(seed_result_sets)
     if args.include_fixed_irs_baselines and not include_best_fixed_per_run:
-        best_fixed_result = evaluate_global_best_fixed_irs_policy(episode_seed_sets, args, fixed_action)
+        best_fixed_result = evaluate_global_best_fixed_irs_policy(
+            episode_seed_sets,
+            args,
+            fixed_action,
+            validation_episode_seed_sets=validation_episode_seed_sets,
+        )
         insert_at = next(
             (idx + 1 for idx, result in enumerate(results) if result["name"] == "Random Fixed IRS"),
             len(results),

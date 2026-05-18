@@ -8,6 +8,7 @@ These checks intentionally avoid pytest so they can run with:
 
 from argparse import Namespace
 from pathlib import Path
+import subprocess
 import sys
 
 import numpy as np
@@ -41,6 +42,7 @@ from evaluate_limited_csi_ms_aircomp import (
     estimated_preview_candidates as limited_estimated_preview_candidates,
     execute_limited_csi_slot,
     risk_aware_candidate,
+    summarize_results as summarize_limited_results,
     true_preview_candidates,
 )
 from evaluate_bandit_feedback_ms_aircomp import (
@@ -57,13 +59,21 @@ from ms_aircomp.adaptive_sparse_policies import (
     choose_adaptive_sparse_topk_v2_feedback_decision,
     choose_adaptive_sparse_topk_v3_feedback_decision,
 )
+from ms_aircomp.channel_models import (
+    build_temporal_channel_trace,
+    delayed_channel_state,
+)
 from ms_aircomp.execution_policies import (
     choose_active_diverse_feedback_decision,
     choose_neighbor_coverage_sparse_topk_feedback_decision,
     choose_sparse_topk_feedback_decision,
 )
+from ms_aircomp.execution_candidates import execution_candidates
+from ms_aircomp.execution_result_summary import result_metadata
 import ms_aircomp.execution_policy_registry as execution_policy_registry
 from ms_aircomp.invitation_mask_correction import (
+    MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN,
+    MASK_CORRECTION_MODE_PRUNE_ONLY,
     apply_invitation_mask_correction,
     corrected_target_count,
 )
@@ -258,6 +268,139 @@ def assert_invalid_environment_dimensions_are_rejected():
         raise AssertionError(f"invalid environment config should raise ValueError: {config}")
 
 
+def assert_environment_step_clips_out_of_bounds_actions(args):
+    env_clipped = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env_reference = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env_clipped.reset(seed=args.seed)
+    env_reference.reset(seed=args.seed)
+
+    clipped_obs, clipped_reward, clipped_done, clipped_truncated, clipped_info = env_clipped.step(
+        np.array([2.0, -3.0, 5.0], dtype=np.float32)
+    )
+    reference_obs, reference_reward, reference_done, reference_truncated, reference_info = env_reference.step(
+        np.array([1.0, -1.0, 1.0], dtype=np.float32)
+    )
+
+    assert clipped_info["action_clipped"] is True
+    assert reference_info["action_clipped"] is False
+    assert clipped_info["irs_index"] == args.num_codebook_states - 1
+    assert clipped_info["tx_this_slot"] == reference_info["tx_this_slot"]
+    assert clipped_info["total_tx"] == reference_info["total_tx"]
+    assert np.isclose(clipped_info["power_avg"], reference_info["power_avg"])
+    assert np.isclose(clipped_reward, reference_reward)
+    assert clipped_done == reference_done
+    assert clipped_truncated == reference_truncated
+    assert np.allclose(clipped_obs, reference_obs)
+
+    invalid_env = MSAirCompEnv()
+    invalid_env.reset(seed=args.seed)
+    try:
+        invalid_env.step(np.array([0.0, 0.0], dtype=np.float32))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("wrong action shape should raise ValueError")
+
+    try:
+        invalid_env.step(np.array([np.nan, 0.0, 0.0], dtype=np.float32))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-finite action should raise ValueError")
+
+
+def _assert_cli_value_error(argv):
+    result = subprocess.run(
+        [sys.executable, *argv],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "ValueError" in result.stderr
+
+
+def assert_mainline_cli_validators_reject_invalid_args():
+    _assert_cli_value_error(
+        [
+            "evaluate_execution_channel_mismatch.py",
+            "--episodes",
+            "1",
+            "--num-seeds",
+            "1",
+            "--probe-budgets",
+            "99",
+            "--output-prefix",
+            "/tmp/audit_invalid_execution_budget",
+            "--no-plots",
+        ]
+    )
+    _assert_cli_value_error(
+        [
+            "evaluate_execution_channel_mismatch.py",
+            "--episodes",
+            "1",
+            "--num-seeds",
+            "1",
+            "--fixed-irs-index",
+            "99",
+            "--output-prefix",
+            "/tmp/audit_invalid_execution_fixed",
+            "--no-plots",
+        ]
+    )
+    _assert_cli_value_error(
+        [
+            "evaluate_invitation_mask_correction.py",
+            "--episodes",
+            "1",
+            "--num-seeds",
+            "1",
+            "--probe-budget",
+            "99",
+            "--output-prefix",
+            "/tmp/audit_invalid_mask_budget",
+        ]
+    )
+    _assert_cli_value_error(
+        [
+            "evaluate_invitation_mask_correction.py",
+            "--episodes",
+            "1",
+            "--num-seeds",
+            "1",
+            "--channel-rho-values",
+            "1.2",
+            "--output-prefix",
+            "/tmp/audit_invalid_mask_rho",
+        ]
+    )
+    _assert_cli_value_error(
+        [
+            "evaluate_invitation_mask_correction.py",
+            "--episodes",
+            "1",
+            "--num-seeds",
+            "1",
+            "--mask-correction-rerank-modes",
+            "oracle",
+            "--output-prefix",
+            "/tmp/audit_invalid_mask_mode",
+        ]
+    )
+
+
 def assert_power_tie_matches_greedy(args):
     env = MSAirCompEnv(
         num_nodes=args.num_nodes,
@@ -291,6 +434,49 @@ def assert_episode_seed_generation_is_stable(args):
     assert first == second
     assert first != shifted
     assert len(first) == args.episodes
+
+
+def assert_temporal_trace_supports_prehistory(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    history_states, execution_states = build_temporal_channel_trace(
+        env,
+        args,
+        args.seed,
+        channel_rho=0.9,
+        prehistory_slots=3,
+    )
+
+    assert len(history_states) == 3
+    assert len(execution_states) == args.num_slots
+
+    slot0_delay3 = delayed_channel_state(
+        execution_states,
+        slot_idx=0,
+        csi_delay_slots=3,
+        history_states=history_states,
+    )
+    slot2_delay3 = delayed_channel_state(
+        execution_states,
+        slot_idx=2,
+        csi_delay_slots=3,
+        history_states=history_states,
+    )
+    slot4_delay3 = delayed_channel_state(
+        execution_states,
+        slot_idx=4,
+        csi_delay_slots=3,
+        history_states=history_states,
+    )
+
+    assert np.allclose(slot0_delay3["h_d"], history_states[0]["h_d"])
+    assert np.allclose(slot2_delay3["h_d"], history_states[-1]["h_d"])
+    assert np.allclose(slot4_delay3["h_d"], execution_states[1]["h_d"])
 
 
 def assert_partial_probe_selectors_respect_budget(args):
@@ -405,6 +591,75 @@ def assert_limited_csi_execution_only_counts_invited_nodes(args):
     assert env.current_slot == 1
 
 
+def assert_limited_csi_summary_names_failure_slot_units(args):
+    result = {
+        "name": "unit-test",
+        "error_std": 0.0,
+        "probe_budget": 2,
+        "gain_margin": 1.0,
+        "power_margin": 1.0,
+        "risk_weight": 0.0,
+        "risk_power_weight": 0.0,
+        "risk_invite_threshold": 0.0,
+        "success_nodes": np.array([50.0, 48.0]),
+        "avg_power": np.array([0.1, 0.2]),
+        "episode_reward": np.array([1.0, 2.0]),
+        "slots_used": np.array([5.0, 5.0]),
+        "total_energy": np.array([0.5, 0.6]),
+        "scheduled_nodes": np.array([10.0, 12.0]),
+        "failed_nodes": np.array([1.0, 2.0]),
+        "missed_opportunities": np.array([3.0, 4.0]),
+        "true_opportunities": np.array([13.0, 16.0]),
+        "failure_slot_count": np.array([2.0, 1.0]),
+        "decision_preview_calls_per_slot": np.array([4.0, 4.0]),
+        "oracle_tx_gap_mean": np.array([0.5, 0.25]),
+        "effective_risk_weight": np.array([0.0, 0.0]),
+    }
+    row = summarize_limited_results(
+        Namespace(num_nodes=args.num_nodes, num_seeds=1),
+        [result],
+    )[0]
+
+    assert "failure_slot_count_mean" in row
+    assert np.isclose(row["failure_slot_count_mean"], 1.5)
+    assert np.isclose(row["failure_slot_rate"], 30.0)
+
+
+def assert_execution_drift_is_index_stable(args):
+    env = MSAirCompEnv(
+        num_nodes=args.num_nodes,
+        num_slots=args.num_slots,
+        num_irs_elements=args.num_irs_elements,
+        num_codebook_states=args.num_codebook_states,
+    )
+    env.reset(seed=args.seed)
+    env._last_seed = args.seed
+    slot_idx = 3
+    execution_error_std = 0.2
+    all_candidates = execution_candidates(
+        env,
+        args,
+        indices=range(args.num_codebook_states),
+        execution_error_std=execution_error_std,
+        slot_idx=slot_idx,
+    )
+    subset_candidates = execution_candidates(
+        env,
+        args,
+        indices=[5, 2, 5],
+        execution_error_std=execution_error_std,
+        slot_idx=slot_idx,
+    )
+    by_index = {int(candidate["irs_index"]): candidate for candidate in all_candidates}
+    for candidate in subset_candidates:
+        reference = by_index[int(candidate["irs_index"])]
+        assert np.allclose(candidate["h_gain"], reference["h_gain"])
+        assert np.allclose(candidate["required_power"], reference["required_power"])
+        assert np.array_equal(candidate["valid_mask"], reference["valid_mask"])
+        assert candidate["tx_this_slot"] == reference["tx_this_slot"]
+    assert np.allclose(subset_candidates[0]["h_gain"], subset_candidates[2]["h_gain"])
+
+
 def assert_invitation_mask_correction_count_rules():
     correction_args = Namespace(num_nodes=10, confirmation_feedback_noise_std=0.1)
 
@@ -498,18 +753,67 @@ def assert_invitation_mask_correction_preserves_noop_masks():
         strength=1.0,
         deadband_z=0.0,
         max_delta=-1.0,
+        rerank_mode=MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN,
     )
     expected_expanded_mask = np.array([True, True, False, True, True, False], dtype=bool)
     assert np.array_equal(expanded["valid_mask"], expected_expanded_mask)
     assert expanded["tx_this_slot"] == 4
+    assert expanded["mask_correction_rerank_mode"] == MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN
     assert expanded["mask_correction_stale_count"] == 2
     assert expanded["mask_correction_feedback_count"] == 4
+    assert expanded["mask_correction_requested_target_count"] == 4
     assert expanded["mask_correction_target_count"] == 4
     assert expanded["mask_correction_added"] == 3
     assert expanded["mask_correction_pruned"] == 1
+    assert expanded["mask_correction_requested_delta"] == 2
     assert expanded["mask_correction_target_delta"] == 2
+    assert expanded["mask_correction_unmet_additions"] == 0
     assert expanded["mask_correction_applied"] == 1
     assert not expanded["valid_mask"][2]
+
+    prune_only_expansion = apply_invitation_mask_correction(
+        candidate,
+        correction_args,
+        env,
+        feedback={"observed_tx_fraction": 4.0 / 6.0},
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+        rerank_mode=MASK_CORRECTION_MODE_PRUNE_ONLY,
+    )
+    assert np.array_equal(prune_only_expansion["valid_mask"], expected_remaining_stale_mask)
+    assert prune_only_expansion["tx_this_slot"] == 2
+    assert prune_only_expansion["mask_correction_rerank_mode"] == MASK_CORRECTION_MODE_PRUNE_ONLY
+    assert prune_only_expansion["mask_correction_requested_target_count"] == 4
+    assert prune_only_expansion["mask_correction_target_count"] == 2
+    assert prune_only_expansion["mask_correction_added"] == 0
+    assert prune_only_expansion["mask_correction_pruned"] == 0
+    assert prune_only_expansion["mask_correction_requested_delta"] == 2
+    assert prune_only_expansion["mask_correction_target_delta"] == 0
+    assert prune_only_expansion["mask_correction_unmet_additions"] == 2
+    assert prune_only_expansion["mask_correction_applied"] == 0
+
+    prune_only_reduction = apply_invitation_mask_correction(
+        candidate,
+        correction_args,
+        env,
+        feedback={"observed_tx_fraction": 1.0 / 6.0},
+        strength=1.0,
+        deadband_z=0.0,
+        max_delta=-1.0,
+        rerank_mode=MASK_CORRECTION_MODE_PRUNE_ONLY,
+    )
+    expected_pruned_mask = np.array([True, False, False, False, False, False], dtype=bool)
+    assert np.array_equal(prune_only_reduction["valid_mask"], expected_pruned_mask)
+    assert prune_only_reduction["tx_this_slot"] == 1
+    assert prune_only_reduction["mask_correction_requested_target_count"] == 1
+    assert prune_only_reduction["mask_correction_target_count"] == 1
+    assert prune_only_reduction["mask_correction_added"] == 0
+    assert prune_only_reduction["mask_correction_pruned"] == 1
+    assert prune_only_reduction["mask_correction_requested_delta"] == -1
+    assert prune_only_reduction["mask_correction_target_delta"] == -1
+    assert prune_only_reduction["mask_correction_unmet_additions"] == 0
+    assert prune_only_reduction["mask_correction_applied"] == 1
 
 
 def assert_execution_policy_registry_expands_labels_and_scenarios():
@@ -584,6 +888,23 @@ def assert_execution_policy_registry_expands_labels_and_scenarios():
         (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.9, 1),
         (execution_policy_registry.MISMATCH_TEMPORAL_AR1, 0.9, 3),
     ]
+
+
+def assert_execution_result_metadata_marks_diagnostic_boundaries():
+    learned = result_metadata({"name": "Learned Sparse Shortlist Feedback Grid B=4"})
+    assert learned["result_role"] == "diagnostic"
+    assert learned["uses_hidden_training_labels"] == "true"
+    assert learned["inference_uses_hidden_current_csi"] == "false"
+
+    oracle = result_metadata({"name": "Temporal Deviation Oracle B=4"})
+    assert oracle["result_role"] == "diagnostic_upper_bound"
+    assert oracle["uses_hidden_training_labels"] == "false"
+    assert oracle["inference_uses_hidden_current_csi"] == "true"
+
+    deployable = result_metadata({"name": "Coverage-Aware Sparse-TopK Feedback Grid B=3"})
+    assert deployable["result_role"] == "comparison_reference"
+    assert deployable["uses_hidden_training_labels"] == "false"
+    assert deployable["inference_uses_hidden_current_csi"] == "false"
 
 
 def assert_risk_aware_candidate_filters_low_reliability(args):
@@ -1100,15 +1421,21 @@ def main():
     assert_noisy_codebook_features_are_seeded_and_clipped(args)
     assert_negative_feature_noise_is_rejected(args)
     assert_invalid_environment_dimensions_are_rejected()
+    assert_environment_step_clips_out_of_bounds_actions(args)
+    assert_mainline_cli_validators_reject_invalid_args()
     assert_power_tie_matches_greedy(args)
     assert_episode_seed_generation_is_stable(args)
+    assert_temporal_trace_supports_prehistory(args)
     assert_partial_probe_selectors_respect_budget(args)
     assert_estimated_preview_zero_error_matches_exact(args)
     assert_limited_csi_zero_error_matches_true(args)
     assert_limited_csi_execution_only_counts_invited_nodes(args)
+    assert_limited_csi_summary_names_failure_slot_units(args)
+    assert_execution_drift_is_index_stable(args)
     assert_invitation_mask_correction_count_rules()
     assert_invitation_mask_correction_preserves_noop_masks()
     assert_execution_policy_registry_expands_labels_and_scenarios()
+    assert_execution_result_metadata_marks_diagnostic_boundaries()
     assert_risk_aware_candidate_filters_low_reliability(args)
     assert_adaptive_risk_weight_tracks_uncertainty_and_deadline(args)
     assert_bandit_feedback_observes_only_aggregate_metrics(args)

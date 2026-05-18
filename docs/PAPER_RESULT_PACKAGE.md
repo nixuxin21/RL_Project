@@ -23,9 +23,14 @@
 
 当前主张应表述为：
 
-> Low-cost coverage-aware candidate generation plus aggregate-feedback invitation-mask correction closes much of the gap to hidden current-channel oracle at the same preview budget. The current main method is `Mask-Corrected Coverage-Aware B=3 mc=1`.
+> Low-cost coverage-aware candidate generation is the no-noise same-preview gap reference. Aggregate-feedback invitation-mask correction is a same-preview slot/failed/missed trade-off under reliable feedback, and direct correction becomes gap-improving under higher aggregate-feedback noise.
 
-其中 `Temporal Deviation Oracle B=4` 只作为 hidden-information upper bound，不是可部署方法。
+Uncertainty status: the compact paper Table 1 is mean-only, with a companion
+scenario-level uncertainty artifact at `docs/PAPER_TABLE1_UNCERTAINTY.md`. The
+companion reports 9-scenario variability and paired same-preview deltas; it is
+not a full seed-level significance test.
+
+其中 `Temporal Deviation Oracle B=4` 只作为 hidden-information temporal diagnostic reference，不是可部署方法，也不是 global upper bound。
 
 ## Frozen Main-Text Methods
 
@@ -37,9 +42,9 @@
 | `Sparse-TopK B=4 sm=3` | reportable medium-cost sparse candidate baseline | main baseline |
 | `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | main ablation/reference |
 | `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | budget-split refinement at preview 16 | main pre-correction method |
-| `Mask-Corrected Coverage-Aware B=3 mc=1` | current best same-preview method | main proposed method |
+| `Mask-Corrected Coverage-Aware B=3 mc=1` | slot/failed trade-off; no-noise gap regression | main trade-off / mechanism result |
 | `Stale-TopK B=4` | high-cost positive reference | main reference |
-| `Temporal Deviation Oracle B=4` | hidden current-channel upper bound | main diagnostic upper bound |
+| `Temporal Deviation Oracle B=4` | hidden current-channel temporal diagnostic | main diagnostic reference |
 
 `Rotating B=4` 只作为 low-budget historical reference；Adaptive Sparse-TopK v2 可作为 cost-quality continuum；Adaptive v1/v3、neighbor coverage、learned shortlist、learned temporal、bandit feedback、limited CSI risk-aware、SAC / Codebook-Aware SAC、imitation、learned probing、noisy feature、partial probing、probing cost、channel estimation、runtime/action diagnostics 等均进入 appendix / diagnostics，不作为正文主方法。
 
@@ -49,18 +54,25 @@
 
 | Method | Role | Slots | Perfect % | Failed | Missed | Preview | Gap |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `Rotating B=8` | low-cost deployment baseline | 3.429 | 100.00 | 1.360 | 0.620 | 8.00 | 0.726 |
-| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.376 | 99.79 | 0.477 | 1.295 | 16.00 | 0.534 |
-| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.289 | 99.84 | 0.473 | 1.131 | 16.00 | 0.497 |
-| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | budget-split refinement | 3.189 | 99.93 | 0.546 | 0.864 | 16.00 | 0.432 |
-| `Mask-Corrected Coverage-Aware B=3 mc=1` | current best same-preview method | 2.684 | 99.95 | 0.333 | 0.333 | 16.00 | 0.292 |
-| `Stale-TopK B=4` | high-cost positive reference | 3.373 | 99.78 | 0.444 | 1.321 | 20.00 | 0.465 |
-| `Temporal Deviation Oracle B=4` | hidden-info upper bound | 2.985 | 100.00 | 0.326 | 0.900 | 4.00 | 0.345 |
+| `Rotating B=8` | low-cost deployment baseline | 3.992 | 99.98 | 8.878 | 4.580 | 8.00 | 2.596 |
+| `Sparse-TopK B=4 sm=3` | reportable medium-cost baseline | 3.770 | 99.77 | 5.272 | 6.643 | 16.00 | 2.334 |
+| `Coverage-Aware B=4 cw=0.5 cpw=0` | same-cost B=4 coverage reference | 3.649 | 99.77 | 5.271 | 6.133 | 16.00 | 2.246 |
+| `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` | budget-split refinement | 3.604 | 99.94 | 5.804 | 5.438 | 16.00 | 2.207 |
+| `Mask-Corrected Coverage-Aware B=3 mc=1` | slot/failed trade-off; no-noise gap regression | 3.232 | 99.95 | 5.385 | 5.385 | 16.00 | 2.382 |
+| `Stale-TopK B=4` | high-cost positive reference | 3.803 | 99.69 | 5.337 | 6.841 | 20.00 | 2.370 |
+| `Temporal Deviation Oracle B=4` | hidden-info temporal diagnostic | 3.359 | 100.00 | 5.129 | 5.642 | 4.00 | 2.162 |
 
 Supporting artifacts:
 
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`
 - `results/paper/table1_main_results.csv`
+- `docs/PAPER_TABLE1_UNCERTAINTY.md`
+- `results/paper/table1_scenario_uncertainty.csv`
+- `results/paper/table1_paired_scenario_deltas.csv`
+- `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`
+- `results/paper/table2_coverage_aware_ablation.csv`
+- `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`
+- `results/paper/table3_failure_diagnosis.csv`
 - `docs/EXECUTION_BASELINE_SUMMARY.md`
 - `results/execution_mismatch/final_execution_baseline_summary.csv`
 - `docs/MAIN_RESULTS_ANALYSIS.md`
@@ -76,7 +88,7 @@ Supporting artifacts:
 
 Paper-facing generated artifacts are separated from analysis-layer figures:
 
-- `make paper-table1` owns Table 1 (`docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv`).
+- `make paper-tables` owns Table 1, Table 2, Table 3 and the Table 1 scenario-level uncertainty companion (`docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `results/paper/table2_coverage_aware_ablation.csv`, `results/paper/table3_failure_diagnosis.csv`).
 - `make paper-figures` owns Figure 2, Figure 3 and Figure 4 (`results/paper/...`).
 - `make main-results-analysis` and `make final-invitation-mask-analysis` own analysis-layer CSV/PNG/MD files under `results/execution_mismatch/` and `docs/`.
 
@@ -89,8 +101,9 @@ When drafting, cite the `results/paper/` assets for main-text figures and use th
 | Evidence | Primary Artifacts | Intended Use |
 |---|---|---|
 | Main frontier and hidden-current headroom | `docs/EXECUTION_BASELINE_SUMMARY.md`, `docs/MAIN_RESULTS_ANALYSIS.md`, `results/execution_mismatch/final_execution_baseline_summary.csv`, `results/execution_mismatch/main_frontier_analysis.csv`, `results/execution_mismatch/main_frontier_preview_gap.png`, `results/execution_mismatch/main_frontier_failed_missed.png` | 证明 low-cost feedback candidate generation 有明确 cost-quality frontier，并保留 hidden-current headroom |
-| Coverage-aware candidate generation and budget split | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv`, `results/execution_mismatch/coverage_aware_weight_ablation.png`, `results/execution_mismatch/coverage_aware_power_ablation.png` | 解释为何采用 `cw=0.5 cpw=0`，以及为何 `B=3 sm=4.1` 是 same-preview refinement |
-| Invitation-mask correction final result | `docs/FINAL_INVITATION_MASK_ANALYSIS.md`, `results/execution_mismatch/final_invitation_mask_analysis.csv`, `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | 作为最终 proposed method 和 feedback-noise robustness 证据 |
+| Coverage-aware candidate generation and budget split | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`, `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv`, `results/execution_mismatch/coverage_aware_weight_ablation.png`, `results/execution_mismatch/coverage_aware_power_ablation.png` | 解释为何采用 `cw=0.5 cpw=0`，以及为何 `B=3 sm=4.1` 是 same-preview refinement |
+| Coverage-Aware B=3 failure diagnosis | `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table3_failure_diagnosis.csv`, `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md`, `results/execution_mismatch/coverage_b3_failure_diagnosis_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_summary.csv` | 证明 residual gap 主要来自 invitation-mask mismatch |
+| Invitation-mask correction final result | `docs/FINAL_INVITATION_MASK_ANALYSIS.md`, `results/execution_mismatch/final_invitation_mask_analysis.csv`, `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | 作为 reliable-feedback trade-off 和 feedback-noise boundary 证据 |
 
 ## Evidence Chain
 
@@ -102,10 +115,11 @@ When drafting, cite the `results/paper/` assets for main-text figures and use th
 | Sparse stale preview + current aggregate confirmation 能在 preview `16` 附近接近高成本 `Stale-TopK B=4`。 | `docs/EXECUTION_BASELINE_SUMMARY.md`, `results/execution_mismatch/final_execution_baseline_summary.csv` |
 | Coverage-aware candidate generation 的主要价值在降低 missed opportunities；`B=3 sm=4.1` 是当前 same-preview budget split。 | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` |
 | `Coverage-Aware B=3` 的 residual gap 主要来自 stale invitation mask 与 current opportunity 的错配。 | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md`, `results/execution_mismatch/coverage_b3_failure_diagnosis_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_summary.csv` |
-| Aggregate-feedback invitation-mask correction 不改变 IRS candidate generation，却在同 preview `16` 下同时降低 failed 和 missed。 | `docs/INVITATION_MASK_CORRECTION.md`, `docs/FINAL_INVITATION_MASK_ANALYSIS.md`, `results/execution_mismatch/final_invitation_mask_analysis.csv` |
-| 高噪声下 direct `mc=1` 会过度修正，`mc=1 clip=2` 是更保守的 robustness variant。 | `docs/INVITATION_MASK_CORRECTION_NOISE.md`, `docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md`, `docs/FINAL_INVITATION_MASK_ANALYSIS.md` |
+| Aggregate-feedback invitation-mask correction 不改变 IRS candidate generation；它用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 选择 corrected invited set，在同 preview `16` 下相对 B3 降低 observed mean slots、failed 和 missed，但 no-noise oracle gap 上升。 | `docs/INVITATION_MASK_CORRECTION.md`, `docs/FINAL_INVITATION_MASK_ANALYSIS.md`, `results/execution_mismatch/final_invitation_mask_analysis.csv` |
+| 该 trade-off 不是单个场景造成的：相对 `Coverage-Aware B=3`，slots 和 failed 为 9/9 场景改善，missed 为 6/9 改善，但 gap 只在 3/9 场景改善。 | `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_paired_scenario_deltas.csv` |
+| 高噪声下 direct `mc=1` 是 gap-best correction；`mc=1 clip=2` 降低 failed invitations，但不是 high-noise gap-best method。 | `docs/INVITATION_MASK_CORRECTION_NOISE.md`, `docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md`, `docs/FINAL_INVITATION_MASK_ANALYSIS.md` |
 
-Coverage B3 diagnosis 的 overall gap share 为 invitation `0.530`、selection `0.251`、confirmation `0.116`、pool `0.104`。因此下一阶段若继续做实验，应优先围绕 invitation mask / aggregate feedback robustness，而不是普通 candidate-pool heuristic。
+Coverage B3 diagnosis 的 overall gap share 为 invitation `0.687`、selection `0.260`、confirmation `0.024`、pool `0.029`。因此下一阶段若继续做实验，应优先围绕 invitation mask / aggregate feedback robustness，而不是普通 candidate-pool heuristic。
 
 ## Appendix And Diagnostics Boundary
 
@@ -152,7 +166,7 @@ make final-invitation-mask-analysis
 
 在真正开始写论文前，默认冻结以下边界：
 
-- 正文主表不再加入普通 heuristic，除非它改善 `Mask-Corrected Coverage-Aware B=3 mc=1` 或解释其残余 gap。
+- 正文主表不再加入普通 heuristic，除非它改善 `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0` 的 no-noise same-preview gap，或解释 mask-correction trade-off / feedback-noise boundary。
 - 新方法必须在相同或更低 preview 下对比 frozen main-text methods。
 - 新诊断必须服务于 invitation mismatch、same-preview performance 或 feedback-noise robustness。
 - 学习式方法若不能超过 frozen mainline，应作为 appendix / diagnostics，而不是重新开启主线。

@@ -38,7 +38,7 @@ flowchart LR
         agg -->|"select IRS"| confirmed
         confirmed -->|"stale invitation estimate"| stale_mask
         agg ==>|target count| correction
-        stale_mask -->|"stale mask cardinality"| correction
+        stale_mask -->|"target cardinality + stale-gain reranking"| correction
         correction -->|"corrected invited set"| corrected_mask
         corrected_mask --> execution
         execution --> metrics
@@ -46,7 +46,7 @@ flowchart LR
 
     stale -->|"stale decision information"| stale_preview
     current -.->|"aggregate probe outcomes only"| probes
-    oracle -.->|"diagnostic upper bound only"| metrics
+    oracle -.->|"diagnostic reference only"| metrics
 
     classDef deployable fill:#eef6ff,stroke:#2c5f8a,color:#111827,stroke-width:1px;
     classDef correctionClass fill:#e8f7ef,stroke:#16703b,color:#111827,stroke-width:2px;

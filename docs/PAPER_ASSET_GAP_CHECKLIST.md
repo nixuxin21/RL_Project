@@ -8,13 +8,13 @@
 
 | Asset | Current Status | Existing Source / Artifact | Gap Before Submission | Priority |
 |---|---|---|---|---|
-| Table 1: main results | Ready as paper-facing CSV and Markdown. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `results/paper/table1_main_results.csv` | Journal formatting only. | Done |
+| Table 1: main results | Ready as paper-facing CSV and Markdown, with scenario-level uncertainty companion. | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv` | Journal formatting only; do not overstate companion as seed-level significance. | Done |
 | Figure 1: system and feedback flow | Scientific source ready; publication export not generated. | `docs/figures/figure1_system_flow.mmd` | Export SVG/PDF from Mermaid and inspect layout manually. | P0 before manuscript assembly |
 | Figure 2: preview-gap frontier | Ready as paper-facing PNG and points CSV. | `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure2_figure3_points.csv` | Final journal sizing / font check. | P1 before submission |
 | Figure 3: failed/missed tradeoff | Ready as paper-facing PNG and points CSV. | `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure2_figure3_points.csv` | Final journal sizing / font check. | P1 before submission |
-| Figure 4: noise robustness | Ready as paper-facing PNGs and points CSV. | `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | Decide whether journal wants one combined panel or two separate files. | P1 before submission |
-| Table 2: coverage-aware ablation | Evidence ready, but no standalone paper table artifact yet. | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` | Generate compact paper-facing CSV/Markdown if Table 2 remains in main text. | P0 before manuscript assembly |
-| Table 3: failure diagnosis | Evidence ready, but no standalone paper table artifact yet. | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md`, `results/execution_mismatch/coverage_b3_failure_diagnosis_ep100_runs2_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_summary.csv` | Generate compact paper-facing CSV/Markdown if Table 3 remains in main text. | P0 unless moved to appendix |
+| Figure 4: noise boundary | Ready as paper-facing PNGs and points CSV. | `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | Decide whether journal wants one combined panel or two separate files. | P1 before submission |
+| Table 2: coverage-aware ablation | Ready as compact paper-facing CSV and Markdown. | `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `results/paper/table2_coverage_aware_ablation.csv`; source evidence: `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` | Journal formatting only; full sweep details stay in `docs/COVERAGE_AWARE_ANALYSIS.md`. | Done |
+| Table 3: failure diagnosis | Ready as compact paper-facing CSV and Markdown. | `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table3_failure_diagnosis.csv`; source evidence: `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` | Journal formatting only; decide whether this remains main text or moves to appendix. | Done |
 | Appendix A/B/C assets | Boundary ready, but no appendix tables generated. | `docs/PAPER_APPENDIX_BOUNDARY.md` | Generate appendix tables only after manuscript length and reviewer needs are known. | P2 |
 
 ## Missing Paper-Facing Artifacts
@@ -24,8 +24,6 @@ These assets should be generated only when the manuscript assembly begins. Propo
 | Missing Asset | Proposed Future Filename | Source | Acceptance Criteria |
 |---|---|---|---|
 | Figure 1 SVG/PDF export | results/paper/figure1_system_flow.svg and/or results/paper/figure1_system_flow.pdf | `docs/figures/figure1_system_flow.mmd` | Preserves stale/current CSI separation, aggregate feedback count, and `Aggregate count -> Mask correction` emphasis. |
-| Table 2 compact CSV/Markdown | results/paper/table2_coverage_aware_ablation.csv and docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md | `docs/COVERAGE_AWARE_ANALYSIS.md`, `results/execution_mismatch/coverage_aware_ablation_analysis.csv` | Contains only the selected rows needed to justify `cw=0.5 cpw=0` and `B=3 sm=4.1`; no full sweep dump. |
-| Table 3 compact CSV/Markdown | results/paper/table3_failure_diagnosis.csv and docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md | `docs/COVERAGE_B3_FAILURE_DIAGNOSIS.md` | Shows overall pool / selection / confirmation / invitation shares and the dominant invitation component. |
 | Optional appendix tables | results/paper/appendix_* and docs/PAPER_APPENDIX_*.md | `docs/PAPER_APPENDIX_BOUNDARY.md`, `docs/RESULTS_INDEX.md` | Created only for the minimum Appendix A/B/C or reviewer-requested supplement. |
 
 ## Do Not Generate By Default
@@ -45,19 +43,18 @@ Those results remain diagnostics under `docs/PAPER_APPENDIX_BOUNDARY.md` and `do
 
 Before the manuscript is assembled:
 
-1. Run `make paper-table1`.
+1. Run `make paper-tables`.
 2. Run `make paper-figures`.
 3. Decide whether Table 2 and Table 3 stay in main text or Table 3 moves to appendix.
-4. Generate standalone Table 2 and Table 3 paper assets if they remain in main text.
-5. Export Figure 1 to SVG/PDF from `docs/figures/figure1_system_flow.mmd`.
-6. Inspect Figure 1-4 at target journal column width.
-7. Run `make docs`, `make mainline-audit`, and `make check`.
+4. Export Figure 1 to SVG/PDF from `docs/figures/figure1_system_flow.mmd`.
+5. Inspect Figure 1-4 and Table 1-3 at target journal column width.
+6. Run `make docs`, `make mainline-audit`, and `make check`.
 
 ## Current Decision
 
 The project is not blocked on more experiments. The remaining paper-asset gaps are presentation and packaging gaps:
 
 - Figure 1 needs a publication export.
-- Table 2 and Table 3 need compact paper-facing artifacts if they remain in the main manuscript.
+- Table 2 and Table 3 now have compact paper-facing artifacts; the remaining decision is placement and final formatting.
 - Figure 2-4 need only final visual sizing / font checks unless the target journal requires vector formats.
 - Appendix assets should stay deferred until manuscript length and reviewer needs are known.

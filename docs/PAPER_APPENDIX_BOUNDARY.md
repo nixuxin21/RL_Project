@@ -44,16 +44,18 @@
 3. SAC、Codebook-Aware SAC、imitation 和 learned probing 只能作为 background / supplement diagnostics。
 4. Learned shortlist variants 不能作为正文主方法；当前结论是 positive diagnostic but below frozen mainline。
 5. Bandit feedback learning 不能替代 current aggregate-feedback confirmation；当前结果只支持它作为 diagnostic。
-6. `Temporal Deviation Oracle B=4` 可进入正文作为 hidden-information diagnostic upper bound，但必须明确不可部署。
-7. `mc=1 clip=2` 是 high-noise robustness variant，不替代 reliable-feedback main method `Mask-Corrected Coverage-Aware B=3 mc=1`。
+6. `Temporal Deviation Oracle B=4` 可进入正文作为 hidden-information temporal diagnostic reference，但必须明确不可部署。
+7. `mc=1 clip=2` 是 failed-invitation control diagnostic，不替代 high-noise gap-best direct correction，也不替代 Table 1 的 `Mask-Corrected Coverage-Aware B=3 mc=1` trade-off row。
+
+新生成的 learned-shortlist、learned temporal-deviation 和 oracle-style diagnostic CSV/model artifacts 必须带机器可读边界字段：`result_role`、`uses_hidden_training_labels`、`inference_uses_hidden_current_csi` 和 `supervision_signal`。`uses_hidden_training_labels=true` 表示训练目标来自 hidden current-channel outcome；`inference_uses_hidden_current_csi=true` 表示该结果只能作为 hidden-information temporal diagnostic reference。
 
 ## Reopen Criteria
 
 只有满足至少一项，历史分支才值得从 appendix / diagnostics 回到 active research：
 
-1. 在相同或更低 preview 下超过 `Mask-Corrected Coverage-Aware B=3 mc=1`。
+1. 在相同或更低 preview 下超过 no-noise gap reference `Coverage-Aware B=3 sm=4.1 cw=0.5 cpw=0`，或在 slots/failed/missed/gap trade-off 上明确优于 `Mask-Corrected Coverage-Aware B=3 mc=1`。
 2. 直接解释或降低 invitation-mask mismatch，而不是只增加一个候选生成 heuristic。
-3. 在 high-noise aggregate feedback 下明显优于 `mc=1 clip=2`。
+3. 在 high-noise aggregate feedback 下明显优于 direct `mc=1` 的 gap，或优于 `mc=1 clip=2` 的 failed-invitation control。
 4. 提供论文主张必须依赖的新机制，而不是只增加一个数值点。
 
 ## Writing Checklist

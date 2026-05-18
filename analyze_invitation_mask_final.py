@@ -67,13 +67,13 @@ METHOD_SPECS = [
     {
         "label": "Direct Mask Correction mc=1",
         "short_label": "Direct",
-        "role": "reliable-feedback main method",
+        "role": "slot/failed trade-off; high-noise gap-best",
         "policy": "Mask-Corrected Coverage-Aware B=3 mc=1",
     },
     {
         "label": "Clipped Mask Correction mc=1 clip=2",
         "short_label": "Clip2",
-        "role": "high-noise robustness variant",
+        "role": "failed-invitation control diagnostic",
         "policy": "Noise-Aware Mask-Corrected Coverage-Aware B=3 mc=1 clip=2",
     },
 ]
@@ -419,7 +419,7 @@ def write_markdown(path, source_path, csv_path, gap_plot, failed_missed_plot, su
 
     headline_rows = [
         [
-            "Reliable feedback main",
+            "No-noise trade-off",
             "Direct mc=1",
             format_noise(reliable["feedback_noise_std"]),
             format_float(reliable["slots_mean"]),
@@ -429,7 +429,7 @@ def write_markdown(path, source_path, csv_path, gap_plot, failed_missed_plot, su
             format_float(reliable["gap_delta_vs_b3"]),
         ],
         [
-            "High-noise robust",
+            "High-noise failed-control",
             "mc=1 clip=2",
             format_noise(high_noise_clip["feedback_noise_std"]),
             format_float(high_noise_clip["slots_mean"]),
@@ -524,7 +524,7 @@ Use the `results/paper/` files for the paper main text. The `results/execution_m
         headline_rows,
     )}
 
-The reliable-feedback main result is direct `mc=1`: at the same preview cost `16`, it lowers the no-noise B3 gap from `{format_float(b3_zero["oracle_tx_gap_mean"])}` to `{format_float(reliable["oracle_tx_gap_mean"])}`. The high-noise robustness result is `mc=1 clip=2`: at feedback-noise std `0.1`, it lowers the B3 gap from `{format_float(b3_high["oracle_tx_gap_mean"])}` to `{format_float(high_noise_clip["oracle_tx_gap_mean"])}`.
+The no-noise result is a trade-off, not a gap improvement: direct `mc=1` lowers slots from `{format_float(b3_zero["slots_mean"])}` to `{format_float(reliable["slots_mean"])}` and failed/missed from `{format_float(b3_zero["failed_nodes_mean"])}/{format_float(b3_zero["missed_opportunities_mean"])}` to `{format_float(reliable["failed_nodes_mean"])}/{format_float(reliable["missed_opportunities_mean"])}`, but increases gap from `{format_float(b3_zero["oracle_tx_gap_mean"])}` to `{format_float(reliable["oracle_tx_gap_mean"])}`. At feedback-noise std `0.1`, direct `mc=1` is the gap-best correction, lowering B3 gap from `{format_float(b3_high["oracle_tx_gap_mean"])}` to `{format_float(high_noise_direct["oracle_tx_gap_mean"])}`. The clipped `mc=1 clip=2` variant is a failed-invitation control diagnostic: at std `0.1`, it lowers failed invitations from `{format_float(high_noise_direct["failed_nodes_mean"])}` to `{format_float(high_noise_clip["failed_nodes_mean"])}` but has higher gap than direct correction.
 
 ## Noise Sweep
 
@@ -540,7 +540,7 @@ The reliable-feedback main result is direct `mc=1`: at the same preview cost `16
         noise_rows,
     )}
 
-Direct `mc=1` remains the lowest-gap method through feedback-noise std `0.05`. At std `0.1`, clipping the per-slot target-count correction to at most two nodes becomes better.
+The best-by-gap setting is noise-dependent. Uncorrected B3 remains best at no noise, direct `mc=1` is competitive around std `0.02`, and direct `mc=1` is the lowest-gap setting at std `0.05` and `0.1`. Clipping the per-slot target-count correction to at most two nodes controls failed invitations, but is not the high-noise gap-best setting in this corrected run.
 
 ## High-Noise Tradeoff
 
@@ -549,11 +549,11 @@ Direct `mc=1` remains the lowest-gap method through feedback-noise std `0.05`. A
         high_noise_rows,
     )}
 
-The clipped variant is not the low-noise main method: it slightly worsens low-noise gap. Its value is high-noise robustness because it reduces over-invitation when the aggregate feedback count is noisy.
+The clipped variant is not a low-noise or high-noise gap-best method in this corrected run. Its value is diagnostic: it reduces over-invitation/failed invitations when the aggregate feedback count is noisy, at the cost of higher missed opportunities and gap relative to direct correction.
 
 ## Paper Claim
 
-The final contribution should be stated as invitation-mask correction after IRS confirmation. The method does not change candidate generation or preview cost. It uses aggregate current feedback count to repair the stale invitation mask for the confirmed IRS. Reliable aggregate feedback uses exact direct correction (`mc=1`); high-noise aggregate feedback uses clipped target-count correction (`mc=1 clip=2`).
+The final contribution should be stated more narrowly as invitation-mask correction after IRS confirmation. The method does not change candidate generation or preview cost. It uses aggregate current feedback count to repair the stale invitation mask for the confirmed IRS. Under corrected temporal prehistory, reliable/no-noise feedback supports a trade-off claim rather than a gap-best claim; higher feedback-noise settings support direct correction as a gap-improving correction, while clipped correction is a failed-invitation control diagnostic.
 """
     with open(path, "w", encoding="utf-8") as mdfile:
         mdfile.write(content)

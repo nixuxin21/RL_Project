@@ -4,8 +4,8 @@ Evaluate invitation-mask correction for the current Coverage-Aware B=3 setting.
 The policy selection is unchanged: stale sparse previews generate a B=3
 candidate set and current aggregate feedback confirms one IRS index. This pilot
 only changes the invitation mask for the confirmed IRS index. The corrected
-mask targets the aggregate current feedback count by selecting that many
-remaining nodes with the strongest stale gain under the confirmed IRS.
+mask uses the aggregate current feedback count as a target cardinality and stale
+per-node gains under the confirmed IRS as a deployable reranking signal.
 """
 
 import argparse
@@ -14,10 +14,10 @@ import os
 
 import numpy as np
 
-import evaluate_limited_csi_ms_aircomp as limited
+import ms_aircomp.limited_csi as limited
 from ms_aircomp.channel_models import (
     apply_channel_state,
-    build_temporal_channel_states,
+    build_temporal_channel_trace,
     delayed_channel_state,
 )
 from ms_aircomp.execution_candidates import (
@@ -30,11 +30,19 @@ from ms_aircomp.experiment_utils import (
     format_float_for_suffix,
     make_episode_seeds,
     make_run_seeds,
+    validate_nonempty_values,
+    validate_common_experiment_args,
+    validate_nonnegative_values,
+    validate_positive_values,
+    validate_probability_values,
+    validate_probe_budget_values,
 )
 from ms_aircomp.invitation_mask_correction import (
+    MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN,
     apply_invitation_mask_correction,
     corrected_target_count,
     rank_remaining_by_stale_gain,
+    validate_mask_correction_rerank_mode,
 )
 from ms_aircomp.probe_sets import coverage_aware_sparse_indices
 from test_env import MSAirCompEnv
@@ -52,6 +60,7 @@ CSV_FIELDS = [
     "mask_correction_strength",
     "mask_correction_noise_deadband_z",
     "mask_correction_max_delta",
+    "mask_correction_rerank_mode",
     "confirmation_feedback_noise_std",
     "success_mean",
     "perfect_rate",
@@ -63,7 +72,9 @@ CSV_FIELDS = [
     "oracle_tx_gap_mean",
     "mask_correction_added_mean",
     "mask_correction_pruned_mean",
+    "mask_correction_requested_target_delta_mean",
     "mask_correction_target_delta_mean",
+    "mask_correction_unmet_additions_mean",
     "mask_correction_applied_rate",
 ]
 
@@ -120,6 +131,15 @@ def parse_args():
         default="-1",
         help="Comma-separated max absolute target-count deltas; -1 disables clipping.",
     )
+    parser.add_argument(
+        "--mask-correction-rerank-modes",
+        default=MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN,
+        help=(
+            "Comma-separated invitation-mask rerank modes. "
+            "global_stale_gain preserves the existing method; prune_only is "
+            "an ablation that never adds stale-invalid nodes."
+        ),
+    )
     parser.add_argument("--output-prefix", default=None)
     parser.add_argument("--doc-output", default=DEFAULT_DOC_OUTPUT)
     return parser.parse_args()
@@ -133,6 +153,88 @@ def parse_float_list(value):
 def parse_int_list(value):
     """Parse a comma-separated integer list."""
     return [int(item) for item in str(value).split(",") if str(item).strip()]
+
+
+def parse_string_list(value):
+    """Parse a comma-separated string list."""
+    return [str(item).strip() for item in str(value).split(",") if str(item).strip()]
+
+
+def normalize_args(args):
+    """Parse list-like CLI options in-place."""
+    args.channel_rho_values = parse_float_list(args.channel_rho_values)
+    args.csi_delay_slots = parse_int_list(args.csi_delay_slots)
+    args.mask_correction_strengths = parse_float_list(args.mask_correction_strengths)
+    args.mask_correction_noise_deadband_z_values = parse_float_list(
+        args.mask_correction_noise_deadband_z_values
+    )
+    args.mask_correction_max_delta_values = parse_float_list(
+        args.mask_correction_max_delta_values
+    )
+    args.mask_correction_rerank_modes = parse_string_list(
+        args.mask_correction_rerank_modes
+    )
+    if args.confirmation_feedback_noise_std_values is None:
+        args.confirmation_feedback_noise_std_values = [float(args.confirmation_feedback_noise_std)]
+    else:
+        args.confirmation_feedback_noise_std_values = parse_float_list(
+            args.confirmation_feedback_noise_std_values
+        )
+    return args
+
+
+def validate_args(args):
+    """Validate parsed CLI arguments before running an experiment."""
+    validate_common_experiment_args(args)
+    args.probe_budget = validate_probe_budget_values(
+        [args.probe_budget],
+        args.num_codebook_states,
+        "--probe-budget",
+    )[0]
+
+    validate_probability_values(args.channel_rho_values, "--channel-rho-values")
+    validate_nonnegative_values(args.csi_delay_slots, "--csi-delay-slots")
+    validate_nonnegative_values([args.decision_error_std], "--decision-error-std")
+    validate_nonnegative_values([args.execution_error_std], "--execution-error-std")
+    validate_positive_values([args.sparse_topk_seed_multiplier], "--sparse-topk-seed-multiplier")
+    validate_positive_values([args.sparse_topk_fraction], "--sparse-topk-fraction")
+    if args.sparse_topk_fraction > 1.0:
+        raise ValueError("--sparse-topk-fraction must be in (0, 1]")
+    validate_nonnegative_values([args.coverage_sparse_weight], "--coverage-sparse-weight")
+    validate_nonnegative_values([args.coverage_sparse_power_weight], "--coverage-sparse-power-weight")
+    validate_nonnegative_values(
+        [args.confirmation_feedback_noise_std],
+        "--confirmation-feedback-noise-std",
+    )
+    validate_nonnegative_values(
+        args.confirmation_feedback_noise_std_values,
+        "--confirmation-feedback-noise-std-values",
+    )
+    validate_nonnegative_values(
+        [args.confirmation_feedback_power_weight],
+        "--confirmation-feedback-power-weight",
+    )
+    validate_probability_values(args.mask_correction_strengths, "--mask-correction-strengths")
+    validate_nonnegative_values(
+        args.mask_correction_noise_deadband_z_values,
+        "--mask-correction-noise-deadband-z-values",
+    )
+    validate_nonempty_values(
+        args.mask_correction_max_delta_values,
+        "--mask-correction-max-delta-values",
+    )
+    if any(not np.isfinite(float(max_delta)) for max_delta in args.mask_correction_max_delta_values):
+        raise ValueError("--mask-correction-max-delta-values must contain finite values")
+    if any(max_delta < -1.0 for max_delta in args.mask_correction_max_delta_values):
+        raise ValueError("--mask-correction-max-delta-values must be >= -1")
+    validate_nonempty_values(
+        args.mask_correction_rerank_modes,
+        "--mask-correction-rerank-modes",
+    )
+    args.mask_correction_rerank_modes = [
+        validate_mask_correction_rerank_mode(mode)
+        for mode in args.mask_correction_rerank_modes
+    ]
 
 
 def resolve_output_prefix(args):
@@ -175,6 +277,9 @@ def resolve_output_prefix(args):
         prefix = f"{prefix}_clip{max_delta_label}"
     if len(args.confirmation_feedback_noise_std_values) != 1 or abs(args.confirmation_feedback_noise_std_values[0]) > 1e-12:
         prefix = f"{prefix}_fbn{noise_label}"
+    if args.mask_correction_rerank_modes != [MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN]:
+        mode_label = "-".join(args.mask_correction_rerank_modes)
+        prefix = f"{prefix}_mode{mode_label}"
     return os.path.join(DEFAULT_RESULTS_DIR, prefix)
 
 
@@ -197,6 +302,7 @@ def choose_coverage_b3_decision(
     strength,
     deadband_z,
     max_delta,
+    rerank_mode,
 ):
     """Choose the current B3 policy and optionally correct its invitation mask."""
     budget = min(int(args.probe_budget), int(args.num_codebook_states))
@@ -264,14 +370,18 @@ def choose_coverage_b3_decision(
     decision["mask_correction_strength"] = float(strength)
     decision["mask_correction_noise_deadband_z"] = float(deadband_z)
     decision["mask_correction_max_delta"] = float(max_delta)
+    decision["mask_correction_rerank_mode"] = "none"
     decision["mask_correction_stale_count"] = int(decision["tx_this_slot"])
     decision["mask_correction_feedback_count"] = int(
         round(float(feedback_by_index[int(confirmed_index)]["observed_tx_fraction"]) * float(args.num_nodes))
     )
+    decision["mask_correction_requested_target_count"] = int(decision["tx_this_slot"])
     decision["mask_correction_target_count"] = int(decision["tx_this_slot"])
     decision["mask_correction_added"] = 0
     decision["mask_correction_pruned"] = 0
+    decision["mask_correction_requested_delta"] = 0
     decision["mask_correction_target_delta"] = 0
+    decision["mask_correction_unmet_additions"] = 0
     decision["mask_correction_applied"] = 0
     if float(strength) > 0.0:
         decision = apply_invitation_mask_correction(
@@ -282,6 +392,7 @@ def choose_coverage_b3_decision(
             strength,
             deadband_z,
             max_delta,
+            rerank_mode,
         )
     preview_calls = len(seed_indices) + len(selected_indices)
     return decision, preview_calls
@@ -295,12 +406,19 @@ def run_episode(
     strength,
     deadband_z,
     max_delta,
+    rerank_mode,
 ):
     """Run one episode for one correction strength."""
     env = make_env(args)
     env.reset(seed=episode_seed)
     env._last_seed = episode_seed
-    temporal_states = build_temporal_channel_states(env, args, episode_seed, channel_rho)
+    temporal_history, temporal_states = build_temporal_channel_trace(
+        env,
+        args,
+        episode_seed,
+        channel_rho,
+        prehistory_slots=csi_delay_slots,
+    )
     episode_failed = 0
     episode_missed = 0
     episode_true_opportunities = 0
@@ -308,14 +426,21 @@ def run_episode(
     episode_oracle_gaps = []
     episode_added = []
     episode_pruned = []
+    episode_requested_deltas = []
     episode_target_deltas = []
+    episode_unmet_additions = []
     episode_applied = []
     episode_slots = args.num_slots
     total_tx = 0
 
     for slot_idx in range(args.num_slots):
         execution_state = temporal_states[min(slot_idx, len(temporal_states) - 1)]
-        stale_state = delayed_channel_state(temporal_states, slot_idx, csi_delay_slots)
+        stale_state = delayed_channel_state(
+            temporal_states,
+            slot_idx,
+            csi_delay_slots,
+            history_states=temporal_history,
+        )
 
         apply_channel_state(env, execution_state)
         execution_oracle = execution_oracle_candidate(
@@ -334,6 +459,7 @@ def run_episode(
             strength,
             deadband_z,
             max_delta,
+            rerank_mode,
         )
 
         apply_channel_state(env, execution_state)
@@ -356,7 +482,13 @@ def run_episode(
         )
         episode_added.append(float(decision.get("mask_correction_added", 0.0)))
         episode_pruned.append(float(decision.get("mask_correction_pruned", 0.0)))
+        episode_requested_deltas.append(
+            float(decision.get("mask_correction_requested_delta", 0.0))
+        )
         episode_target_deltas.append(float(decision.get("mask_correction_target_delta", 0.0)))
+        episode_unmet_additions.append(
+            float(decision.get("mask_correction_unmet_additions", 0.0))
+        )
         episode_applied.append(float(decision.get("mask_correction_applied", 0.0)))
         if done:
             break
@@ -372,7 +504,17 @@ def run_episode(
         "oracle_gap": float(np.mean(episode_oracle_gaps)) if episode_oracle_gaps else 0.0,
         "mask_added": float(np.mean(episode_added)) if episode_added else 0.0,
         "mask_pruned": float(np.mean(episode_pruned)) if episode_pruned else 0.0,
+        "mask_requested_delta": (
+            float(np.mean(episode_requested_deltas))
+            if episode_requested_deltas
+            else 0.0
+        ),
         "mask_target_delta": float(np.mean(episode_target_deltas)) if episode_target_deltas else 0.0,
+        "mask_unmet_additions": (
+            float(np.mean(episode_unmet_additions))
+            if episode_unmet_additions
+            else 0.0
+        ),
         "mask_applied": float(np.mean(episode_applied)) if episode_applied else 0.0,
     }
 
@@ -384,18 +526,24 @@ def mean(items, field):
     return float(sum(float(item[field]) for item in items) / len(items))
 
 
-def policy_label(strength, deadband_z, max_delta):
+def policy_label(strength, deadband_z, max_delta, rerank_mode):
     """Return policy label for a correction strength."""
     if abs(float(strength)) < 1e-12:
         return "Coverage-Aware B=3 sm=4.1"
+    mode_prefix = ""
+    if rerank_mode != MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN:
+        mode_prefix = f"{rerank_mode} "
     if abs(float(deadband_z)) < 1e-12 and float(max_delta) < 0.0:
-        return f"Mask-Corrected Coverage-Aware B=3 mc={float(strength):g}"
+        return (
+            f"{mode_prefix}Mask-Corrected Coverage-Aware B=3 "
+            f"mc={float(strength):g}"
+        )
     suffix = f"mc={float(strength):g}"
     if abs(float(deadband_z)) >= 1e-12:
         suffix = f"{suffix} z={float(deadband_z):g}"
     if float(max_delta) >= 0.0:
         suffix = f"{suffix} clip={float(max_delta):g}"
-    return f"Noise-Aware Mask-Corrected Coverage-Aware B=3 {suffix}"
+    return f"{mode_prefix}Noise-Aware Mask-Corrected Coverage-Aware B=3 {suffix}"
 
 
 def correction_configs(args):
@@ -405,11 +553,17 @@ def correction_configs(args):
         if abs(float(strength)) < 1e-12:
             if not yielded_uncorrected:
                 yielded_uncorrected = True
-                yield float(strength), 0.0, -1.0
+                yield float(strength), 0.0, -1.0, "none"
             continue
-        for deadband_z in args.mask_correction_noise_deadband_z_values:
-            for max_delta in args.mask_correction_max_delta_values:
-                yield float(strength), float(deadband_z), float(max_delta)
+        for rerank_mode in args.mask_correction_rerank_modes:
+            for deadband_z in args.mask_correction_noise_deadband_z_values:
+                for max_delta in args.mask_correction_max_delta_values:
+                    yield (
+                        float(strength),
+                        float(deadband_z),
+                        float(max_delta),
+                        rerank_mode,
+                    )
 
 
 def run_evaluation(args):
@@ -423,7 +577,12 @@ def run_evaluation(args):
             args.confirmation_feedback_noise_std = float(feedback_noise_std)
             for channel_rho in args.channel_rho_values:
                 for csi_delay_slots in args.csi_delay_slots:
-                    for strength, deadband_z, max_delta in correction_configs(args):
+                    for (
+                        strength,
+                        deadband_z,
+                        max_delta,
+                        rerank_mode,
+                    ) in correction_configs(args):
                         episode_results = []
                         for episode_seeds in episode_seed_sets:
                             for episode_seed in episode_seeds:
@@ -436,11 +595,17 @@ def run_evaluation(args):
                                         strength,
                                         deadband_z,
                                         max_delta,
+                                        rerank_mode,
                                     )
                                 )
                         rows.append(
                             {
-                                "policy": policy_label(strength, deadband_z, max_delta),
+                                "policy": policy_label(
+                                    strength,
+                                    deadband_z,
+                                    max_delta,
+                                    rerank_mode,
+                                ),
                                 "channel_rho": float(channel_rho),
                                 "csi_delay_slots": int(csi_delay_slots),
                                 "episodes": int(args.episodes * args.num_seeds),
@@ -448,6 +613,7 @@ def run_evaluation(args):
                                 "mask_correction_strength": float(strength),
                                 "mask_correction_noise_deadband_z": float(deadband_z),
                                 "mask_correction_max_delta": float(max_delta),
+                                "mask_correction_rerank_mode": rerank_mode,
                                 "confirmation_feedback_noise_std": float(feedback_noise_std),
                                 "success_mean": mean(episode_results, "success_nodes"),
                                 "perfect_rate": 100.0 * mean(episode_results, "perfect"),
@@ -459,7 +625,15 @@ def run_evaluation(args):
                                 "oracle_tx_gap_mean": mean(episode_results, "oracle_gap"),
                                 "mask_correction_added_mean": mean(episode_results, "mask_added"),
                                 "mask_correction_pruned_mean": mean(episode_results, "mask_pruned"),
+                                "mask_correction_requested_target_delta_mean": mean(
+                                    episode_results,
+                                    "mask_requested_delta",
+                                ),
                                 "mask_correction_target_delta_mean": mean(episode_results, "mask_target_delta"),
+                                "mask_correction_unmet_additions_mean": mean(
+                                    episode_results,
+                                    "mask_unmet_additions",
+                                ),
                                 "mask_correction_applied_rate": mean(episode_results, "mask_applied"),
                             }
                         )
@@ -478,6 +652,7 @@ def aggregate_by_policy(rows):
             float(row["mask_correction_strength"]),
             float(row["mask_correction_noise_deadband_z"]),
             float(row["mask_correction_max_delta"]),
+            row["mask_correction_rerank_mode"],
         )
         groups.setdefault(key, []).append(row)
     summaries = []
@@ -487,6 +662,7 @@ def aggregate_by_policy(rows):
         strength,
         deadband_z,
         max_delta,
+        rerank_mode,
     ), group in groups.items():
         item = {
             "policy": policy,
@@ -494,6 +670,7 @@ def aggregate_by_policy(rows):
             "mask_correction_strength": float(strength),
             "mask_correction_noise_deadband_z": float(deadband_z),
             "mask_correction_max_delta": float(max_delta),
+            "mask_correction_rerank_mode": rerank_mode,
             "scenario_count": len(group),
         }
         for field in CSV_FIELDS:
@@ -507,6 +684,7 @@ def aggregate_by_policy(rows):
                 "mask_correction_strength",
                 "mask_correction_noise_deadband_z",
                 "mask_correction_max_delta",
+                "mask_correction_rerank_mode",
             }:
                 continue
             item[field] = mean(group, field)
@@ -518,6 +696,7 @@ def aggregate_by_policy(rows):
             float(item["mask_correction_strength"]),
             float(item["mask_correction_noise_deadband_z"]),
             float(item["mask_correction_max_delta"]),
+            item["mask_correction_rerank_mode"],
         ),
     )
 
@@ -552,6 +731,14 @@ def markdown_table(headers, rows):
     return "\n".join(output)
 
 
+def find_summary_by_mode(summaries, mode):
+    """Return the first summary row for a rerank mode, if present."""
+    for item in summaries:
+        if item.get("mask_correction_rerank_mode") == mode:
+            return item
+    return None
+
+
 def write_markdown(path, csv_path, summaries):
     """Write analysis markdown."""
     ensure_parent_dir(path)
@@ -560,6 +747,7 @@ def write_markdown(path, csv_path, summaries):
         table_rows.append(
             [
                 item["policy"],
+                item["mask_correction_rerank_mode"],
                 format_float(item["confirmation_feedback_noise_std"]),
                 format_float(item["mask_correction_noise_deadband_z"]),
                 format_clip(item["mask_correction_max_delta"]),
@@ -571,6 +759,7 @@ def write_markdown(path, csv_path, summaries):
                 format_float(item["oracle_tx_gap_mean"]),
                 format_float(item["mask_correction_added_mean"]),
                 format_float(item["mask_correction_pruned_mean"]),
+                format_float(item["mask_correction_unmet_additions_mean"]),
                 format_float(item["mask_correction_applied_rate"]),
             ]
         )
@@ -609,6 +798,9 @@ def write_markdown(path, csv_path, summaries):
         ),
     )
     has_clipped_variant = any(float(item["mask_correction_max_delta"]) >= 0.0 for item in summaries)
+    baseline = find_summary_by_mode(summaries, "none")
+    global_stale_gain = find_summary_by_mode(summaries, MASK_CORRECTION_MODE_GLOBAL_STALE_GAIN)
+    prune_only = find_summary_by_mode(summaries, "prune_only")
     if len(noise_levels) > 1 and has_clipped_variant:
         interpretation = (
             "The feedback-noise sweep should be read as a reliability boundary. "
@@ -632,17 +824,38 @@ def write_markdown(path, csv_path, summaries):
             "for Coverage-Aware B=3 and tests whether aggregate current feedback "
             "count can repair that mismatch at the same preview cost."
         )
+    if baseline is not None and global_stale_gain is not None and prune_only is not None:
+        interpretation = (
+            f"{interpretation}\n\n"
+            "The rerank-mode ablation shows that target-count correction alone is "
+            "not the mechanism behind the balanced trade-off. The `prune_only` "
+            f"variant lowers failed invitations to `{format_float(prune_only['failed_nodes_mean'])}` "
+            f"versus `{format_float(global_stale_gain['failed_nodes_mean'])}` for "
+            "`global_stale_gain`, but it increases missed opportunities "
+            f"to `{format_float(prune_only['missed_opportunities_mean'])}` and "
+            f"gap to `{format_float(prune_only['oracle_tx_gap_mean'])}`. The "
+            "`global_stale_gain` variant keeps the same preview budget while "
+            f"achieving lower slots `{format_float(global_stale_gain['slots_mean'])}`, "
+            f"lower missed opportunities `{format_float(global_stale_gain['missed_opportunities_mean'])}`, "
+            f"and lower gap `{format_float(global_stale_gain['oracle_tx_gap_mean'])}` "
+            "than `prune_only`. The method should therefore be described as "
+            "aggregate target-count correction plus stale-gain replacement, not "
+            "as a pure cardinality-only correction."
+        )
     content = f"""# Invitation Mask Correction Analysis
 
 Generated by `evaluate_invitation_mask_correction.py`.
 
 Scenario CSV: `{csv_path}`
 
-This method keeps the current `Coverage-Aware B=3 sm=4.1` IRS candidate generation and aggregate confirmation unchanged. After an IRS index is confirmed, it uses the aggregate current feedback count to adjust the stale invitation mask cardinality.
+This method keeps the current `Coverage-Aware B=3 sm=4.1` IRS candidate generation and aggregate confirmation unchanged. After an IRS index is confirmed, it uses the aggregate current feedback count as a target cardinality and reranks remaining devices by stale gain under the confirmed IRS. It does not use per-device current CSI.
+
+`global_stale_gain` is the original correction rule. `prune_only` is an ablation that can only remove nodes from the stale-valid invitation mask; it never adds nodes that stale CSI marked invalid. This separates target-count correction from stale-gain replacement outside the stale-valid set.
 
 {markdown_table(
         [
             "Policy",
+            "Mode",
             "Noise std",
             "Deadband z",
             "Clip",
@@ -654,6 +867,7 @@ This method keeps the current `Coverage-Aware B=3 sm=4.1` IRS candidate generati
             "Gap",
             "Added",
             "Pruned",
+            "Unmet adds",
             "Applied",
         ],
         table_rows,
@@ -686,33 +900,8 @@ Best setting by gap: `{best["policy"]}` at feedback-noise std `{format_float(bes
 def main():
     """Run the pilot."""
     args = parse_args()
-    args.channel_rho_values = parse_float_list(args.channel_rho_values)
-    args.csi_delay_slots = parse_int_list(args.csi_delay_slots)
-    args.mask_correction_strengths = parse_float_list(args.mask_correction_strengths)
-    args.mask_correction_noise_deadband_z_values = parse_float_list(
-        args.mask_correction_noise_deadband_z_values
-    )
-    args.mask_correction_max_delta_values = parse_float_list(
-        args.mask_correction_max_delta_values
-    )
-    if args.confirmation_feedback_noise_std_values is None:
-        args.confirmation_feedback_noise_std_values = [float(args.confirmation_feedback_noise_std)]
-    else:
-        args.confirmation_feedback_noise_std_values = parse_float_list(
-            args.confirmation_feedback_noise_std_values
-        )
-    if args.episodes <= 0:
-        raise ValueError("--episodes must be positive")
-    if args.num_seeds <= 0:
-        raise ValueError("--num-seeds must be positive")
-    if any(strength < 0.0 or strength > 1.0 for strength in args.mask_correction_strengths):
-        raise ValueError("--mask-correction-strengths must be in [0, 1]")
-    if any(deadband_z < 0.0 for deadband_z in args.mask_correction_noise_deadband_z_values):
-        raise ValueError("--mask-correction-noise-deadband-z-values must be non-negative")
-    if any(max_delta < -1.0 for max_delta in args.mask_correction_max_delta_values):
-        raise ValueError("--mask-correction-max-delta-values must be >= -1")
-    if any(noise_std < 0.0 for noise_std in args.confirmation_feedback_noise_std_values):
-        raise ValueError("--confirmation-feedback-noise-std-values must be non-negative")
+    normalize_args(args)
+    validate_args(args)
 
     output_prefix = resolve_output_prefix(args)
     csv_path = f"{output_prefix}.csv"
@@ -725,6 +914,7 @@ def main():
     for item in summaries:
         print(
             f"{item['policy']} noise={item['confirmation_feedback_noise_std']:.3f}: "
+            f"mode={item['mask_correction_rerank_mode']}, "
             f"z={item['mask_correction_noise_deadband_z']:.3f}, "
             f"clip={item['mask_correction_max_delta']:.3f}, "
             f"slots={item['slots_mean']:.3f}, "

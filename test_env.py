@@ -137,6 +137,26 @@ class MSAirCompEnv(gym.Env):
         alpha_th = 0.05 + (action[1] + 1) * 0.05
         return g_th, alpha_th
 
+    def _sanitize_action(self, action):
+        """
+        Convert an external action to the environment action range.
+
+        Gym/SB3 normally enforce the Box bounds, but many experiment scripts call
+        ``env.step`` directly. Clipping here keeps the public environment API
+        robust while preserving identical behavior for already valid actions.
+        """
+        action_array = np.asarray(action, dtype=np.float32)
+        if action_array.shape != self.action_space.shape:
+            raise ValueError(f"action must have shape {self.action_space.shape}")
+        if not np.all(np.isfinite(action_array)):
+            raise ValueError("action must contain only finite values")
+        clipped_action = np.clip(
+            action_array,
+            self.action_space.low,
+            self.action_space.high,
+        ).astype(np.float32)
+        return clipped_action, bool(np.any(clipped_action != action_array))
+
     def _compute_slot_metrics(self, g_th, alpha_th, irs_vector):
         """
         计算当前信道和已发送状态下，一个 IRS 相位向量会带来的本时隙调度结果。
@@ -286,6 +306,8 @@ class MSAirCompEnv(gym.Env):
         # ==========================================
         # 1. 动作解码 (将 [-1, 1] 映射到真实的物理区间)
         # ==========================================
+        action, action_clipped = self._sanitize_action(action)
+
         # 准入门限 g_th 与 AirComp 目标对齐振幅 alpha_th
         g_th, alpha_th = self._decode_action(action)
         
@@ -346,6 +368,7 @@ class MSAirCompEnv(gym.Env):
             "is_complete": all_nodes_done,
             "missed_nodes": self.K - total_tx,
             "termination_reason": "complete" if all_nodes_done else "time_limit" if time_limit_reached else "running",
+            "action_clipped": action_clipped,
         }
         
         return obs, reward, done, False, info

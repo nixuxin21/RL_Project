@@ -19,7 +19,7 @@ The diagnostic decomposes each slot's hidden oracle gap into four terms:
 
 | Scope | Trace slots | Gap slots | Avg gap | Pool | Selection | Confirmation | Invitation | Pool share | Selection share | Confirmation share | Invitation share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| overall | 5918 | 2259 | 0.516 | 0.054 | 0.129 | 0.060 | 0.273 | 0.104 | 0.251 | 0.116 | 0.530 |
+| overall | 6596 | 4549 | 2.244 | 0.065 | 0.583 | 0.053 | 1.543 | 0.029 | 0.260 | 0.024 | 0.687 |
 
 Dominant residual component: `invitation`.
 
@@ -27,15 +27,15 @@ Dominant residual component: `invitation`.
 
 | Scenario | Trace slots | Avg gap | Pool share | Selection share | Confirmation share | Invitation share | Failed | Missed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| rho=0.7, delay=1 | 605 | 0.562 | 0.079 | 0.268 | 0.044 | 0.609 | 0.187 | 0.342 |
-| rho=0.7, delay=2 | 662 | 0.615 | 0.066 | 0.253 | 0.071 | 0.609 | 0.201 | 0.375 |
-| rho=0.7, delay=3 | 674 | 0.623 | 0.064 | 0.255 | 0.062 | 0.619 | 0.191 | 0.386 |
-| rho=0.9, delay=1 | 621 | 0.533 | 0.115 | 0.299 | 0.054 | 0.532 | 0.190 | 0.283 |
-| rho=0.9, delay=2 | 676 | 0.586 | 0.096 | 0.278 | 0.101 | 0.525 | 0.217 | 0.308 |
-| rho=0.9, delay=3 | 692 | 0.600 | 0.092 | 0.284 | 0.116 | 0.508 | 0.236 | 0.305 |
-| rho=0.98, delay=1 | 624 | 0.335 | 0.196 | 0.163 | 0.191 | 0.450 | 0.128 | 0.151 |
-| rho=0.98, delay=2 | 669 | 0.381 | 0.161 | 0.188 | 0.227 | 0.424 | 0.169 | 0.161 |
-| rho=0.98, delay=3 | 695 | 0.406 | 0.145 | 0.199 | 0.280 | 0.376 | 0.191 | 0.153 |
+| rho=0.7, delay=1 | 716 | 2.891 | 0.020 | 0.274 | 0.009 | 0.697 | 1.973 | 2.015 |
+| rho=0.7, delay=2 | 732 | 2.876 | 0.020 | 0.277 | 0.014 | 0.688 | 2.220 | 1.978 |
+| rho=0.7, delay=3 | 695 | 2.896 | 0.019 | 0.304 | 0.013 | 0.664 | 2.342 | 1.924 |
+| rho=0.9, delay=1 | 706 | 2.194 | 0.036 | 0.244 | 0.016 | 0.704 | 1.483 | 1.545 |
+| rho=0.9, delay=2 | 785 | 2.436 | 0.028 | 0.257 | 0.024 | 0.691 | 1.692 | 1.683 |
+| rho=0.9, delay=3 | 796 | 2.612 | 0.033 | 0.281 | 0.024 | 0.662 | 1.931 | 1.730 |
+| rho=0.98, delay=1 | 666 | 1.131 | 0.062 | 0.162 | 0.053 | 0.722 | 0.646 | 0.817 |
+| rho=0.98, delay=2 | 741 | 1.405 | 0.037 | 0.203 | 0.062 | 0.697 | 0.892 | 0.980 |
+| rho=0.98, delay=3 | 759 | 1.686 | 0.037 | 0.229 | 0.040 | 0.694 | 1.136 | 1.170 |
 
 ## Exact Oracle-Index Diagnostics
 
@@ -43,7 +43,7 @@ These exact-index rates are stricter than the gap decomposition because multiple
 
 | Scope | Oracle not in seed | Oracle in seed not selected | Oracle selected not confirmed | Primary pool | Primary selection | Primary confirmation | Primary invitation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| overall | 0.201 | 0.271 | 0.016 | 0.035 | 0.073 | 0.056 | 0.217 |
+| overall | 0.175 | 0.462 | 0.012 | 0.012 | 0.120 | 0.050 | 0.508 |
 
 ## Interpretation
 
