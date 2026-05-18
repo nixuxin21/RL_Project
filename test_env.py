@@ -55,9 +55,9 @@ class MSAirCompEnv(gym.Env):
         # ==========================================
         self.K = num_nodes             # 传感器节点总数 (默认 50 个)
         self.N = num_slots             # 总时间槽数 (规定要在 10 个时隙内完成调度)
-        self.M = num_irs_elements      # IRS 反射面单元数量 (64 面小镜子)
-        self.C = num_codebook_states   # IRS 预设的反射角度种类 (16 种波束指向)
-        self.irs_phase_mode = irs_phase_mode # IRS 相位模式：码本优化、随机相位 baseline 或无 IRS
+        self.M = num_irs_elements      # 智能反射面单元数量 (64 面小镜子)
+        self.C = num_codebook_states   # 智能反射面预设的反射角度种类 (16 种波束指向)
+        self.irs_phase_mode = irs_phase_mode # 智能反射面相位模式：码本优化、随机相位基线或禁用智能反射面。
         self.include_codebook_features = include_codebook_features
         self.codebook_feature_g_th = codebook_feature_g_th
         self.codebook_feature_alpha_th = codebook_feature_alpha_th
