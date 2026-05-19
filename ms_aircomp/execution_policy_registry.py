@@ -1,6 +1,7 @@
 """维护执行信道错配策略别名、显示 label 和参数网格展开逻辑。"""
 
 import ms_aircomp.limited_csi as limited
+from ms_aircomp.probe_sets import validate_posterior_probe_objective
 
 __all__ = [
     "MISMATCH_CHOICES",
@@ -14,20 +15,41 @@ __all__ = [
     "POLICY_AR1_PREDICT_ROTATING_GRID",
     "POLICY_CHOICES",
     "POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID",
+    "POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID",
+    "POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID",
+    "POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID",
+    "POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION",
+    "POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID",
     "POLICY_EXECUTION_ORACLE",
     "POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID",
+    "POLICY_FULL_CURRENT_ORACLE",
+    "POLICY_FULL_STALE_EXHAUSTIVE",
     "POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID",
     "POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID",
+    "POLICY_MS_AIRCOMP_WITHOUT_IRS",
     "POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID",
     "POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID",
+    "POLICY_ORACLE_IRS_ORACLE_INVITATION",
+    "POLICY_ORACLE_IRS_STALE_INVITATION",
+    "POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID",
+    "POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID",
+    "POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID",
+    "POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID",
+    "POLICY_RANDOM_IRS",
+    "POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID",
     "POLICY_ROTATING_FEEDBACK_CONFIRM_GRID",
+    "POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID",
     "POLICY_SPARSE_TOPK_FEEDBACK_GRID",
+    "POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID",
     "POLICY_STALE_TOPK_FEEDBACK_GRID",
     "POLICY_TEMPORAL_DEVIATION_ORACLE_GRID",
     "POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID",
+    "VALID_PROBING_POLICIES",
     "mismatch_scenarios",
     "policy_configs",
     "policy_label",
+    "validate_posterior_probe_objective",
+    "validate_probing_policy",
 ]
 
 
@@ -38,10 +60,21 @@ POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID = "Opportunity-Cost Execution-Ri
 POLICY_AR1_PREDICT_ROTATING_GRID = "AR1-Predict Rotating Grid"
 POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID = "Temporal-Reliability Rotating Grid"
 POLICY_ROTATING_FEEDBACK_CONFIRM_GRID = "Rotating Feedback Confirm Grid"
+POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID = "Rotating Same-Budget Feedback Grid"
 POLICY_STALE_TOPK_FEEDBACK_GRID = "Stale-TopK Feedback Grid"
+POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID = "Stale-TopK Same-Budget Feedback Grid"
 POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID = "Active Diverse Feedback Grid"
+POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID = "Diversity-Only Fill Feedback Grid"
+POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID = "Coverage-Only Fill Feedback Grid"
+POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID = "Random Same-Budget Feedback Grid"
 POLICY_SPARSE_TOPK_FEEDBACK_GRID = "Sparse-TopK Feedback Grid"
+POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID = "Sparse-TopK Same-Budget Feedback Grid"
 POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID = "Coverage-Aware Sparse-TopK Feedback Grid"
+POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID = "Count-Only Mask-Corrected Coverage-Aware Grid"
+POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID = "Count-Conditioned Invitation Feedback Grid"
+POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID = "Posterior-Greedy Probing Feedback Grid"
+POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID = "Posterior-Greedy Probing + Count-Conditioned Invitation Grid"
+POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID = "Posterior-Guided Count-Refined Feedback Grid"
 POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID = "Neighbor-Coverage Sparse-TopK Feedback Grid"
 POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID = "Adaptive Sparse-TopK Feedback Grid"
 POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID = "Adaptive Sparse-TopK V2 Feedback Grid"
@@ -49,14 +82,34 @@ POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID = "Adaptive Sparse-TopK V3 Feedback
 POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID = "Learned Sparse Shortlist Feedback Grid"
 POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID = "Learned Set Shortlist Feedback Grid"
 POLICY_TEMPORAL_DEVIATION_ORACLE_GRID = "Temporal Deviation Oracle"
+POLICY_MS_AIRCOMP_WITHOUT_IRS = "MS-AirComp without IRS"
+POLICY_RANDOM_IRS = "Random IRS"
+POLICY_FULL_STALE_EXHAUSTIVE = "Full Stale Exhaustive"
+POLICY_FULL_CURRENT_ORACLE = "Full Current Oracle"
+POLICY_ORACLE_IRS_STALE_INVITATION = "Oracle IRS with Stale Invitation"
+POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION = "Deployable IRS with Oracle Invitation"
+POLICY_ORACLE_IRS_ORACLE_INVITATION = "Oracle IRS with Oracle Invitation"
 
 MISMATCH_INDEPENDENT = "independent"
 MISMATCH_TEMPORAL_AR1 = "temporal_ar1"
 MISMATCH_CHOICES = {MISMATCH_INDEPENDENT, MISMATCH_TEMPORAL_AR1}
+VALID_PROBING_POLICIES = ("rotating", "sparse_topk", "coverage_aware", "posterior_greedy")
+
+
+def validate_probing_policy(probing_policy):
+    """Normalize and validate the candidate-probing composition switch."""
+    probing_policy = str(probing_policy).strip()
+    if probing_policy not in VALID_PROBING_POLICIES:
+        valid = ", ".join(VALID_PROBING_POLICIES)
+        raise ValueError(f"unknown probing policy {probing_policy!r}; expected one of: {valid}")
+    return probing_policy
 
 POLICY_CHOICES = {
     "no_irs": limited.POLICY_NO_IRS,
+    "ms_aircomp_without_irs": POLICY_MS_AIRCOMP_WITHOUT_IRS,
     "fixed": limited.POLICY_FIXED_IRS,
+    "fixed_irs": limited.POLICY_FIXED_IRS,
+    "random_irs": POLICY_RANDOM_IRS,
     "exact_greedy": limited.POLICY_EXACT_GREEDY,
     "estimated_greedy": limited.POLICY_EST_GREEDY,
     "random_probe": limited.POLICY_RANDOM_PROBE,
@@ -71,15 +124,40 @@ POLICY_CHOICES = {
     "temporal_reliability_rotating": POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
     "rotating_feedback_confirm": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
     "feedback_confirm_rotating": POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+    "rotating_same_budget": POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID,
+    "rotating_same_budget_feedback": POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID,
     "stale_topk_feedback": POLICY_STALE_TOPK_FEEDBACK_GRID,
     "stale_topk_rotating": POLICY_STALE_TOPK_FEEDBACK_GRID,
+    "stale_topk_same_budget": POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
+    "stale_topk_same_budget_feedback": POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
     "active_diverse_feedback": POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
     "active_probe_set": POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
+    "diversity_only_fill": POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID,
+    "diversity_only_fill_feedback": POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID,
+    "coverage_only_fill": POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID,
+    "coverage_only_fill_feedback": POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID,
+    "random_same_budget": POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
+    "random_same_budget_feedback": POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
+    "random_sparse_feedback": POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
+    "sparse_topk_same_budget": POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
+    "sparse_topk_same_budget_feedback": POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
     "sparse_topk_feedback": POLICY_SPARSE_TOPK_FEEDBACK_GRID,
     "active_sparse_feedback": POLICY_SPARSE_TOPK_FEEDBACK_GRID,
     "coverage_sparse_topk_feedback": POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
     "coverage_sparse_feedback": POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
     "coverage_topk_feedback": POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+    "count_only_mask_correction": POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID,
+    "count_only_mask_correction_feedback": POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID,
+    "mask_corrected_coverage_aware": POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID,
+    "count_conditioned_invitation_feedback": POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID,
+    "posterior_invitation_feedback": POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID,
+    "posterior_greedy_feedback": POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID,
+    "posterior_greedy_probe_feedback": POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID,
+    "posterior_greedy_invitation_feedback": POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID,
+    "posterior_greedy_posterior_invitation_feedback": POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID,
+    "posterior_guided_feedback": POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
+    "posterior_guided_count_refine_feedback": POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
+    "posterior_count_refined_feedback": POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
     "neighbor_coverage_sparse_topk_feedback": POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
     "coverage_neighbor_sparse_topk_feedback": POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
     "neighbor_coverage_sparse_feedback": POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
@@ -93,6 +171,11 @@ POLICY_CHOICES = {
     "learned_shortlist_feedback": POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
     "learned_set_shortlist_feedback": POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
     "learned_subset_shortlist_feedback": POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
+    "full_stale_exhaustive": POLICY_FULL_STALE_EXHAUSTIVE,
+    "full_current_oracle": POLICY_FULL_CURRENT_ORACLE,
+    "oracle_irs_with_stale_invitation": POLICY_ORACLE_IRS_STALE_INVITATION,
+    "deployable_irs_with_oracle_invitation": POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION,
+    "oracle_irs_with_oracle_invitation": POLICY_ORACLE_IRS_ORACLE_INVITATION,
     "temporal_deviation_oracle": POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     "execution_oracle": POLICY_EXECUTION_ORACLE,
 }
@@ -123,6 +206,15 @@ def policy_label(
     adaptive_sparse_v3_neighbor_count=2,
     adaptive_sparse_v3_history_count=1,
     learned_shortlist_extra_count=1,
+    posterior_sample_count=64,
+    posterior_uncertainty_scale=1.0,
+    posterior_probe_uncertainty_weight=0.0,
+    posterior_count_refinement_strength=1.0,
+    posterior_count_noise_std_scale=1.0,
+    posterior_mean_mode="ar1_predict",
+    posterior_invitation_rule="posterior_mean_topk",
+    posterior_invitation_threshold=0.5,
+    probing_policy="coverage_aware",
     adaptive_sparse_show_params=False,
 ):
     """处理策略、标签相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
@@ -138,10 +230,21 @@ def policy_label(
         POLICY_AR1_PREDICT_ROTATING_GRID,
         POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
         POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+        POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID,
         POLICY_STALE_TOPK_FEEDBACK_GRID,
+        POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
         POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
+        POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID,
+        POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID,
+        POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
         POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+        POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
         POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+        POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID,
+        POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID,
+        POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID,
+        POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID,
+        POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
         POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
         POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
         POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
@@ -149,6 +252,13 @@ def policy_label(
         POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
         POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
         POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
+        POLICY_MS_AIRCOMP_WITHOUT_IRS,
+        POLICY_RANDOM_IRS,
+        POLICY_FULL_STALE_EXHAUSTIVE,
+        POLICY_FULL_CURRENT_ORACLE,
+        POLICY_ORACLE_IRS_STALE_INVITATION,
+        POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION,
+        POLICY_ORACLE_IRS_ORACLE_INVITATION,
     }:
         label = f"{policy_name} B={int(budget)}"
     else:
@@ -175,6 +285,14 @@ def policy_label(
         or float(sparse_topk_fraction) != 0.75
     ):
         label += f" sm={sparse_topk_seed_multiplier:g} tf={sparse_topk_fraction:g}"
+    if policy_name == POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID and (
+        sparse_topk_show_params
+        or float(sparse_topk_seed_multiplier) != 2.0
+        or float(sparse_topk_fraction) != 0.75
+    ):
+        label += f" sm={sparse_topk_seed_multiplier:g} tf={sparse_topk_fraction:g}"
+    if policy_name == POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID:
+        label += f" sm={sparse_topk_seed_multiplier:g}"
     if policy_name == POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID:
         label += (
             f" sm={sparse_topk_seed_multiplier:g}"
@@ -182,6 +300,49 @@ def policy_label(
             f" cw={coverage_sparse_weight:g}"
         )
         label += f" cpw={coverage_sparse_power_weight:g}"
+    if policy_name == POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID:
+        label += (
+            f" sm={sparse_topk_seed_multiplier:g}"
+            f" tf={sparse_topk_fraction:g}"
+            f" cw={coverage_sparse_weight:g}"
+            f" cpw={coverage_sparse_power_weight:g}"
+            f" mc=count_only"
+        )
+    if policy_name == POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID:
+        label += (
+            f" sm={sparse_topk_seed_multiplier:g}"
+            f" tf={sparse_topk_fraction:g}"
+            f" cw={coverage_sparse_weight:g}"
+            f" cpw={coverage_sparse_power_weight:g}"
+            f" ir=posterior_top_y"
+        )
+        if str(probing_policy) != "coverage_aware":
+            label += f" pp={probing_policy}"
+    if policy_name == POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION:
+        label += (
+            f" sm={sparse_topk_seed_multiplier:g}"
+            f" tf={sparse_topk_fraction:g}"
+            f" cw={coverage_sparse_weight:g}"
+            f" cpw={coverage_sparse_power_weight:g}"
+        )
+    if policy_name == POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID:
+        label += f" sm={sparse_topk_seed_multiplier:g}"
+    if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID:
+        label += (
+            f" sm={sparse_topk_seed_multiplier:g}"
+            f" tf={sparse_topk_fraction:g}"
+            f" cw={coverage_sparse_weight:g}"
+            f" cpw={coverage_sparse_power_weight:g}"
+            f" ps={int(posterior_sample_count)}"
+            f" us={posterior_uncertainty_scale:g}"
+            f" puw={posterior_probe_uncertainty_weight:g}"
+            f" cr={posterior_count_refinement_strength:g}"
+            f" cns={posterior_count_noise_std_scale:g}"
+            f" pm={posterior_mean_mode}"
+            f" ir={posterior_invitation_rule}"
+        )
+        if float(posterior_invitation_threshold) != 0.5:
+            label += f" it={posterior_invitation_threshold:g}"
     if policy_name == POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID:
         label += (
             f" sm={sparse_topk_seed_multiplier:g}"
@@ -238,10 +399,26 @@ def policy_label(
 def policy_configs(args):
     """处理策略、configs相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     configs = []
+    posterior_probe_budgets = (
+        [int(args.posterior_probe_budget)]
+        if int(getattr(args, "posterior_probe_budget", 0)) > 0
+        else args.probe_budgets
+    )
     for alias in args.policies:
         policy_name = POLICY_CHOICES[alias]
         if policy_name == POLICY_EXECUTION_ORACLE:
             configs.append({"policy_name": policy_name, "budget": args.num_codebook_states})
+        elif policy_name in {
+            POLICY_FULL_CURRENT_ORACLE,
+            POLICY_ORACLE_IRS_ORACLE_INVITATION,
+            POLICY_ORACLE_IRS_STALE_INVITATION,
+            POLICY_FULL_STALE_EXHAUSTIVE,
+        }:
+            configs.append({"policy_name": policy_name, "budget": args.num_codebook_states})
+        elif policy_name == POLICY_RANDOM_IRS:
+            configs.append({"policy_name": policy_name, "budget": 1})
+        elif policy_name == POLICY_MS_AIRCOMP_WITHOUT_IRS:
+            configs.append({"policy_name": policy_name, "budget": 0})
         elif policy_name in {
             limited.POLICY_NO_IRS,
             limited.POLICY_FIXED_IRS,
@@ -324,13 +501,61 @@ def policy_configs(args):
         elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
         elif policy_name == POLICY_STALE_TOPK_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
         elif policy_name == POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID:
             for budget in args.probe_budgets:
                 configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    configs.append(
+                        {
+                            "policy_name": policy_name,
+                            "budget": budget,
+                            "sparse_topk_seed_multiplier": seed_multiplier,
+                        }
+                    )
+        elif policy_name == POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    configs.append(
+                        {
+                            "policy_name": policy_name,
+                            "budget": budget,
+                            "sparse_topk_seed_multiplier": seed_multiplier,
+                        }
+                    )
         elif policy_name == POLICY_SPARSE_TOPK_FEEDBACK_GRID:
+            show_sparse_params = (
+                len(args.sparse_topk_seed_multipliers) > 1
+                or len(args.sparse_topk_fractions) > 1
+                or args.sparse_topk_seed_multipliers[0] != 2.0
+                or args.sparse_topk_fractions[0] != 0.75
+            )
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    for topk_fraction in args.sparse_topk_fractions:
+                        configs.append(
+                            {
+                                "policy_name": policy_name,
+                                "budget": budget,
+                                "sparse_topk_seed_multiplier": seed_multiplier,
+                                "sparse_topk_fraction": topk_fraction,
+                                "sparse_topk_show_params": show_sparse_params,
+                            }
+                        )
+        elif policy_name == POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID:
             show_sparse_params = (
                 len(args.sparse_topk_seed_multipliers) > 1
                 or len(args.sparse_topk_fractions) > 1
@@ -373,9 +598,108 @@ def policy_configs(args):
                                         "sparse_topk_fraction": topk_fraction,
                                         "coverage_sparse_weight": coverage_weight,
                                         "coverage_sparse_power_weight": coverage_power_weight,
+                                                "sparse_topk_show_params": show_sparse_params,
+                                            }
+                                        )
+        elif policy_name == POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID:
+            show_sparse_params = (
+                len(args.sparse_topk_seed_multipliers) > 1
+                or len(args.sparse_topk_fractions) > 1
+                or len(args.coverage_sparse_weights) > 1
+                or len(args.coverage_sparse_power_weights) > 1
+                or args.sparse_topk_seed_multipliers[0] != 3.0
+                or args.sparse_topk_fractions[0] != 0.75
+                or args.coverage_sparse_weights[0] != 0.5
+                or args.coverage_sparse_power_weights[0] != 0.0
+            )
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    for topk_fraction in args.sparse_topk_fractions:
+                        for coverage_weight in args.coverage_sparse_weights:
+                            for coverage_power_weight in args.coverage_sparse_power_weights:
+                                configs.append(
+                                    {
+                                        "policy_name": policy_name,
+                                        "budget": budget,
+                                        "sparse_topk_seed_multiplier": seed_multiplier,
+                                        "sparse_topk_fraction": topk_fraction,
+                                        "coverage_sparse_weight": coverage_weight,
+                                        "coverage_sparse_power_weight": coverage_power_weight,
                                         "sparse_topk_show_params": show_sparse_params,
                                     }
                                 )
+        elif policy_name == POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION:
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    for topk_fraction in args.sparse_topk_fractions:
+                        for coverage_weight in args.coverage_sparse_weights:
+                            for coverage_power_weight in args.coverage_sparse_power_weights:
+                                configs.append(
+                                    {
+                                        "policy_name": policy_name,
+                                        "budget": budget,
+                                        "sparse_topk_seed_multiplier": seed_multiplier,
+                                        "sparse_topk_fraction": topk_fraction,
+                                        "coverage_sparse_weight": coverage_weight,
+                                        "coverage_sparse_power_weight": coverage_power_weight,
+                                    }
+                                )
+        elif policy_name == POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID:
+            budgets = (
+                posterior_probe_budgets
+                if getattr(args, "probing_policy", "coverage_aware") == "posterior_greedy"
+                else args.probe_budgets
+            )
+            for budget in budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    for topk_fraction in args.sparse_topk_fractions:
+                        for coverage_weight in args.coverage_sparse_weights:
+                            for coverage_power_weight in args.coverage_sparse_power_weights:
+                                configs.append(
+                                    {
+                                        "policy_name": policy_name,
+                                        "budget": budget,
+                                        "sparse_topk_seed_multiplier": seed_multiplier,
+                                        "sparse_topk_fraction": topk_fraction,
+                                        "coverage_sparse_weight": coverage_weight,
+                                        "coverage_sparse_power_weight": coverage_power_weight,
+                                        "probing_policy": getattr(args, "probing_policy", "coverage_aware"),
+                                    }
+                                )
+        elif policy_name in {
+            POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID,
+            POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID,
+        }:
+            for budget in posterior_probe_budgets:
+                configs.append({"policy_name": policy_name, "budget": budget})
+        elif policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID:
+            for budget in args.probe_budgets:
+                for seed_multiplier in args.sparse_topk_seed_multipliers:
+                    for topk_fraction in args.sparse_topk_fractions:
+                        for coverage_weight in args.coverage_sparse_weights:
+                            for coverage_power_weight in args.coverage_sparse_power_weights:
+                                for posterior_sample_count in args.posterior_sample_counts:
+                                    for posterior_uncertainty_scale in args.posterior_uncertainty_scales:
+                                        for posterior_probe_uncertainty_weight in args.posterior_probe_uncertainty_weights:
+                                            for posterior_count_refinement_strength in args.posterior_count_refinement_strengths:
+                                                configs.append(
+                                                    {
+                                                        "policy_name": policy_name,
+                                                        "budget": budget,
+                                                        "sparse_topk_seed_multiplier": seed_multiplier,
+                                                        "sparse_topk_fraction": topk_fraction,
+                                                        "coverage_sparse_weight": coverage_weight,
+                                                        "coverage_sparse_power_weight": coverage_power_weight,
+                                                        "posterior_sample_count": posterior_sample_count,
+                                                        "posterior_uncertainty_scale": posterior_uncertainty_scale,
+                                                        "posterior_probe_uncertainty_weight": posterior_probe_uncertainty_weight,
+                                                        "posterior_count_refinement_strength": posterior_count_refinement_strength,
+                                                        "posterior_count_noise_std_scale": args.posterior_count_noise_std_scale,
+                                                        "posterior_mean_mode": args.posterior_mean_mode,
+                                                        "posterior_invitation_rule": args.posterior_invitation_rule,
+                                                        "posterior_invitation_threshold": args.posterior_invitation_threshold,
+                                                    }
+                                                )
         elif policy_name == POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID:
             show_sparse_params = (
                 len(args.sparse_topk_seed_multipliers) > 1

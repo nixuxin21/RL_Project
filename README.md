@@ -39,11 +39,68 @@ make paper-figures
 - `make invitation-mask-correction-noise-aware-formal`: 复现 clipped target-count correction 的 high-noise robustness result。
 - `make invitation-mask-rerank-ablation`: 诊断 mask correction 的收益来自 target-count correction 还是 stale-gain replacement。
 - `make final-invitation-mask-analysis`: 生成 invitation-mask correction 的最终论文表、gap-noise 图和 failed/missed-noise 图。
+- `make posterior-guided-count-refine-pilot`: 运行 posterior viability + count-conditioned invitation refinement 的小规模 same-budget pilot。
+- `make posterior-guided-count-refine-formal`: 运行 posterior-guided count-refined method 与 random same-budget / Coverage-Aware / stale-topK / hidden oracle diagnostics 的 formal 对照。
 - `make paper-tables`: 从 frozen mainline CSV 和 diagnosis CSV 生成论文 Table 1/2/3、scenario-level uncertainty companion 和 paired delta CSV。`make paper-table1` 保留为兼容入口。
 - `make paper-figures`: 从 frozen mainline CSV 生成论文版 Figure 2/3/4 PNG 和绘图点 CSV。
+- `make paper-suite-smoke`: 运行新增 paper-grade experiment suite 的 tiny preset，生成 summary CSV、slot CSV 和结构化 raw logs。
+- `make paper-suite-analyze-smoke`: 读取 paper-suite smoke 的 raw structured logs，生成 bootstrap 表、paired deltas 和 PNG/PDF 图。
+- `make paper-suite-main-hard-dry-run`: 只打印 hard preset 的完整计划，不运行大网格。
 - `make adaptive-sparse-topk-v2-pilot`: 复现 Adaptive Sparse-TopK v2 continuum。
 - `make execution-baseline-summary`: 生成 execution 主线汇总表。
 - `make main-results-analysis`: 生成当前主结果机制分析、CSV 和图。
+
+## Paper Experiment Suite
+
+新增的 suite 编排层位于：
+
+```text
+experiments/paper_experiment_presets.json
+experiments/run_paper_experiment_suite.py
+experiments/analyze_paper_experiment_logs.py
+```
+
+它不会自动运行完整大网格。默认只运行 `smoke_test`；所有正式 preset 都要显式指定。每个 job 都会写入独立目录，目录名包含 run id 和配置 hash，避免覆盖；每个 job 保存 `command.json`、suite 级 `planned_jobs.json` / `run_manifest.json`，并把 evaluator 的 `--structured-log-dir` 指向该 job 下的 `structured_logs/`。
+
+可用 preset：
+
+```text
+smoke_test
+main_easy
+main_medium
+main_hard
+codebook_scaling
+feedback_noise_sweep
+ablation_posterior_invitation
+ablation_posterior_probing
+```
+
+常用命令：
+
+```bash
+make paper-suite-smoke
+make paper-suite-analyze-smoke
+make paper-suite-main-hard-dry-run
+
+./.venv/bin/python experiments/run_paper_experiment_suite.py \
+  --presets main_easy,main_medium \
+  --output-root results/paper_experiment_runs \
+  --run-id first_formal_pass
+
+./.venv/bin/python experiments/run_paper_experiment_suite.py \
+  --presets main_hard \
+  --dry-run
+
+./.venv/bin/python experiments/analyze_paper_experiment_logs.py \
+  --input-dir results/paper_experiment_runs/first_formal_pass_... \
+  --output-dir results/paper_experiment_analysis/first_formal_pass
+```
+
+默认方法集合包括 `no_irs`、`random_same_budget`、`rotating_same_budget`、`sparse_topk_same_budget`、`coverage_aware`、`count_only_mask_correction`、`posterior_invitation`、`posterior_greedy_probing`、`posterior_greedy_probing_plus_posterior_invitation`、`full_stale_exhaustive` 和 `hidden_current_oracle`。其中 `full_stale_exhaustive` 和 `hidden_current_oracle` 是 diagnostic / oracle，不是可部署方法。`count_only_mask_correction` 是 legacy count-only baseline；`posterior_invitation` 是新的 count-conditioned Bayesian invitation refinement。
+
+恢复/跳过规则：runner 默认跳过已有 `job_manifest.json` 且输出文件完整的成功 job；加 `--overwrite` 会重跑。最终正式运行前建议先执行 `--dry-run` 检查 planned jobs，并用 `--override episodes=... --override num_seeds=...` 调整统计强度。
+
+分析脚本只读取 raw `structured_logs/scenario_summary.csv` 和 `structured_logs/slot_records.csv`。输出包括 `main_metrics_bootstrap.csv`、`paired_bootstrap_deltas.csv`、`per_scenario_paired_deltas.csv`、`win_tie_loss_counts.csv`、`deployable_vs_oracle_diagnostics.csv`、LaTeX snippet、PNG/PDF figures 和 `interpretation.md`。当 paired samples 少于 2 时，脚本会把 `ci_status` / `claim_status` 标为 insufficient，不做显著性结论。
 
 ## Main Documents
 
@@ -134,11 +191,13 @@ Rotating B=8
 -> Coverage-Aware Sparse-TopK B=4 cw=0.5 cpw=0
 -> Coverage-Aware Sparse-TopK B=3 sm=4.1
 -> Mask-Corrected Coverage-Aware B=3
+-> Posterior-Guided Count-Refined Coverage-Aware B=3
 -> Stale-TopK B=4
 -> Temporal Deviation Oracle B=4
 ```
 
 新增方法必须至少和这些点对比，尤其不能只和 Random IRS 或 Rotating B=4 对比。
+Posterior-Guided Count-Refined 目前是新增研究候选入口，进入冻结结果包前必须完成 same-budget random baseline、Coverage-Aware baseline、count-only mask-correction baseline 和 hidden oracle diagnostic 的分层比较。
 
 ## Deprecated Or Diagnostic Directions
 

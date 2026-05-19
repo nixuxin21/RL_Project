@@ -11,10 +11,13 @@ The top-level experiment scripts remain responsible for CLI parsing, scenario or
 | `channel_models.py` | Physical channel snapshots, execution-channel drift, temporal AR(1) stale CSI, delayed CSI, AR(1) prediction, temporal uncertainty |
 | `execution_candidates.py` | Drifted execution-stage candidates and hidden execution oracle helpers |
 | `execution_decision_dispatch.py` | Execution-mismatch policy dispatch that maps policy names and config parameters to concrete decisions |
+| `execution_episode_metrics.py` | Optional per-episode decision diagnostics and raw per-slot row construction |
 | `execution_output.py` | Execution-mismatch output prefix naming, progress logging, console summaries, and plots |
 | `feedback.py` | Aggregate feedback record construction and feedback-based confirmed-index selection |
 | `confirmation.py` | Current aggregate-feedback confirmation flow over a selected IRS candidate set |
 | `invitation_mask_correction.py` | Aggregate-feedback invitation-mask target-count correction and reranking-mode ablation helpers |
+| `posterior_viability.py` | Stale-CSI posterior viability approximation, posterior-guided probing, and count-conditioned invitation refinement |
+| `execution_slot_logging.py` | Raw per-seed, per-scenario, per-slot execution-mismatch CSV writer |
 | `probe_sets.py` | Ordered/diverse probe sets and coverage-aware sparse candidate selection |
 | `adaptive_sparse_policies.py` | Adaptive Sparse-TopK v1/v2/v3 policy gates, history/uncertainty helpers, and local-neighbor candidate generation |
 | `limited_csi.py` | Reusable limited-CSI policy constants, codebook grid selection, candidate construction, environment factory, progress logging, and limited-CSI slot execution |

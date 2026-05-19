@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figure1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run paper-suite-smoke paper-suite-analyze-smoke paper-suite-main-hard-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figure1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal posterior-guided-count-refine-pilot posterior-guided-count-refine-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -11,15 +11,18 @@ py-compile:
 		ms_aircomp/experiment_utils.py \
 		ms_aircomp/execution_candidates.py \
 		ms_aircomp/execution_decision_dispatch.py \
+		ms_aircomp/execution_episode_metrics.py \
 		ms_aircomp/execution_output.py \
 		ms_aircomp/execution_policies.py \
 		ms_aircomp/execution_policy_registry.py \
 		ms_aircomp/execution_result_summary.py \
 		ms_aircomp/execution_risk_policies.py \
+		ms_aircomp/execution_slot_logging.py \
 		ms_aircomp/feedback.py \
 		ms_aircomp/invitation_mask_correction.py \
 		ms_aircomp/learned_shortlist.py \
 		ms_aircomp/limited_csi.py \
+		ms_aircomp/posterior_viability.py \
 		ms_aircomp/probe_sets.py \
 		ms_aircomp/temporal_policies.py \
 		test_env.py \
@@ -44,6 +47,8 @@ py-compile:
 		evaluate_bandit_feedback_ms_aircomp.py \
 		evaluate_bandit_feedback_stress_sweep.py \
 		evaluate_adaptive_feedback_probing.py \
+		experiments/analyze_paper_experiment_logs.py \
+		experiments/run_paper_experiment_suite.py \
 		diagnose_policy_actions.py \
 		benchmark_policy_runtime.py \
 		summarize_execution_baselines.py \
@@ -102,6 +107,26 @@ quick-audit-dry-run:
 		--fixed-irs-index 1 \
 		--no-plots \
 		--output-prefix /tmp/rl_project_quick_execution_mismatch
+
+paper-suite-smoke:
+	$(PYTHON) experiments/run_paper_experiment_suite.py \
+		--presets smoke_test \
+		--output-root /tmp/irs_aircomp_paper_suite \
+		--run-id smoke_test \
+		--overwrite
+
+paper-suite-analyze-smoke: paper-suite-smoke
+	$(PYTHON) experiments/analyze_paper_experiment_logs.py \
+		--input-dir /tmp/irs_aircomp_paper_suite \
+		--output-dir /tmp/irs_aircomp_paper_suite_analysis_smoke \
+		--analysis-name smoke_test
+
+paper-suite-main-hard-dry-run:
+	$(PYTHON) experiments/run_paper_experiment_suite.py \
+		--presets main_hard \
+		--dry-run \
+		--output-root /tmp/irs_aircomp_paper_suite \
+		--run-id main_hard_plan
 
 smoke: test
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -494,6 +519,54 @@ coverage-budget-split-formal: coverage-sparse-topk-frontier coverage-budget-spli
 		--coverage-sparse-power-weights 0 \
 		--policies coverage_sparse_topk_feedback \
 		--output-prefix results/execution_mismatch/coverage_budget_split_selected_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b8_sm1_tf0p75_cw0p5_cpw0 \
+		--no-plots
+
+posterior-guided-count-refine-pilot:
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 50 \
+		--num-seeds 1 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.9 \
+		--csi-delay-slots 1,3 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--probe-budgets 3 \
+		--sparse-topk-seed-multipliers 4.1 \
+		--sparse-topk-fractions 0.75 \
+		--coverage-sparse-weights 0.5 \
+		--coverage-sparse-power-weights 0 \
+		--posterior-sample-counts 32 \
+		--posterior-uncertainty-scales 1 \
+		--posterior-probe-uncertainty-weights 0 \
+		--posterior-count-refinement-strengths 1 \
+		--posterior-mean-mode ar1_predict \
+		--posterior-invitation-rule posterior_mean_topk \
+		--policies random_same_budget_feedback,coverage_sparse_topk_feedback,posterior_guided_count_refine_feedback,stale_topk_feedback,temporal_deviation_oracle \
+		--output-prefix results/execution_mismatch/posterior_guided_count_refine_pilot_ep50_runs1_rho0p9_delay1-3_b3_sm4p1_tf0p75_cw0p5_cpw0_ps32 \
+		--no-plots
+
+posterior-guided-count-refine-formal:
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 300 \
+		--num-seeds 3 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.7,0.9,0.98 \
+		--csi-delay-slots 1,2,3 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--probe-budgets 3 \
+		--sparse-topk-seed-multipliers 4.1 \
+		--sparse-topk-fractions 0.75 \
+		--coverage-sparse-weights 0.5 \
+		--coverage-sparse-power-weights 0 \
+		--posterior-sample-counts 64 \
+		--posterior-uncertainty-scales 1 \
+		--posterior-probe-uncertainty-weights 0 \
+		--posterior-count-refinement-strengths 1 \
+		--posterior-mean-mode ar1_predict \
+		--posterior-invitation-rule posterior_mean_topk \
+		--policies random_same_budget_feedback,coverage_sparse_topk_feedback,posterior_guided_count_refine_feedback,stale_topk_feedback,temporal_deviation_oracle \
+		--output-prefix results/execution_mismatch/posterior_guided_count_refine_formal_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_ps64 \
 		--no-plots
 
 coverage-b3-failure-diagnosis:
@@ -904,6 +977,9 @@ help:
 		'  make check                 Run compile, lint, and pytest project checks' \
 		'  make quick-audit           Run clean-room compile/lint/tests, artifact audit, and /tmp dry-run' \
 		'  make quick-audit-dry-run   Run one tiny execution-mismatch dry-run writing only /tmp' \
+		'  make paper-suite-smoke     Run the paper experiment suite smoke preset' \
+		'  make paper-suite-analyze-smoke  Analyze the smoke preset raw structured logs' \
+		'  make paper-suite-main-hard-dry-run  Print the hard preset plan without running it' \
 		'  make smoke                 Run broader one-shot smoke experiments' \
 		'  make policy-comparison     Run the main baseline table' \
 		'  make policy-comparison-learning  Add SAC/Codebook-Aware SAC baselines' \
@@ -924,6 +1000,8 @@ help:
 		'  make coverage-budget-split-pilot' \
 		'  make coverage-budget-split-selected' \
 		'  make coverage-budget-split-formal' \
+		'  make posterior-guided-count-refine-pilot' \
+		'  make posterior-guided-count-refine-formal' \
 		'  make coverage-b3-failure-diagnosis' \
 		'  make invitation-mask-correction-pilot' \
 		'  make invitation-mask-correction-formal' \

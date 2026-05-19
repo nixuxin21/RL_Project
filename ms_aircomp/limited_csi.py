@@ -461,9 +461,69 @@ def choose_policy_candidate(
     return best_candidate(candidates), preview_calls, len(indices)
 
 
+def _aircomp_quality_metrics(env, args, scheduled_mask, true_valid_mask, true_candidate):
+    """Compute AirComp quality proxies consistent with the current threshold simulator.
+
+    TODO(test_env.py): replace this synthetic unit-variance proxy once the
+    simulator carries source values x_k and a receiver waveform/noise draw.
+    """
+    model = getattr(args, "aircomp_signal_model", "synthetic_unit_variance")
+    signal_variance = float(getattr(args, "aircomp_signal_variance", 1.0))
+    alpha_sq = max(float(args.alpha_th) ** 2, 1e-12)
+    if model == "none" or signal_variance <= 0.0:
+        receiver_noise_mse = float(env.noise_var) / alpha_sq
+        return {
+            "aircomp_signal_model": model,
+            "aircomp_raw_mse": receiver_noise_mse,
+            "aircomp_nmse": receiver_noise_mse,
+            "aircomp_missing_device_mse": 0.0,
+            "aircomp_failed_invitation_mse": 0.0,
+            "aircomp_power_clipping_mse": 0.0,
+            "aircomp_receiver_noise_mse": receiver_noise_mse,
+            "aircomp_target_variance": 1.0,
+            "power_clipped_count": 0,
+            "power_clipping_rate": 0.0,
+            "pmax_device_count": 0,
+        }
+
+    failed_mask = scheduled_mask & (~true_valid_mask)
+    missed_mask = true_valid_mask & (~scheduled_mask)
+    true_required_power = np.asarray(true_candidate["required_power"], dtype=float)
+    true_gain = np.asarray(true_candidate["h_gain"], dtype=float)
+    clipped_mask = scheduled_mask & (true_required_power > float(env.P_max))
+    failed_nonclip_mask = failed_mask & (~clipped_mask)
+    actual_amplitude = np.sqrt(np.maximum(true_gain, 0.0) * float(env.P_max))
+    desired_amplitude = max(float(args.alpha_th), 1e-12)
+    clipping_deficit = np.clip(1.0 - actual_amplitude / desired_amplitude, 0.0, 1.0)
+    missing_mse = signal_variance * float(np.sum(missed_mask))
+    failed_mse = signal_variance * float(np.sum(failed_nonclip_mask))
+    clipping_mse = signal_variance * float(np.sum(clipping_deficit[clipped_mask] ** 2))
+    receiver_noise_mse = float(env.noise_var) / alpha_sq
+    raw_mse = missing_mse + failed_mse + clipping_mse + receiver_noise_mse
+    target_count = int(np.sum(true_valid_mask | scheduled_mask))
+    target_variance = signal_variance * float(max(target_count, 1))
+    pmax_count = int(np.sum(scheduled_mask & (true_required_power >= float(env.P_max) * (1.0 - 1e-9))))
+    scheduled_count = int(np.sum(scheduled_mask))
+    return {
+        "aircomp_signal_model": model,
+        "aircomp_raw_mse": float(raw_mse),
+        "aircomp_nmse": float(raw_mse / max(target_variance, 1e-12)),
+        "aircomp_missing_device_mse": float(missing_mse),
+        "aircomp_failed_invitation_mse": float(failed_mse),
+        "aircomp_power_clipping_mse": float(clipping_mse),
+        "aircomp_receiver_noise_mse": float(receiver_noise_mse),
+        "aircomp_target_variance": float(target_variance),
+        "power_clipped_count": int(np.sum(clipped_mask)),
+        "power_clipping_rate": float(np.sum(clipped_mask)) / float(max(scheduled_count, 1)),
+        "pmax_device_count": pmax_count,
+    }
+
+
 def execute_limited_csi_slot(env, args, decision_candidate, true_candidate):
     """处理execute、有限、CSI、时隙相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     remaining = ~env.transmitted_flags
+    remaining_mask_before = remaining.copy()
+    remaining_count_before = int(np.sum(remaining))
     scheduled_mask = decision_candidate["valid_mask"] & remaining
     true_valid_mask = true_candidate["valid_mask"] & remaining
     success_mask = scheduled_mask & true_valid_mask
@@ -478,10 +538,13 @@ def execute_limited_csi_slot(env, args, decision_candidate, true_candidate):
     scheduled_power = decision_candidate["required_power"][scheduled_mask]
     power_avg = float(np.mean(scheduled_power)) if scheduled_count > 0 else 0.0
     attempted_energy = float(np.sum(scheduled_power)) if scheduled_count > 0 else 0.0
+    quality = _aircomp_quality_metrics(env, args, scheduled_mask, true_valid_mask, true_candidate)
+    energy_per_success = attempted_energy / float(max(success_count, 1))
 
     env.transmitted_flags |= success_mask
     env.current_slot += 1
     total_tx = int(np.sum(env.transmitted_flags))
+    remaining_count_after = int(args.num_nodes - total_tx)
     all_done = total_tx >= args.num_nodes
     time_limit = env.current_slot >= args.num_slots
     done = all_done or time_limit
@@ -501,11 +564,21 @@ def execute_limited_csi_slot(env, args, decision_candidate, true_candidate):
         "true_opportunity_this_slot": true_opportunity_count,
         "total_tx": total_tx,
         "slots_used": int(env.current_slot),
+        "remaining_count_before": remaining_count_before,
+        "remaining_count_after": remaining_count_after,
+        "remaining_mask_before": remaining_mask_before,
+        "invited_mask": scheduled_mask.copy(),
+        "feasible_mask": true_valid_mask.copy(),
+        "success_mask": success_mask.copy(),
+        "failed_mask": failed_mask.copy(),
+        "missed_mask": missed_mask.copy(),
         "power_avg": power_avg,
         "attempted_energy": attempted_energy,
+        "energy_per_success": float(energy_per_success),
         "reward": float(reward),
         "is_complete": all_done,
         "termination_reason": "complete" if all_done else "time_limit" if time_limit else "running",
+        **quality,
     }, done
 
 

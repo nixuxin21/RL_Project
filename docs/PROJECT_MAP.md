@@ -28,6 +28,8 @@
 - `analyze_coverage_aware.py`: 从 Coverage-Aware formal weight/power ablation 和 budget split result 生成分析文档、CSV 和图；入口是 `make coverage-aware-analysis`。
 - `analyze_invitation_mask_final.py`: 从 invitation-mask formal/noise-aware CSV 生成最终论文表、gap-noise 图和 failed/missed-noise 图；入口是 `make final-invitation-mask-analysis`。
 - `evaluate_execution_channel_mismatch.py`: 当前最重要评估框架。覆盖 temporal AR(1) stale CSI、Rotating、Sparse-TopK、Coverage-Aware Sparse-TopK、Adaptive Sparse-TopK v2、Stale-TopK 和 Temporal Deviation Oracle。
+- `experiments/run_paper_experiment_suite.py` 和 `experiments/paper_experiment_presets.json`: 新增 paper-grade preset runner。负责把 smoke/easy/medium/hard/scaling/noise/ablation presets 展开成可恢复 evaluator jobs，保存 command/config snapshots，并为每个 job 打开结构化 raw logs。
+- `experiments/analyze_paper_experiment_logs.py`: raw-log analysis layer。读取 suite `structured_logs/`，生成 bootstrap CI、paired deltas、scenario robustness、win/tie/loss、deployable-vs-oracle 表、LaTeX snippet、PNG/PDF 图和 markdown interpretation。
 
 ## 基础评估
 
@@ -45,6 +47,8 @@
 - `evaluate_bandit_feedback_stress_sweep.py`: bandit feedback 的困难场景和 utility 扫描。
 - `evaluate_adaptive_feedback_probing.py`: 非学习 Adaptive Rotating Backup。
 - `evaluate_execution_channel_mismatch.py`: 决策信道和执行信道分离，覆盖 independent drift、temporal AR(1) stale CSI、feedback confirmation、Sparse-TopK 和 Adaptive Sparse-TopK 等。
+- `experiments/run_paper_experiment_suite.py`: paper-grade experiment suite 编排层。默认只运行 `smoke_test`；正式 preset 需显式指定，且可先用 `--dry-run` 打印完整计划。
+- `experiments/analyze_paper_experiment_logs.py`: paper-grade 统计分析入口。只消费 raw scenario/slot logs，不使用预平均 summary table；样本不足时显式标记 insufficient，不输出显著性主张。
 - `active_diverse_feedback` / `sparse_topk_feedback` / `coverage_sparse_topk_feedback` / `adaptive_sparse_topk_feedback` / `adaptive_sparse_topk_v2_feedback` / `adaptive_sparse_topk_v3_feedback` / `learned_sparse_shortlist_feedback` / `learned_set_shortlist_feedback`: `evaluate_execution_channel_mismatch.py` 中的低成本 active probe-set baselines，用 sparse stale preview、candidate generation 和 current aggregate feedback 替代 full stale ranking。
 - `diagnose_coverage_b3_failures.py`: 当前 `Coverage-Aware B=3 sm=4.1` 主线的 residual oracle gap 诊断，把 gap 分解为 pool、selection、confirmation 和 stale invitation-mask mismatch。
 - `evaluate_invitation_mask_correction.py`: 在 confirmed IRS 后用 aggregate current feedback count 设定 target cardinality，并用 confirmed IRS 下的 stale-gain reranking 生成 corrected invitation mask；当前 formal `mc=1` 是同 preview `16` 下的 no-noise trade-off，并支持 high-noise direct correction、clipped failed-invitation diagnostic sweep 和 `global_stale_gain` vs `prune_only` rerank ablation。rerank ablation 显示 `prune_only` 降 failed 但显著增加 missed/gap，因此方法应写成 target-count correction + stale-gain replacement。
@@ -107,15 +111,18 @@
 - `ms_aircomp/confirmation.py`: current aggregate-feedback IRS confirmation flow。
 - `ms_aircomp/execution_candidates.py`: drifted execution candidate 和 hidden execution oracle helper。
 - `ms_aircomp/execution_decision_dispatch.py`: execution-mismatch policy 名称到 reusable decision helper 的统一分发层。
+- `ms_aircomp/execution_episode_metrics.py`: execution-mismatch 可选诊断指标聚合和 raw per-slot row 构造 helper。
 - `ms_aircomp/execution_output.py`: execution-mismatch output prefix、progress/summary print 和 plotting helper。
 - `ms_aircomp/execution_policies.py`: rotating/stale-topK/sparse/coverage feedback policy decision functions。
 - `ms_aircomp/execution_policy_registry.py`: execution-mismatch policy/mismatch 名称、label 和默认配置 registry。
 - `ms_aircomp/execution_risk_policies.py`: execution-risk reliability re-scoring、adaptive execution-risk rotating 和 opportunity-cost policy helper。
 - `ms_aircomp/execution_result_summary.py`: execution-mismatch per-seed aggregation、CSV 字段、CI summary 和 CSV writer。
+- `ms_aircomp/execution_slot_logging.py`: execution-mismatch raw per-seed/per-scenario/per-slot CSV writer。
 - `ms_aircomp/feedback.py`: aggregate feedback 打分和 confirmed index 选择 helper。
 - `ms_aircomp/invitation_mask_correction.py`: invitation-mask correction 的 target count、remaining rank 和 mask update 纯函数。
 - `ms_aircomp/learned_shortlist.py`: learned sparse/set shortlist 的特征、模型加载、variant scoring 和 deployable feedback policy helper。
 - `ms_aircomp/limited_csi.py`: limited-CSI policy 常量、grid 采样、candidate 构造和 slot execution helper。
+- `ms_aircomp/posterior_viability.py`: stale CSI posterior viability approximation、posterior-guided IRS probing 和 count-conditioned Bayesian invitation refinement。
 - `ms_aircomp/probe_sets.py`: ordered/diverse probe set 和 coverage-aware sparse candidate selection helper。
 - `ms_aircomp/temporal_policies.py`: temporal-reliability rotating policy 和 temporal-deviation oracle probe-set diagnostic。
 - `ms_aircomp/experiment_utils.py`: 新增的无状态公共实验工具函数。

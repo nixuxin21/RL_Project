@@ -13,56 +13,25 @@ from ms_aircomp.channel_models import (
     delayed_channel_state,
     temporal_uncertainty_std,
 )
-from ms_aircomp.execution_decision_dispatch import (
-    choose_decision,
-    choose_execution_mismatch_decision,
-)
+from ms_aircomp.execution_decision_dispatch import choose_decision, choose_execution_mismatch_decision
 from ms_aircomp.execution_candidates import execution_oracle_candidate
+from ms_aircomp.execution_episode_metrics import (
+    append_decision_metric_values,
+    append_episode_metric_means,
+    append_scenario_summary_record,
+    append_structured_slot_records,
+    empty_decision_metric_buffers,
+    metric_arrays,
+)
 from ms_aircomp.execution_output import (
     plot_results,
     print_progress,
     print_summary,
     resolve_output_prefix,
 )
-from ms_aircomp.execution_policy_registry import (
-    MISMATCH_CHOICES,
-    MISMATCH_INDEPENDENT,
-    MISMATCH_TEMPORAL_AR1,
-    POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID,
-    POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
-    POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
-    POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID,
-    POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
-    POLICY_AR1_PREDICT_ROTATING_GRID,
-    POLICY_CHOICES,
-    POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
-    POLICY_EXECUTION_ORACLE,
-    POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
-    POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
-    POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
-    POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
-    POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
-    POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
-    POLICY_SPARSE_TOPK_FEEDBACK_GRID,
-    POLICY_STALE_TOPK_FEEDBACK_GRID,
-    POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
-    POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
-    mismatch_scenarios,
-    policy_configs,
-    policy_label,
-)
-from ms_aircomp.execution_result_summary import (
-    CSV_FIELDS,
-    NUMERIC_RESULT_KEYS,
-    OPTIONAL_RESULT_DEFAULTS,
-    aggregate_seed_results,
-    metric_mean_ci,
-    result_array,
-    result_value,
-    seed_summary,
-    summarize_results,
-    write_csv,
-)
+from ms_aircomp.execution_policy_registry import MISMATCH_CHOICES, MISMATCH_TEMPORAL_AR1, POLICY_ADAPTIVE_EXECUTION_RISK_AWARE_ROTATING_GRID, POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID, POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID, POLICY_ADAPTIVE_SPARSE_TOPK_V3_FEEDBACK_GRID, POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID, POLICY_AR1_PREDICT_ROTATING_GRID, POLICY_CHOICES, POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID, POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID, POLICY_EXECUTION_ORACLE, POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID, POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID, POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID, POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID, POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID, POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID, POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID, POLICY_ROTATING_FEEDBACK_CONFIRM_GRID, POLICY_SPARSE_TOPK_FEEDBACK_GRID, POLICY_STALE_TOPK_FEEDBACK_GRID, POLICY_TEMPORAL_DEVIATION_ORACLE_GRID, POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID, mismatch_scenarios, policy_configs, policy_label, validate_posterior_probe_objective, validate_probing_policy
+from ms_aircomp.execution_slot_logging import build_run_metadata_record, structured_log_context, write_slot_csv, write_structured_logs
+from ms_aircomp.execution_result_summary import CSV_FIELDS, NUMERIC_RESULT_KEYS, OPTIONAL_RESULT_DEFAULTS, aggregate_seed_results, summarize_results, write_csv
 from ms_aircomp.experiment_utils import (
     validate_common_experiment_args,
     validate_nonempty_values,
@@ -71,10 +40,8 @@ from ms_aircomp.experiment_utils import (
     validate_probe_budget_values,
     validate_probability_values,
 )
-from ms_aircomp.learned_shortlist import (
-    load_learned_set_shortlist_model,
-    load_learned_shortlist_model,
-)
+from ms_aircomp.learned_shortlist import load_learned_set_shortlist_model, load_learned_shortlist_model
+from ms_aircomp.posterior_viability import validate_posterior_invitation_rule, validate_posterior_mean_mode, validate_posterior_mode, validate_posterior_target_policy
 
 
 def parse_csv_items(value):
@@ -150,6 +117,29 @@ def parse_args():
             "When omitted, --coverage-sparse-power-weight is used for backwards compatibility."
         ),
     )
+    parser.add_argument("--posterior-sample-counts", default="64", help="Comma-separated posterior Monte Carlo sample counts.")
+    parser.add_argument("--posterior-uncertainty-scales", default="1.0", help="Comma-separated AR(1) posterior uncertainty multipliers.")
+    parser.add_argument("--posterior-probe-uncertainty-weights", default="0.0", help="Comma-separated entropy bonuses for posterior-guided probing.")
+    parser.add_argument("--posterior-count-refinement-strengths", default="1.0", help="Comma-separated count-conditioned refinement strengths.")
+    parser.add_argument("--posterior-count-noise-std-scale", type=float, default=1.0, help="Multiplier on aggregate count-noise std.")
+    parser.add_argument("--posterior-mean-mode", default="ar1_predict", help="Posterior mean approximation: ar1_predict or stale.")
+    parser.add_argument("--posterior-invitation-rule", default="posterior_mean_topk", help="Invitation rule: posterior_mean_topk or probability_threshold.")
+    parser.add_argument("--posterior-invitation-threshold", type=float, default=0.5, help="Threshold for probability_threshold posterior invitations.")
+    parser.add_argument("--posterior-mode", default="analytic", help="Posterior viability diagnostic mode: analytic or monte_carlo.")
+    parser.add_argument("--posterior-num-samples", type=int, default=256, help="Monte Carlo samples for posterior viability diagnostics.")
+    parser.add_argument("--posterior-clip-eps", type=float, default=1e-6, help="Probability clipping epsilon for posterior viability diagnostics.")
+    parser.add_argument("--posterior-seed-offset", type=int, default=0x51F15EED, help="Seed offset for posterior viability Monte Carlo diagnostics.")
+    parser.add_argument("--posterior-cardinality-policy", default="invite_fixed_cardinality_y", help="Posterior invitation count policy.")
+    parser.add_argument("--posterior-cumulative-probability-target", type=float, default=1.0)
+    parser.add_argument("--posterior-lambda-fail", type=float, default=1.0)
+    parser.add_argument("--posterior-lambda-miss", type=float, default=1.0)
+    parser.add_argument("--probing-policy", default="coverage_aware", help="Invitation-policy composition switch: rotating, sparse_topk, coverage_aware, or posterior_greedy.")
+    parser.add_argument("--posterior-probe-budget", type=int, default=0, help="Override probe budget for posterior-greedy policies; 0 uses --probe-budgets.")
+    parser.add_argument("--posterior-probe-samples", type=int, default=128, help="Posterior feasibility samples for greedy IRS probing.")
+    parser.add_argument("--posterior-probe-beta", type=float, default=0.0, help="Coverage bonus weight for posterior-greedy IRS probing.")
+    parser.add_argument("--posterior-probe-seed-offset", type=int, default=0xA5C0DE, help="Seed offset for posterior-greedy probing samples.")
+    parser.add_argument("--posterior-probe-candidate-prefilter-size", type=int, default=0, help="Top expected-count candidate prefilter size; 0 evaluates the full codebook.")
+    parser.add_argument("--posterior-probe-objective", default="expected_best_count", help="Posterior-greedy objective: expected_best_count or expected_best_count_plus_coverage.")
     parser.add_argument(
         "--adaptive-sparse-margin-thresholds",
         default="0.05",
@@ -252,8 +242,16 @@ def parse_args():
     parser.add_argument("--num-codebook-states", type=int, default=16)
     parser.add_argument("--g-th", type=float, default=0.001)
     parser.add_argument("--alpha-th", type=float, default=0.05)
+    parser.add_argument("--aircomp-signal-model", default="synthetic_unit_variance", choices=("none", "synthetic_unit_variance"))
+    parser.add_argument("--aircomp-signal-variance", type=float, default=1.0)
+    for name in ("stale-preview", "current-probe", "execution-slot"):
+        parser.add_argument(f"--protocol-{name}-cost", type=float, default=1.0)
     parser.add_argument("--fixed-irs-index", type=int, default=7)
     parser.add_argument("--output-prefix", default=None)
+    parser.add_argument("--config-name", default=None)
+    parser.add_argument("--structured-log-dir", default=None)
+    parser.add_argument("--log-full-device-lists", action="store_true")
+    parser.add_argument("--no-slot-csv", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
     return parser.parse_args()
 
@@ -290,6 +288,7 @@ def validate_args(args):
         [args.confirmation_feedback_power_weight],
         "--confirmation-feedback-power-weight",
     )
+    validate_nonnegative_values([args.aircomp_signal_variance, args.protocol_stale_preview_cost, args.protocol_current_probe_cost, args.protocol_execution_slot_cost], "--aircomp-signal-variance/--protocol-*-cost")
 
     args.policies = parse_csv_items(args.policies)
     unknown_policies = [name for name in args.policies if name not in POLICY_CHOICES]
@@ -316,6 +315,22 @@ def validate_args(args):
         args.coverage_sparse_power_weights = limited.parse_float_list(
             args.coverage_sparse_power_weights
         )
+    args.posterior_sample_counts = limited.parse_int_list(args.posterior_sample_counts)
+    args.posterior_uncertainty_scales = limited.parse_float_list(args.posterior_uncertainty_scales)
+    args.posterior_probe_uncertainty_weights = limited.parse_float_list(
+        args.posterior_probe_uncertainty_weights
+    )
+    args.posterior_count_refinement_strengths = limited.parse_float_list(
+        args.posterior_count_refinement_strengths
+    )
+    args.posterior_mean_mode = validate_posterior_mean_mode(args.posterior_mean_mode)
+    args.posterior_invitation_rule = validate_posterior_invitation_rule(
+        args.posterior_invitation_rule
+    )
+    args.posterior_mode = validate_posterior_mode(args.posterior_mode)
+    args.posterior_cardinality_policy = validate_posterior_target_policy(args.posterior_cardinality_policy)
+    args.probing_policy = validate_probing_policy(args.probing_policy)
+    args.posterior_probe_objective = validate_posterior_probe_objective(args.posterior_probe_objective)
     args.adaptive_sparse_margin_thresholds = limited.parse_float_list(args.adaptive_sparse_margin_thresholds)
     args.adaptive_sparse_v2_preview_costs = limited.parse_float_list(args.adaptive_sparse_v2_preview_costs)
     args.learned_shortlist_extra_counts = limited.parse_int_list(args.learned_shortlist_extra_counts)
@@ -336,6 +351,10 @@ def validate_args(args):
         "sparse_topk_fractions",
         "coverage_sparse_weights",
         "coverage_sparse_power_weights",
+        "posterior_sample_counts",
+        "posterior_uncertainty_scales",
+        "posterior_probe_uncertainty_weights",
+        "posterior_count_refinement_strengths",
         "adaptive_sparse_margin_thresholds",
         "adaptive_sparse_v2_preview_costs",
         "learned_shortlist_extra_counts",
@@ -369,6 +388,37 @@ def validate_args(args):
         raise ValueError("--sparse-topk-fractions must be in (0, 1]")
     validate_nonnegative_values(args.coverage_sparse_weights, "--coverage-sparse-weights")
     validate_nonnegative_values(args.coverage_sparse_power_weights, "--coverage-sparse-power-weights")
+    validate_positive_values(args.posterior_sample_counts, "--posterior-sample-counts")
+    validate_nonnegative_values(args.posterior_uncertainty_scales, "--posterior-uncertainty-scales")
+    validate_nonnegative_values(
+        args.posterior_probe_uncertainty_weights,
+        "--posterior-probe-uncertainty-weights",
+    )
+    validate_nonnegative_values(
+        args.posterior_count_refinement_strengths,
+        "--posterior-count-refinement-strengths",
+    )
+    validate_nonnegative_values(
+        [args.posterior_count_noise_std_scale],
+        "--posterior-count-noise-std-scale",
+    )
+    validate_probability_values(
+        [args.posterior_invitation_threshold],
+        "--posterior-invitation-threshold",
+    )
+    validate_positive_values([args.posterior_num_samples], "--posterior-num-samples")
+    validate_probability_values([args.posterior_clip_eps], "--posterior-clip-eps")
+    if args.posterior_clip_eps >= 0.5:
+        raise ValueError("--posterior-clip-eps must be smaller than 0.5")
+    validate_nonnegative_values([args.posterior_cumulative_probability_target], "--posterior-cumulative-probability-target")
+    validate_nonnegative_values([args.posterior_lambda_fail], "--posterior-lambda-fail")
+    validate_nonnegative_values([args.posterior_lambda_miss], "--posterior-lambda-miss")
+    validate_nonnegative_values([args.posterior_probe_budget], "--posterior-probe-budget")
+    validate_positive_values([args.posterior_probe_samples], "--posterior-probe-samples")
+    validate_nonnegative_values([args.posterior_probe_beta], "--posterior-probe-beta")
+    validate_nonnegative_values([args.posterior_probe_candidate_prefilter_size], "--posterior-probe-candidate-prefilter-size")
+    if args.posterior_probe_budget > args.num_codebook_states:
+        raise ValueError("--posterior-probe-budget must not exceed --num-codebook-states")
     validate_nonnegative_values(
         args.adaptive_sparse_margin_thresholds,
         "--adaptive-sparse-margin-thresholds",
@@ -470,7 +520,20 @@ def evaluate_policy(
     adaptive_sparse_v3_neighbor_count=2,
     adaptive_sparse_v3_history_count=1,
     learned_shortlist_extra_count=1,
+    posterior_sample_count=64,
+    posterior_uncertainty_scale=1.0,
+    posterior_probe_uncertainty_weight=0.0,
+    posterior_count_refinement_strength=1.0,
+    posterior_count_noise_std_scale=1.0,
+    posterior_mean_mode="ar1_predict",
+    posterior_invitation_rule="posterior_mean_topk",
+    posterior_invitation_threshold=0.5,
+    probing_policy="coverage_aware",
     adaptive_sparse_show_params=False,
+    run_index=1,
+    run_seed=None,
+    config_name="default",
+    structured_context=None,
 ):
     """评估单个策略配置在当前场景下的表现，返回后续聚合和报告生成所需的指标。"""
     env = limited.make_env(args)
@@ -505,6 +568,15 @@ def evaluate_policy(
         adaptive_sparse_v3_neighbor_count=adaptive_sparse_v3_neighbor_count,
         adaptive_sparse_v3_history_count=adaptive_sparse_v3_history_count,
         learned_shortlist_extra_count=learned_shortlist_extra_count,
+        posterior_sample_count=posterior_sample_count,
+        posterior_uncertainty_scale=posterior_uncertainty_scale,
+        posterior_probe_uncertainty_weight=posterior_probe_uncertainty_weight,
+        posterior_count_refinement_strength=posterior_count_refinement_strength,
+        posterior_count_noise_std_scale=posterior_count_noise_std_scale,
+        posterior_mean_mode=posterior_mean_mode,
+        posterior_invitation_rule=posterior_invitation_rule,
+        posterior_invitation_threshold=posterior_invitation_threshold,
+        probing_policy=probing_policy,
         adaptive_sparse_show_params=adaptive_sparse_show_params,
     )
     success_nodes = []
@@ -519,6 +591,7 @@ def evaluate_policy(
     failure_slot_fractions = []
     preview_calls_per_slot = []
     oracle_tx_gap_mean = []
+    aircomp_nmse = []
     effective_risk_weights = []
     adaptive_sparse_expanded = []
     adaptive_sparse_margins = []
@@ -533,6 +606,19 @@ def evaluate_policy(
     learned_shortlist_selected_extra_preview_counts = []
     coverage_sparse_selected_marginal_fractions = []
     coverage_sparse_selected_overlap_fractions = []
+    decision_metric_buffers = empty_decision_metric_buffers()
+    slot_rows = []
+    structured_slot_rows = []
+    diagnostic_rows = []
+    scenario_rows = []
+    log_base = {
+        "args": args, "context": structured_context or {}, "config_name": config_name,
+        "method_name": display_name, "policy_name": policy_name, "run_index": run_index,
+        "run_seed": run_seed, "decision_error_std": decision_error_std,
+        "execution_error_std": execution_error_std, "mismatch_model": mismatch_model,
+        "channel_rho": channel_rho, "csi_delay_slots": csi_delay_slots, "budget": budget,
+    }
+    run_metadata_rows = [build_run_metadata_record(env=env, **log_base)]
 
     print(
         f"Running {display_name} model={mismatch_model} rho={channel_rho:g} "
@@ -562,6 +648,8 @@ def evaluate_policy(
         episode_failure_slots = 0
         episode_preview_calls = []
         episode_oracle_gaps = []
+        episode_oracle_tx_total = 0.0
+        episode_aircomp_nmse = []
         episode_effective_risk_weights = []
         episode_adaptive_sparse_expanded = []
         episode_adaptive_sparse_margins = []
@@ -576,6 +664,7 @@ def evaluate_policy(
         episode_learned_shortlist_selected_extra_preview_counts = []
         episode_coverage_sparse_selected_marginal_fractions = []
         episode_coverage_sparse_selected_overlap_fractions = []
+        episode_decision_metric_buffers = empty_decision_metric_buffers()
         episode_confirmed_irs_history = []
         total_tx = 0
         episode_slots = args.num_slots
@@ -605,12 +694,12 @@ def evaluate_policy(
                     )
                 apply_channel_state(env, execution_state)
             else:
-                decision_state = None
-                execution_state = None
+                decision_state = execution_state = stale_state = None
                 temporal_error_std = 0.0
             risk_execution_error_std = float(np.hypot(float(execution_error_std), temporal_error_std))
 
             execution_oracle = execution_oracle_candidate(env, args, execution_error_std, slot_idx)
+            episode_oracle_tx_total += float(execution_oracle["tx_this_slot"])
             decision, true_selected, preview_calls, _candidate_count = choose_execution_mismatch_decision(
                 env,
                 args,
@@ -649,6 +738,14 @@ def evaluate_policy(
                 adaptive_sparse_v3_neighbor_count=adaptive_sparse_v3_neighbor_count,
                 adaptive_sparse_v3_history_count=adaptive_sparse_v3_history_count,
                 learned_shortlist_extra_count=learned_shortlist_extra_count,
+                posterior_sample_count=posterior_sample_count,
+                posterior_uncertainty_scale=posterior_uncertainty_scale,
+                posterior_probe_uncertainty_weight=posterior_probe_uncertainty_weight,
+                posterior_count_refinement_strength=posterior_count_refinement_strength,
+                posterior_count_noise_std_scale=posterior_count_noise_std_scale,
+                posterior_mean_mode=posterior_mean_mode,
+                posterior_invitation_rule=posterior_invitation_rule,
+                posterior_invitation_threshold=posterior_invitation_threshold,
             )
 
             info, done = limited.execute_limited_csi_slot(env, args, decision, true_selected)
@@ -662,9 +759,13 @@ def evaluate_policy(
             episode_true_opportunities += int(info["true_opportunity_this_slot"])
             episode_failure_slots += int(info["failed_this_slot"] > 0)
             episode_preview_calls.append(int(preview_calls))
-            episode_oracle_gaps.append(
-                max(0.0, float(execution_oracle["tx_this_slot"]) - float(info["tx_this_slot"]))
+            oracle_gap = max(
+                0.0,
+                float(execution_oracle["tx_this_slot"]) - float(info["tx_this_slot"]),
             )
+            episode_oracle_gaps.append(oracle_gap)
+            if "aircomp_nmse" in info:
+                episode_aircomp_nmse.append(float(info["aircomp_nmse"]))
             episode_effective_risk_weights.append(float(decision.get("effective_risk_weight", 0.0)))
             episode_adaptive_sparse_expanded.append(float(decision.get("adaptive_sparse_expanded", 0.0)))
             episode_adaptive_sparse_margins.append(float(decision.get("adaptive_sparse_margin", 0.0)))
@@ -699,6 +800,30 @@ def evaluate_policy(
             episode_coverage_sparse_selected_overlap_fractions.append(
                 float(decision.get("coverage_sparse_selected_overlap_fraction", 0.0))
             )
+            decision_metric_values = append_decision_metric_values(
+                episode_decision_metric_buffers,
+                decision,
+                info=info,
+                preview_calls=preview_calls,
+                args=args,
+            )
+            append_structured_slot_records(
+                slot_rows,
+                structured_slot_rows,
+                diagnostic_rows,
+                log_base,
+                episode_index=ep,
+                episode_seed=episode_seed,
+                slot_idx=slot_idx,
+                decision=decision,
+                info=info,
+                execution_oracle=execution_oracle,
+                preview_calls=preview_calls,
+                oracle_gap=oracle_gap,
+                decision_metric_values=decision_metric_values,
+                env=env,
+                stale_state=stale_state,
+            )
             if int(decision.get("confirmed_irs_index", decision.get("irs_index", -1))) >= 0:
                 episode_confirmed_irs_history.append(
                     int(decision.get("confirmed_irs_index", decision.get("irs_index", -1)))
@@ -722,6 +847,7 @@ def evaluate_policy(
             float(sum(episode_preview_calls)) / max(float(len(episode_preview_calls)), 1.0)
         )
         oracle_tx_gap_mean.append(float(np.mean(episode_oracle_gaps)) if episode_oracle_gaps else 0.0)
+        aircomp_nmse.append(float(np.mean(episode_aircomp_nmse)) if episode_aircomp_nmse else 0.0)
         effective_risk_weights.append(
             float(np.mean(episode_effective_risk_weights)) if episode_effective_risk_weights else 0.0
         )
@@ -784,6 +910,25 @@ def evaluate_policy(
             if episode_coverage_sparse_selected_overlap_fractions
             else 0.0
         )
+        episode_metric_summary_values = append_episode_metric_means(decision_metric_buffers, episode_decision_metric_buffers)
+        append_scenario_summary_record(
+            scenario_rows,
+            log_base,
+            episode_index=ep,
+            episode_seed=episode_seed,
+            completion=total_tx >= args.num_nodes,
+            slots_used=episode_slots,
+            failed_invitations=episode_failed,
+            missed_opportunities=episode_missed,
+            oracle_tx_count=episode_oracle_tx_total,
+            achieved_tx_count=total_tx,
+            oracle_gap_total=float(np.sum(episode_oracle_gaps)),
+            oracle_gap_mean=float(np.mean(episode_oracle_gaps)) if episode_oracle_gaps else 0.0,
+            nmse=float(np.mean(episode_aircomp_nmse)) if episode_aircomp_nmse else None,
+            energy=episode_energy,
+            total_overhead=sum(episode_preview_calls),
+            extra_metrics=episode_metric_summary_values,
+        )
 
         print_progress(display_name, decision_error_std, execution_error_std, ep, args.episodes, success_nodes, args.num_nodes)
 
@@ -813,6 +958,8 @@ def evaluate_policy(
             in {
                 POLICY_SPARSE_TOPK_FEEDBACK_GRID,
                 POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
+                POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
                 POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
             }
             else 0.0
@@ -823,6 +970,7 @@ def evaluate_policy(
             in {
                 POLICY_SPARSE_TOPK_FEEDBACK_GRID,
                 POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
                 POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
                 POLICY_ADAPTIVE_SPARSE_TOPK_FEEDBACK_GRID,
                 POLICY_ADAPTIVE_SPARSE_TOPK_V2_FEEDBACK_GRID,
@@ -837,6 +985,7 @@ def evaluate_policy(
             if policy_name
             in {
                 POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
                 POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
             }
             else 0.0
@@ -846,6 +995,7 @@ def evaluate_policy(
             if policy_name
             in {
                 POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+                POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
                 POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
             }
             else 0.0
@@ -950,6 +1100,46 @@ def evaluate_policy(
             }
             else 0
         ),
+        "posterior_sample_count": int(
+            posterior_sample_count
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0
+        ),
+        "posterior_uncertainty_scale": float(
+            posterior_uncertainty_scale
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0.0
+        ),
+        "posterior_probe_uncertainty_weight": float(
+            posterior_probe_uncertainty_weight
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0.0
+        ),
+        "posterior_count_refinement_strength": float(
+            posterior_count_refinement_strength
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0.0
+        ),
+        "posterior_count_noise_std_scale": float(
+            posterior_count_noise_std_scale
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0.0
+        ),
+        "posterior_mean_mode": (
+            posterior_mean_mode
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else "none"
+        ),
+        "posterior_invitation_rule": (
+            posterior_invitation_rule
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else "none"
+        ),
+        "posterior_invitation_threshold": float(
+            posterior_invitation_threshold
+            if policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID
+            else 0.0
+        ),
         "success_nodes": np.asarray(success_nodes, dtype=float),
         "avg_power": np.asarray(avg_power, dtype=float),
         "episode_reward": np.asarray(rewards, dtype=float),
@@ -962,6 +1152,7 @@ def evaluate_policy(
         "failure_slot_fraction": np.asarray(failure_slot_fractions, dtype=float),
         "decision_preview_calls_per_slot": np.asarray(preview_calls_per_slot, dtype=float),
         "oracle_tx_gap_mean": np.asarray(oracle_tx_gap_mean, dtype=float),
+        "aircomp_nmse": np.asarray(aircomp_nmse, dtype=float),
         "effective_risk_weight": np.asarray(effective_risk_weights, dtype=float),
         "adaptive_sparse_expanded": np.asarray(adaptive_sparse_expanded, dtype=float),
         "adaptive_sparse_margin": np.asarray(adaptive_sparse_margins, dtype=float),
@@ -1000,6 +1191,12 @@ def evaluate_policy(
             coverage_sparse_selected_overlap_fractions,
             dtype=float,
         ),
+        **metric_arrays(decision_metric_buffers),
+        "slot_rows": slot_rows,
+        "structured_slot_rows": structured_slot_rows,
+        "diagnostic_rows": diagnostic_rows,
+        "scenario_rows": scenario_rows,
+        "run_metadata_rows": run_metadata_rows,
     }
 
 
@@ -1008,6 +1205,9 @@ def main():
     args = parse_args()
     validate_args(args)
     output_prefix = resolve_output_prefix(args)
+    args.config_name = args.config_name or os.path.basename(output_prefix)
+    structured_dir = args.structured_log_dir or f"{output_prefix}_structured_logs"
+    structured_context = structured_log_context(os.getcwd())
     run_seeds = make_run_seeds(args)
     episode_seed_sets = [make_episode_seeds(args, run_seed) for run_seed in run_seeds]
     configs = policy_configs(args)
@@ -1022,6 +1222,13 @@ def main():
         f"sparse_topk_fractions={args.sparse_topk_fractions}, "
         f"coverage_sparse_weights={args.coverage_sparse_weights}, "
         f"coverage_sparse_power_weights={args.coverage_sparse_power_weights}, "
+        f"posterior_sample_counts={args.posterior_sample_counts}, "
+        f"posterior_uncertainty_scales={args.posterior_uncertainty_scales}, "
+        f"posterior_probe_uncertainty_weights={args.posterior_probe_uncertainty_weights}, "
+        f"probing_policy={args.probing_policy}, posterior_probe_budget={args.posterior_probe_budget}, "
+        f"posterior_probe_samples={args.posterior_probe_samples}, posterior_probe_beta={args.posterior_probe_beta:g}, "
+        f"posterior_probe_prefilter={args.posterior_probe_candidate_prefilter_size}, posterior_probe_objective={args.posterior_probe_objective}, "
+        f"posterior_count_refinement_strengths={args.posterior_count_refinement_strengths}, "
         f"adaptive_sparse_margins={args.adaptive_sparse_margin_thresholds}, "
         f"adaptive_sparse_v2_preview_costs={args.adaptive_sparse_v2_preview_costs}, "
         f"adaptive_sparse_v3_neighbor_radius={args.adaptive_sparse_v3_neighbor_radius}, "
@@ -1036,6 +1243,11 @@ def main():
     print("=" * 96)
 
     all_rows = []
+    all_slot_rows = []
+    structured_slot_rows = []
+    diagnostic_rows = []
+    scenario_rows = []
+    run_metadata_rows = []
     for mismatch_model, channel_rho, csi_delay_slots in mismatch_scenarios(args):
         for decision_error_std in args.decision_error_std_values:
             for execution_error_std in args.execution_error_std_values:
@@ -1049,8 +1261,9 @@ def main():
                 seed_result_sets = []
                 for run_idx, episode_seeds in enumerate(episode_seed_sets, start=1):
                     print(f"Run seed [{run_idx}/{len(run_seeds)}]: {run_seeds[run_idx - 1]}")
-                    seed_results = [
-                        evaluate_policy(
+                    seed_results = []
+                    for config in configs:
+                        result = evaluate_policy(
                             episode_seeds,
                             args,
                             decision_error_std,
@@ -1058,15 +1271,26 @@ def main():
                             mismatch_model,
                             channel_rho,
                             csi_delay_slots,
+                            run_index=run_idx,
+                            run_seed=run_seeds[run_idx - 1],
+                            config_name=args.config_name,
+                            structured_context=structured_context,
                             **config,
                         )
-                        for config in configs
-                    ]
+                        all_slot_rows.extend(result.get("slot_rows", []))
+                        structured_slot_rows.extend(result.get("structured_slot_rows", []))
+                        diagnostic_rows.extend(result.get("diagnostic_rows", []))
+                        scenario_rows.extend(result.get("scenario_rows", []))
+                        run_metadata_rows.extend(result.get("run_metadata_rows", []))
+                        seed_results.append(result)
                     seed_result_sets.append(seed_results)
                 all_rows.extend(summarize_results(args, aggregate_seed_results(seed_result_sets)))
 
     print_summary(all_rows)
     write_csv(f"{output_prefix}.csv", all_rows)
+    if not args.no_slot_csv:
+        write_slot_csv(f"{output_prefix}_slots.csv", all_slot_rows)
+    write_structured_logs(structured_dir, run_metadata_rows, scenario_rows, structured_slot_rows, diagnostic_rows)
     if not args.no_plots:
         plot_results(all_rows, args, output_prefix)
 

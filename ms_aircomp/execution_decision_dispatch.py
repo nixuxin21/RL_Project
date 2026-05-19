@@ -14,10 +14,21 @@ from ms_aircomp.execution_candidates import (
 )
 from ms_aircomp.execution_policies import (
     choose_active_diverse_feedback_decision,
+    choose_count_conditioned_invitation_feedback_decision,
+    choose_count_only_mask_correction_feedback_decision,
     choose_coverage_sparse_topk_feedback_decision,
+    choose_coverage_only_fill_feedback_decision,
+    choose_deployable_irs_oracle_invitation_decision,
+    choose_diversity_only_fill_feedback_decision,
     choose_neighbor_coverage_sparse_topk_feedback_decision,
+    choose_oracle_irs_stale_invitation_decision,
+    choose_posterior_greedy_feedback_decision,
+    choose_posterior_greedy_invitation_feedback_decision,
+    choose_posterior_guided_count_refine_feedback_decision,
+    choose_random_same_budget_feedback_decision,
     choose_rotating_feedback_confirm_decision,
     choose_sparse_topk_feedback_decision,
+    choose_stale_topk_same_budget_feedback_decision,
     choose_stale_topk_feedback_decision,
 )
 from ms_aircomp.execution_policy_registry import (
@@ -28,14 +39,32 @@ from ms_aircomp.execution_policy_registry import (
     POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID,
     POLICY_AR1_PREDICT_ROTATING_GRID,
     POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID,
+    POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID,
+    POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID,
+    POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION,
+    POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID,
     POLICY_EXECUTION_ORACLE,
     POLICY_EXECUTION_RISK_AWARE_ROTATING_GRID,
+    POLICY_FULL_CURRENT_ORACLE,
+    POLICY_FULL_STALE_EXHAUSTIVE,
     POLICY_LEARNED_SET_SHORTLIST_FEEDBACK_GRID,
     POLICY_LEARNED_SPARSE_SHORTLIST_FEEDBACK_GRID,
+    POLICY_MS_AIRCOMP_WITHOUT_IRS,
     POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID,
     POLICY_OPPORTUNITY_EXECUTION_RISK_ROTATING_GRID,
+    POLICY_ORACLE_IRS_ORACLE_INVITATION,
+    POLICY_ORACLE_IRS_STALE_INVITATION,
+    POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID,
+    POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID,
+    POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID,
+    POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID,
+    POLICY_RANDOM_IRS,
+    POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID,
     POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+    POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
     POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+    POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
     POLICY_STALE_TOPK_FEEDBACK_GRID,
     POLICY_TEMPORAL_DEVIATION_ORACLE_GRID,
     POLICY_TEMPORAL_RELIABILITY_ROTATING_GRID,
@@ -81,6 +110,15 @@ def choose_decision(
     choice_policy_name = policy_name
     if policy_name == POLICY_AR1_PREDICT_ROTATING_GRID:
         choice_policy_name = limited.POLICY_ROTATING_GRID
+    elif policy_name == POLICY_MS_AIRCOMP_WITHOUT_IRS:
+        choice_policy_name = limited.POLICY_NO_IRS
+        budget = 0
+    elif policy_name == POLICY_RANDOM_IRS:
+        choice_policy_name = limited.POLICY_RANDOM_PROBE
+        budget = 1
+    elif policy_name == POLICY_FULL_STALE_EXHAUSTIVE:
+        choice_policy_name = limited.POLICY_EST_GREEDY
+        budget = args.num_codebook_states
     return limited.choose_policy_candidate(
         env,
         args,
@@ -139,9 +177,21 @@ def choose_execution_mismatch_decision(
     adaptive_sparse_v3_neighbor_count=2,
     adaptive_sparse_v3_history_count=1,
     learned_shortlist_extra_count=1,
+    posterior_sample_count=64,
+    posterior_uncertainty_scale=1.0,
+    posterior_probe_uncertainty_weight=0.0,
+    posterior_count_refinement_strength=1.0,
+    posterior_count_noise_std_scale=1.0,
+    posterior_mean_mode="ar1_predict",
+    posterior_invitation_rule="posterior_mean_topk",
+    posterior_invitation_threshold=0.5,
 ):
     """按照执行阶段、mismatch、决策规则选择候选或索引，并返回后续执行、确认或聚合需要的信息。"""
-    if policy_name == POLICY_EXECUTION_ORACLE:
+    if policy_name in {
+        POLICY_EXECUTION_ORACLE,
+        POLICY_FULL_CURRENT_ORACLE,
+        POLICY_ORACLE_IRS_ORACLE_INVITATION,
+    }:
         decision, preview_calls, candidate_count = choose_execution_oracle(
             env,
             args,
@@ -212,7 +262,10 @@ def choose_execution_mismatch_decision(
             risk_power_weight=risk_power_weight,
             quantile_z=temporal_reliability_z,
         )
-    elif policy_name == POLICY_ROTATING_FEEDBACK_CONFIRM_GRID:
+    elif policy_name in {
+        POLICY_ROTATING_FEEDBACK_CONFIRM_GRID,
+        POLICY_ROTATING_SAME_BUDGET_FEEDBACK_GRID,
+    }:
         decision, preview_calls, candidate_count = choose_rotating_feedback_confirm_decision(
             env,
             args,
@@ -234,6 +287,17 @@ def choose_execution_mismatch_decision(
             episode_seed,
             execution_state=execution_state,
         )
+    elif policy_name == POLICY_STALE_TOPK_SAME_BUDGET_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_stale_topk_same_budget_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+        )
     elif policy_name == POLICY_ACTIVE_DIVERSE_FEEDBACK_GRID:
         decision, preview_calls, candidate_count = choose_active_diverse_feedback_decision(
             env,
@@ -245,7 +309,45 @@ def choose_execution_mismatch_decision(
             episode_seed,
             execution_state=execution_state,
         )
-    elif policy_name == POLICY_SPARSE_TOPK_FEEDBACK_GRID:
+    elif policy_name == POLICY_DIVERSITY_ONLY_FILL_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_diversity_only_fill_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+        )
+    elif policy_name == POLICY_COVERAGE_ONLY_FILL_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_coverage_only_fill_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+        )
+    elif policy_name == POLICY_RANDOM_SAME_BUDGET_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_random_same_budget_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+        )
+    elif policy_name in {
+        POLICY_SPARSE_TOPK_FEEDBACK_GRID,
+        POLICY_SPARSE_TOPK_SAME_BUDGET_FEEDBACK_GRID,
+    }:
         decision, preview_calls, candidate_count = choose_sparse_topk_feedback_decision(
             env,
             args,
@@ -257,6 +359,31 @@ def choose_execution_mismatch_decision(
             execution_state=execution_state,
             seed_multiplier=sparse_topk_seed_multiplier,
             topk_fraction=sparse_topk_fraction,
+        )
+    elif policy_name == POLICY_ORACLE_IRS_STALE_INVITATION:
+        decision, preview_calls, candidate_count = choose_oracle_irs_stale_invitation_decision(
+            env,
+            args,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+        )
+    elif policy_name == POLICY_DEPLOYABLE_IRS_ORACLE_INVITATION:
+        decision, preview_calls, candidate_count = choose_deployable_irs_oracle_invitation_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+            topk_fraction=sparse_topk_fraction,
+            coverage_weight=coverage_sparse_weight,
+            power_weight=coverage_sparse_power_weight,
         )
     elif policy_name == POLICY_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID:
         decision, preview_calls, candidate_count = choose_coverage_sparse_topk_feedback_decision(
@@ -272,6 +399,89 @@ def choose_execution_mismatch_decision(
             topk_fraction=sparse_topk_fraction,
             coverage_weight=coverage_sparse_weight,
             power_weight=coverage_sparse_power_weight,
+        )
+    elif policy_name == POLICY_COUNT_ONLY_MASK_CORRECTION_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_count_only_mask_correction_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+            topk_fraction=sparse_topk_fraction,
+            coverage_weight=coverage_sparse_weight,
+            power_weight=coverage_sparse_power_weight,
+        )
+    elif policy_name == POLICY_COUNT_CONDITIONED_INVITATION_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_count_conditioned_invitation_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+            topk_fraction=sparse_topk_fraction,
+            coverage_weight=coverage_sparse_weight,
+            power_weight=coverage_sparse_power_weight,
+            channel_rho=channel_rho,
+            csi_delay_slots=csi_delay_slots,
+        )
+    elif policy_name == POLICY_POSTERIOR_GREEDY_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_posterior_greedy_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            channel_rho=channel_rho,
+            csi_delay_slots=csi_delay_slots,
+        )
+    elif policy_name == POLICY_POSTERIOR_GREEDY_INVITATION_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_posterior_greedy_invitation_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            channel_rho=channel_rho,
+            csi_delay_slots=csi_delay_slots,
+        )
+    elif policy_name == POLICY_POSTERIOR_GUIDED_COUNT_REFINE_FEEDBACK_GRID:
+        decision, preview_calls, candidate_count = choose_posterior_guided_count_refine_feedback_decision(
+            env,
+            args,
+            budget,
+            slot_idx,
+            decision_error_std,
+            execution_error_std,
+            episode_seed,
+            execution_state=execution_state,
+            seed_multiplier=sparse_topk_seed_multiplier,
+            topk_fraction=sparse_topk_fraction,
+            coverage_weight=coverage_sparse_weight,
+            power_weight=coverage_sparse_power_weight,
+            posterior_sample_count=posterior_sample_count,
+            posterior_uncertainty_scale=posterior_uncertainty_scale,
+            posterior_probe_uncertainty_weight=posterior_probe_uncertainty_weight,
+            posterior_count_refinement_strength=posterior_count_refinement_strength,
+            posterior_count_noise_std_scale=posterior_count_noise_std_scale,
+            posterior_mean_mode=posterior_mean_mode,
+            posterior_invitation_rule=posterior_invitation_rule,
+            posterior_invitation_threshold=posterior_invitation_threshold,
+            channel_rho=channel_rho,
+            csi_delay_slots=csi_delay_slots,
         )
     elif policy_name == POLICY_NEIGHBOR_COVERAGE_SPARSE_TOPK_FEEDBACK_GRID:
         decision, preview_calls, candidate_count = choose_neighbor_coverage_sparse_topk_feedback_decision(
