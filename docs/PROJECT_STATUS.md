@@ -24,6 +24,22 @@
 - 结果发布边界由 `.gitignore`、`docs/PAPER_FREEZE_MANIFEST.md`、`results/README.md` 和 `tests/mainline_artifact_checks.py` 共同约束；clean clone 不应依赖本机 ignored result 文件。
 - `docs/CODE_EXPLANATION_CN.md` 已加入作为非论文侧中文代码读本，覆盖核心概念、模块职责、脚本分层、测试边界和后续扩展流程。
 
+## Cleanup Policy
+
+当前整理策略是先做入口和索引瘦身，而不是大规模物理移动文件。顶层仍保留若干历史训练、评估和诊断脚本，是为了兼容 Makefile、smoke checks、历史报告引用和旧复现实验命令。
+
+默认入口分层如下：
+
+- `README.md`: 只放最短日常入口、当前主线、paper-freeze 边界和复现审计。
+- `make help`: 展示可运行 target，但把 current mainline、supporting baseline 和 diagnostic/archive 分开。
+- `make docs`: 展示文档入口和 paper-facing artifact，不再充当完整结果索引。
+- `docs/PROJECT_MAP.md`: 维护完整结构说明和脚本分层。
+- `docs/RESULTS_INDEX.md`: 维护历史结果和 artifact 证据链。
+
+后续若要物理移动顶层脚本，必须先同步更新 `Makefile`、`README.md`、`docs/PROJECT_MAP.md`、`tests/smoke_checks.py` 和相关历史引用，并运行 `make check` 与 `make mainline-audit`。未跟踪目录，例如当前本地的 `docs/paper_evidence/`，在没有明确归属前不应被整理脚本移动、删除或纳入发布边界。
+
+已解决的历史审计报告归档在 `docs/archive/AUDIT_REPORT.md`。它保留问题来源和修复记录，但不再作为当前维护入口；当前状态以本文件、`docs/PROJECT_MAP.md`、`docs/PAPER_FREEZE_MANIFEST.md` 和 `results/README.md` 为准。
+
 ## Active Code
 
 | 文件 | 状态 | 用途 |

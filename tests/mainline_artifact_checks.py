@@ -504,6 +504,14 @@ PAPER_FACING_TEXT_REQUIREMENTS = {
         str(PAPER_FIGURE1_SVG),
     ],
 }
+README_MAX_LINES = 260
+README_FORBIDDEN_DEFAULT_TARGETS = [
+    "make learned-sparse-shortlist-pilot",
+    "make learned-set-shortlist-pilot",
+    "make learned-pairwise-shortlist-pilot",
+    "make policy-comparison-learning",
+    "make bandit-feedback-stress",
+]
 
 
 def fail(message):
@@ -626,6 +634,17 @@ def assert_paper_facing_text():
             fail(f"{PAPER_FIGURE_SPECS} missing Table 1 method label {label!r}")
         checked += 1
     return checked
+
+
+def assert_readme_cleanup_boundary():
+    text = assert_exists(PROJECT_README).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if len(lines) > README_MAX_LINES:
+        fail(f"{PROJECT_README} should stay a compact entry point; found {len(lines)} lines")
+    for target in README_FORBIDDEN_DEFAULT_TARGETS:
+        if target in text:
+            fail(f"{PROJECT_README} should not list diagnostic/archive target {target!r}")
+    return len(lines)
 
 
 def assert_source_files_exist(rows):
@@ -1044,6 +1063,7 @@ def main():
     asset_gap_documented_count = assert_documented_paths_exist(PAPER_ASSET_GAP)
     freeze_documented_count = assert_documented_paths_exist(PAPER_FREEZE_MANIFEST)
     paper_text_count = assert_paper_facing_text()
+    readme_line_count = assert_readme_cleanup_boundary()
     checked_rows += assert_final_summary()
     checked_rows += assert_paper_table1()
     checked_rows += assert_paper_table1_uncertainty()
@@ -1063,6 +1083,7 @@ def main():
     print(f"  asset gap paths verified: {asset_gap_documented_count}")
     print(f"  freeze manifest paths verified: {freeze_documented_count}")
     print(f"  paper-facing text snippets verified: {paper_text_count}")
+    print(f"  README entry-point lines: {readme_line_count}")
     print(f"  checked CSV rows: {checked_rows}")
     return 0
 

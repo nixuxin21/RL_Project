@@ -1,12 +1,22 @@
 # Project Map
 
-本文件把当前仓库按“主线代码、研究分支、归档分支、生成物”分层，避免所有入口都堆在 README 里。
+本文件把当前仓库按“主线代码、研究分支、归档分支、生成物”分层，避免所有入口都堆在 README 里。README 只作为短入口；完整脚本分层和历史结果定位以本文件、`docs/PROJECT_STATUS.md`、`docs/RESULTS_INDEX.md` 和 `docs/DEPRECATED_DIRECTIONS.md` 为准。
 
-## 核心模型
+## 入口分层
+
+- `README.md`: 最短使用入口、当前主线和 paper-freeze 边界。
+- `make help`: 可运行命令索引，按 validation、paper freeze、current mainline、supporting baseline 和 diagnostic/archive 分组。
+- `make docs`: 文档和 paper-facing artifact 入口。
+- `docs/PROJECT_STATUS.md`: 当前维护状态、cleanup policy、active/diagnostic 边界和验证门槛。
+- `docs/RESULTS_INDEX.md`: 关键结果文件和历史证据链。
+- `docs/archive/`: 已解决审计和维护记录；不作为默认入口。
+- `EXPERIMENT_REPORT.md`: 完整历史实验记录；不作为 README 的默认主线叙事。
+
+## 核心模型和包边界
 
 - `test_env.py`: 物理环境 `MSAirCompEnv`。包含信道生成、IRS DFT codebook、动作解码、slot 执行、奖励和 `preview_codebook_index`。
-- `train_agent.py`: 完整 SAC，动作是 `[g_th, alpha_th, irs_codebook]`。
-- `train_codebook_aware_agent.py`: 固定传输参数的 IRS-only SAC selector。
+- `ms_aircomp/`: 可复用 experiment layer，包含 channel、feedback、confirmation、probe set、execution policy、result summary、paper-output helper 和 learned diagnostics helper。新可复用逻辑优先放入这里。
+- `evaluate_execution_channel_mismatch.py`: 当前主线 evaluator shell，负责 CLI、场景编排和 episode loop；reusable helper 应从 `ms_aircomp/` 导入。
 - `rl_models/`: 本地模型和 VecNormalize 统计。目录默认忽略，已有关键 checkpoint 可作为本机复现实验输入。
 
 ## 当前主线
@@ -56,6 +66,8 @@
 
 ## 学习式探索和诊断
 
+- `train_agent.py`: 完整 SAC，动作是 `[g_th, alpha_th, irs_codebook]`。
+- `train_codebook_aware_agent.py`: 固定传输参数的 IRS-only SAC selector。
 - `train_greedy_imitation_selector.py`: 监督学习模仿 Greedy IRS index。
 - `train_bandit_feedback_selector.py`: feedback-conditioned probing selector。
 - `train_temporal_deviation_selector.py`: temporal AR(1) stale-CSI 下学习 probe-window offset；训练目标来自 hidden current-channel outcomes，新生成 checkpoint、诊断 CSV 和 evaluation CSV 写入 diagnostic metadata。
@@ -101,6 +113,7 @@
 - `docs/FINAL_INVITATION_MASK_ANALYSIS.md`: invitation-mask correction 的最终论文级表格、图和贡献表述。
 - `docs/INVITATION_MASK_RERANK_ABLATION.md`: invitation-mask correction 的 reranking-mode 诊断协议，用于区分 aggregate target-count correction 与 stale-gain replacement 的贡献。
 - `docs/DEPRECATED_DIRECTIONS.md`: 负结果和不再继续投入方向的归档索引。
+- `docs/archive/AUDIT_REPORT.md`: 已解决项目审计和历史风险记录，当前状态以 `docs/PROJECT_STATUS.md` 为准。
 - `Makefile`: 测试、smoke、主实验 target。
 - `tests/smoke_checks.py`: 轻量行为回归测试。
 - `tests/dependency_boundary_checks.py`: evaluator dependency-boundary 守门测试，禁止重新从 `evaluate_execution_channel_mismatch.py` 导入 reusable helper，并防止已抽出的 policy/output/result helper 回流进 evaluator。

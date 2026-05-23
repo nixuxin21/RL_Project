@@ -921,8 +921,14 @@ action-diagnostics:
 
 docs:
 	@printf '%s\n' \
+		'Core orientation:' \
 		'Project status: docs/PROJECT_STATUS.md' \
 		'Main story: docs/MAIN_STORY.md' \
+		'Project map: docs/PROJECT_MAP.md' \
+		'Chinese code explanation: docs/CODE_EXPLANATION_CN.md' \
+		'Environment: docs/ENVIRONMENT.md' \
+		'' \
+		'Paper freeze and writing boundary:' \
 		'Paper result package: docs/PAPER_RESULT_PACKAGE.md' \
 		'Paper structure map: docs/PAPER_STRUCTURE_MAP.md' \
 		'Paper figure/table specs: docs/PAPER_FIGURE_TABLE_SPECS.md' \
@@ -930,27 +936,23 @@ docs:
 		'Paper text outline: docs/PAPER_TEXT_OUTLINE.md' \
 		'Paper asset gap checklist: docs/PAPER_ASSET_GAP_CHECKLIST.md' \
 		'Paper freeze manifest: docs/PAPER_FREEZE_MANIFEST.md' \
-		'Environment: docs/ENVIRONMENT.md' \
-		'Chinese code explanation: docs/CODE_EXPLANATION_CN.md' \
+		'' \
+		'Paper-facing artifacts:' \
 		'Paper Figure 1 source: docs/figures/figure1_system_flow.mmd' \
 		'Paper Figure 1 SVG: results/paper/figure1_system_flow.svg' \
 		'Paper Figure 1 PDF: results/paper/figure1_system_flow.pdf' \
 		'Paper Table 1 main results: docs/PAPER_TABLE1_MAIN_RESULTS.md' \
-		'Paper Table 1 CSV: results/paper/table1_main_results.csv' \
 		'Paper Table 1 uncertainty: docs/PAPER_TABLE1_UNCERTAINTY.md' \
-		'Paper Table 1 scenario uncertainty CSV: results/paper/table1_scenario_uncertainty.csv' \
-		'Paper Table 1 paired deltas CSV: results/paper/table1_paired_scenario_deltas.csv' \
 		'Paper Table 2 coverage-aware ablation: docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md' \
-		'Paper Table 2 CSV: results/paper/table2_coverage_aware_ablation.csv' \
 		'Paper Table 3 failure diagnosis: docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md' \
-		'Paper Table 3 CSV: results/paper/table3_failure_diagnosis.csv' \
 		'Paper Figure 2/3 points: results/paper/figure2_figure3_points.csv' \
 		'Paper Figure 2 preview-gap: results/paper/figure2_preview_gap_frontier.png' \
 		'Paper Figure 3 failed-missed: results/paper/figure3_failed_missed_tradeoff.png' \
 		'Paper Figure 4 points: results/paper/figure4_invitation_mask_noise_points.csv' \
 		'Paper Figure 4 gap-noise: results/paper/figure4_invitation_mask_gap_noise.png' \
 		'Paper Figure 4 failed-missed-noise: results/paper/figure4_invitation_mask_failed_missed_noise.png' \
-		'Project map: docs/PROJECT_MAP.md' \
+		'' \
+		'Mainline analysis and indexes:' \
 		'Baseline strategy: docs/BASELINE_STRATEGY.md' \
 		'Results index: docs/RESULTS_INDEX.md' \
 		'Execution baseline summary: docs/EXECUTION_BASELINE_SUMMARY.md' \
@@ -963,11 +965,13 @@ docs:
 		'Invitation mask correction noise-aware: docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md' \
 		'Invitation mask rerank ablation: docs/INVITATION_MASK_RERANK_ABLATION.md' \
 		'Deprecated directions: docs/DEPRECATED_DIRECTIONS.md' \
+		'Archived project records: docs/archive/README.md' \
+		'Resolved audit report: docs/archive/AUDIT_REPORT.md' \
 		'Experiment report: EXPERIMENT_REPORT.md'
 
 help:
 	@printf '%s\n' \
-		'Core targets:' \
+		'Validation and orientation:' \
 		'  make test                  Compile scripts and run smoke checks' \
 		'  make pytest-test           Run standard pytest wrappers for project checks' \
 		'  make lint                  Run high-signal Ruff checks' \
@@ -977,45 +981,44 @@ help:
 		'  make check                 Run compile, lint, and pytest project checks' \
 		'  make quick-audit           Run clean-room compile/lint/tests, artifact audit, and /tmp dry-run' \
 		'  make quick-audit-dry-run   Run one tiny execution-mismatch dry-run writing only /tmp' \
-		'  make paper-suite-smoke     Run the paper experiment suite smoke preset' \
-		'  make paper-suite-analyze-smoke  Analyze the smoke preset raw structured logs' \
-		'  make paper-suite-main-hard-dry-run  Print the hard preset plan without running it' \
 		'  make smoke                 Run broader one-shot smoke experiments' \
-		'  make policy-comparison     Run the main baseline table' \
-		'  make policy-comparison-learning  Add SAC/Codebook-Aware SAC baselines' \
-		'  make policy-comparison-static    Add Fixed/Best Fixed IRS ablations' \
-		'  make runtime               Reproduce the runtime benchmark' \
 		'  make docs                  Show documentation entry points' \
+		'' \
+		'Paper freeze artifacts:' \
 		'  make paper-tables          Generate paper-facing Table 1/2/3 artifacts' \
 		'  make paper-figure1         Export Figure 1 SVG/PDF from Mermaid source' \
+		'  make paper-figures         Generate paper-facing Figure 2/3/4 artifacts' \
 		'' \
-		'Current execution-mismatch frontier:' \
-		'  make sparse-topk-cost-pilot' \
+		'Current mainline analysis:' \
+		'  make execution-baseline-summary' \
+		'  make main-results-analysis' \
+		'  make coverage-aware-analysis' \
+		'  make coverage-b3-failure-diagnosis' \
+		'  make invitation-mask-correction-formal' \
+		'  make invitation-mask-correction-noise-sweep' \
+		'  make invitation-mask-correction-noise-aware-formal' \
+		'  make final-invitation-mask-analysis' \
+		'' \
+		'Current mainline sweeps:' \
 		'  make sparse-topk-frontier' \
-		'  make coverage-sparse-topk-pilot' \
 		'  make coverage-sparse-topk-frontier' \
 		'  make coverage-sparse-topk-ablation' \
-		'  make coverage-sparse-power-pilot' \
 		'  make coverage-sparse-power-ablation' \
-		'  make coverage-budget-split-pilot' \
 		'  make coverage-budget-split-selected' \
 		'  make coverage-budget-split-formal' \
 		'  make posterior-guided-count-refine-pilot' \
 		'  make posterior-guided-count-refine-formal' \
-		'  make coverage-b3-failure-diagnosis' \
-		'  make invitation-mask-correction-pilot' \
-		'  make invitation-mask-correction-formal' \
-		'  make invitation-mask-correction-noise-sweep' \
-		'  make invitation-mask-correction-noise-aware-pilot' \
-		'  make invitation-mask-correction-noise-aware-formal' \
 		'  make invitation-mask-rerank-ablation' \
 		'  make adaptive-sparse-topk-v2-pilot' \
-		'  make execution-baseline-summary' \
-		'  make main-results-analysis' \
-		'  make coverage-aware-analysis' \
-		'  make final-invitation-mask-analysis' \
+		'' \
+		'Paper experiment suite:' \
+		'  make paper-suite-smoke' \
+		'  make paper-suite-analyze-smoke' \
+		'  make paper-suite-main-hard-dry-run' \
 		'' \
 		'Supporting baselines:' \
+		'  make policy-comparison' \
+		'  make runtime' \
 		'  make partial-probing-sweep' \
 		'  make limited-csi-sweep' \
 		'  make execution-mismatch-sweep' \
@@ -1023,7 +1026,25 @@ help:
 		'  make adaptive-sparse-topk-pilot' \
 		'' \
 		'Diagnostic/archive targets:' \
+		'  make policy-comparison-learning' \
+		'  make policy-comparison-static' \
+		'  make parameter-sweep' \
+		'  make noisy-feature-sweep' \
+		'  make learned-probing' \
+		'  make learned-feedback-probing' \
+		'  make learned-temporal-deviation' \
+		'  make adaptive-feedback-probing' \
+		'  make probing-cost-tradeoff' \
+		'  make channel-estimation-sweep' \
+		'  make bandit-feedback-sweep' \
 		'  make bandit-feedback-stress' \
+		'  make action-diagnostics' \
+		'  make sparse-topk-cost-pilot' \
+		'  make coverage-sparse-topk-pilot' \
+		'  make coverage-sparse-power-pilot' \
+		'  make coverage-budget-split-pilot' \
+		'  make invitation-mask-correction-pilot' \
+		'  make invitation-mask-correction-noise-aware-pilot' \
 		'  make adaptive-sparse-topk-v3-pilot' \
 		'  make learned-sparse-shortlist-pilot' \
 		'  make learned-sparse-shortlist-marginal-pilot' \
