@@ -55,6 +55,8 @@ Rotating B=8
 
 新增方法必须至少解释或改善 invitation-mask mismatch、same-preview gap、slots/failed/missed trade-off，或 high-noise aggregate feedback robustness；不要只增加一个普通 heuristic 名称。
 
+候选证据包 `docs/candidate_evidence/cost_frontier_main_v1/` 收纳 PGI cost-frontier 草稿和解释边界；它还不是当前 paper-freeze 的替代主线。
+
 ## Paper Freeze
 
 论文冻结边界以这些文件为准：

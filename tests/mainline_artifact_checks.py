@@ -40,6 +40,7 @@ PAPER_TEXT_OUTLINE = Path("docs/PAPER_TEXT_OUTLINE.md")
 PAPER_ASSET_GAP = Path("docs/PAPER_ASSET_GAP_CHECKLIST.md")
 PAPER_FREEZE_MANIFEST = Path("docs/PAPER_FREEZE_MANIFEST.md")
 PROJECT_README = Path("README.md")
+CANDIDATE_EVIDENCE_README = Path("docs/candidate_evidence/cost_frontier_main_v1/README.md")
 FINAL_INVITATION_MD = Path("docs/FINAL_INVITATION_MASK_ANALYSIS.md")
 INVITATION_FORMAL = (
     EXECUTION_RESULTS
@@ -647,6 +648,36 @@ def assert_readme_cleanup_boundary():
     return len(lines)
 
 
+def assert_candidate_evidence_boundary():
+    text = assert_exists(CANDIDATE_EVIDENCE_README).read_text(encoding="utf-8")
+    snippets = [
+        "candidate evidence package",
+        "not part of the current paper-freeze boundary",
+        "results/main/cost_frontier_main_v1/",
+        "results/main_analysis/cost_frontier_main_v1/",
+        "docs/PAPER_FREEZE_MANIFEST.md",
+    ]
+    for snippet in snippets:
+        if snippet not in text:
+            fail(f"{CANDIDATE_EVIDENCE_README} missing candidate-boundary text: {snippet!r}")
+
+    if subprocess.run(
+        ["git", "check-ignore", "-q", "--", "docs/paper_evidence/example.md"],
+        cwd=PROJECT_ROOT,
+        check=False,
+    ).returncode != 0:
+        fail("docs/paper_evidence/ should stay ignored for local paper-evidence drafts")
+
+    if subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(CANDIDATE_EVIDENCE_README)],
+        cwd=PROJECT_ROOT,
+        check=False,
+    ).returncode == 0:
+        fail(f"{CANDIDATE_EVIDENCE_README} should not be ignored")
+
+    return len(snippets)
+
+
 def assert_source_files_exist(rows):
     for row in rows:
         source_file = row.get("source_file", "").strip()
@@ -1064,6 +1095,7 @@ def main():
     freeze_documented_count = assert_documented_paths_exist(PAPER_FREEZE_MANIFEST)
     paper_text_count = assert_paper_facing_text()
     readme_line_count = assert_readme_cleanup_boundary()
+    candidate_boundary_count = assert_candidate_evidence_boundary()
     checked_rows += assert_final_summary()
     checked_rows += assert_paper_table1()
     checked_rows += assert_paper_table1_uncertainty()
@@ -1083,6 +1115,7 @@ def main():
     print(f"  asset gap paths verified: {asset_gap_documented_count}")
     print(f"  freeze manifest paths verified: {freeze_documented_count}")
     print(f"  paper-facing text snippets verified: {paper_text_count}")
+    print(f"  candidate evidence boundary snippets verified: {candidate_boundary_count}")
     print(f"  README entry-point lines: {readme_line_count}")
     print(f"  checked CSV rows: {checked_rows}")
     return 0

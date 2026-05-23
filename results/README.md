@@ -8,6 +8,8 @@
 
 `make mainline-audit` 会检查 freeze artifact 和 `source_file` CSV 是否已经被 Git 跟踪或 staged。新增 paper-facing 结果时，需要同时更新 `.gitignore` 的 unignore 规则、`docs/PAPER_FREEZE_MANIFEST.md` 和 audit 检查。
 
+`results/main/` 和 `results/main_analysis/` 可保存 paper-suite 或候选证据包输出。它们仍按本地生成物处理；例如 `docs/candidate_evidence/cost_frontier_main_v1/` 引用的 `cost_frontier_main_v1` 输出，只有在完成 source-artifact promotion 后才应进入 paper-freeze。
+
 当前仓库中还保留了一些历史 diagnostic 结果，例如 `results/action_diagnostics/`、`results/imitation/`、`results/policy_comparison/` 和 `results/runtime/` 下的文件。它们不是当前 paper-freeze 的权威结果；若后续要清理，应先确认对应文档不再引用，再单独取消跟踪。
 
 ## Main Results
@@ -15,6 +17,7 @@
 | 目录 | 用途 |
 |---|---|
 | `results/execution_mismatch/` | 当前主线：stale/limited CSI、execution mismatch、Sparse-TopK、Adaptive V2、Stale-TopK、Temporal Deviation Oracle |
+| `results/main/`, `results/main_analysis/` | paper-suite / candidate evidence 输出，默认本地保留 |
 | `results/policy_comparison/` | 早期主 baseline：No IRS、Random IRS、Feature Argmax、PowerTie、Greedy、SAC diagnostics |
 | `results/runtime/` | runtime / preview 成本 |
 | `results/parameter_sweep/` | 默认环境参数稳定性 |

@@ -8,6 +8,7 @@
 - `make help`: 可运行命令索引，按 validation、paper freeze、current mainline、supporting baseline 和 diagnostic/archive 分组。
 - `make docs`: 文档和 paper-facing artifact 入口。
 - `docs/PROJECT_STATUS.md`: 当前维护状态、cleanup policy、active/diagnostic 边界和验证门槛。
+- `docs/candidate_evidence/`: 已整理但未进入 paper-freeze 的候选证据包。
 - `docs/RESULTS_INDEX.md`: 关键结果文件和历史证据链。
 - `docs/archive/`: 已解决审计和维护记录；不作为默认入口。
 - `EXPERIMENT_REPORT.md`: 完整历史实验记录；不作为 README 的默认主线叙事。
@@ -29,6 +30,7 @@
 - `docs/PAPER_TEXT_OUTLINE.md`: 论文正文最小骨架，逐节固定 claim、证据、禁入内容和图表引用顺序。
 - `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 投稿前资产缺口清单，固定哪些表图 ready、source-only、analysis-layer 或 deferred。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结结果包的 artifact 清单、验证命令和非冻结边界。
+- `docs/candidate_evidence/cost_frontier_main_v1/`: PGI cost-frontier 候选证据包；保留从本地 `results/main*` 生成的 claim/table/figure/limitation 草稿，但不替代当前 frozen mainline。
 - `docs/CODE_EXPLANATION_CN.md`: 面向新读者和维护者的中文代码详解，说明核心概念、运行链路、`ms_aircomp` 模块职责、脚本分层、测试守门和扩展流程。
 - `docs/figures/figure1_system_flow.mmd`: Figure 1 的 Mermaid 可编辑源文件，展示 system mismatch 和 deployable feedback pipeline；当前导出件为 `results/paper/figure1_system_flow.svg` 和 `results/paper/figure1_system_flow.pdf`。
 - `generate_paper_tables.py`: 从 frozen mainline CSV、coverage-aware analysis CSV 和 failure-diagnosis CSV 生成论文 Table 1/2/3 artifact；入口是 `make paper-tables`。
@@ -96,6 +98,7 @@
 - `docs/PAPER_TEXT_OUTLINE.md`: 论文正文骨架层，作为正式写作前检查每节 claim 和 evidence traceability 的默认依据。
 - `docs/PAPER_ASSET_GAP_CHECKLIST.md`: 论文资产缺口层，作为 manuscript assembly 前检查 Figure 1 导出件、Table 2/3 paper artifacts 和图表版式状态的默认依据。
 - `docs/PAPER_FREEZE_MANIFEST.md`: 论文冻结清单层，作为提交 frozen CSV/PNG/MD artifact 前的默认依据。
+- `docs/candidate_evidence/`: 候选证据包层。这里的内容可供下一轮论文方向判断，但除非完成 freeze manifest、source artifact 和 audit 更新，否则不作为 clean-clone paper-freeze 输入。
 - `docs/CODE_EXPLANATION_CN.md`: 中文代码读本，作为理解当前代码结构、模块边界和扩展方式的默认入口。
 - `docs/figures/figure1_system_flow.mmd`: Figure 1 系统图源文件；`results/paper/figure1_system_flow.svg` 和 `results/paper/figure1_system_flow.pdf` 是从该源导出的当前 paper-facing 版本，重新导出可用 `make paper-figure1`。
 - `docs/PAPER_TABLE1_MAIN_RESULTS.md`: 由 `make paper-tables` 生成的论文 Table 1 Markdown 主表。

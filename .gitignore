@@ -116,6 +116,7 @@ results/paper/*
 # Local presentation/source bundle, not part of reproducible code checkpoints.
 ppt_context/
 
-# Local paper-evidence drafts. Promote explicitly with source artifacts and
-# freeze/index updates when a new evidence package becomes publication-facing.
+# Local paper-evidence drafts. Promote stable writeups to docs/candidate_evidence/
+# first; only move them into the paper-freeze boundary with source artifacts and
+# freeze/index/audit updates.
 docs/paper_evidence/
