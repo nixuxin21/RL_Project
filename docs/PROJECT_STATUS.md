@@ -36,7 +36,7 @@
 - `docs/PROJECT_MAP.md`: 维护完整结构说明和脚本分层。
 - `docs/RESULTS_INDEX.md`: 维护历史结果和 artifact 证据链。
 
-后续若要物理移动顶层脚本，必须先同步更新 `Makefile`、`README.md`、`docs/PROJECT_MAP.md`、`tests/smoke_checks.py` 和相关历史引用，并运行 `make check` 与 `make mainline-audit`。未跟踪目录，例如当前本地的 `docs/paper_evidence/`，在没有明确归属前不应被整理脚本移动、删除或纳入发布边界。
+后续若要物理移动顶层脚本，必须先同步更新 `Makefile`、`README.md`、`docs/PROJECT_MAP.md`、`tests/smoke_checks.py` 和相关历史引用，并运行 `make check` 与 `make mainline-audit`。本地证据草稿目录，例如 `docs/paper_evidence/`，默认由 `.gitignore` 忽略；只有在同步 source artifacts、freeze manifest、results index 和审计检查后，才应显式 promote 到发布边界。
 
 已解决的历史审计报告归档在 `docs/archive/AUDIT_REPORT.md`。它保留问题来源和修复记录，但不再作为当前维护入口；当前状态以本文件、`docs/PROJECT_MAP.md`、`docs/PAPER_FREEZE_MANIFEST.md` 和 `results/README.md` 为准。
 
