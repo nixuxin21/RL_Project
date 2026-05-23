@@ -38,6 +38,8 @@
 
 后续若要物理移动顶层脚本，必须先同步更新 `Makefile`、`README.md`、`docs/PROJECT_MAP.md`、`tests/smoke_checks.py` 和相关历史引用，并运行 `make check` 与 `make mainline-audit`。本地证据草稿目录，例如 `docs/paper_evidence/`，默认由 `.gitignore` 忽略；只有在同步 source artifacts、freeze manifest、results index 和审计检查后，才应显式 promote 到发布边界。
 
+`docs/candidate_evidence/` 是中间层：它可以收纳已经整理好的候选证据包，但不会自动改变 `docs/PAPER_RESULT_PACKAGE.md` 的当前 freeze。`docs/candidate_evidence/cost_frontier_main_v1/` 目前保留 PGI cost-frontier 候选证据；相关 `results/main*` 输出仍是本地生成物，未进入 clean-clone freeze。
+
 已解决的历史审计报告归档在 `docs/archive/AUDIT_REPORT.md`。它保留问题来源和修复记录，但不再作为当前维护入口；当前状态以本文件、`docs/PROJECT_MAP.md`、`docs/PAPER_FREEZE_MANIFEST.md` 和 `results/README.md` 为准。
 
 ## Active Code
@@ -157,6 +159,7 @@ make mainline-audit
 | `docs/PAPER_TEXT_OUTLINE.md` | paper-facing text outline | 固定每节 claim、证据、禁入内容和图表引用顺序 |
 | `docs/PAPER_ASSET_GAP_CHECKLIST.md` | paper-facing asset checklist | 固定投稿前表图资产完成度、缺口和后续包装任务 |
 | `docs/PAPER_FREEZE_MANIFEST.md` | paper-facing freeze manifest | 固定论文冻结 artifact 清单、验证命令和非冻结边界 |
+| `docs/candidate_evidence/cost_frontier_main_v1/` | candidate evidence package | PGI cost-frontier 草稿，供后续决定是否替代或补充当前 frozen mainline |
 | `make paper-tables` | `docs/PAPER_TABLE1_MAIN_RESULTS.md`, `docs/PAPER_TABLE1_UNCERTAINTY.md`, `docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md`, `docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md`, `results/paper/table1_main_results.csv`, `results/paper/table1_scenario_uncertainty.csv`, `results/paper/table1_paired_scenario_deltas.csv`, `results/paper/table2_coverage_aware_ablation.csv`, `results/paper/table3_failure_diagnosis.csv` | 从 frozen mainline CSV、coverage-aware analysis CSV 和 failure-diagnosis CSV 生成论文 Table 1/2/3、scenario-level uncertainty 和 paired deltas |
 | `make paper-figures` | `results/paper/figure2_figure3_points.csv`, `results/paper/figure2_preview_gap_frontier.png`, `results/paper/figure3_failed_missed_tradeoff.png`, `results/paper/figure4_invitation_mask_noise_points.csv`, `results/paper/figure4_invitation_mask_gap_noise.png`, `results/paper/figure4_invitation_mask_failed_missed_noise.png` | 从 frozen mainline CSV 生成论文版 Figure 2/3/4 |
 | `make execution-baseline-summary` | `docs/EXECUTION_BASELINE_SUMMARY.md`, `results/execution_mismatch/final_execution_baseline_summary.csv` | 当前 baseline 主表 |
@@ -172,6 +175,7 @@ make mainline-audit
 `results/` 是生成物目录，不按物理移动方式区分 active/archive，因为文档和 Makefile target 仍直接引用历史路径。维护时按以下规则理解：
 
 - `results/execution_mismatch/`: 当前主线和主要 diagnostics。
+- `results/main/`, `results/main_analysis/`: 新 paper-suite / candidate evidence 运行和分析输出，默认本地保留；只有被 promotion checklist 接纳后才进入 freeze。
 - `results/policy_comparison/`, `results/runtime/`, `results/parameter_sweep/`, `results/partial_probing/`, `results/channel_estimation/`, `results/limited_csi/`: 支撑背景结论。
 - `results/action_diagnostics/`, `results/imitation/`, `results/noisy_features/`, `results/learned_probing/`, `results/bandit_feedback/`, `results/probing_cost/`: diagnostic/archive。
 
