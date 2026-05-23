@@ -34,6 +34,7 @@ NUMERIC_RESULT_KEYS = (
     "failure_slot_fraction",
     "decision_preview_calls_per_slot",
     "oracle_tx_gap_mean",
+    "aircomp_nmse",
     "effective_risk_weight",
     "adaptive_sparse_expanded",
     "adaptive_sparse_margin",
@@ -48,6 +49,30 @@ NUMERIC_RESULT_KEYS = (
     "learned_shortlist_selected_extra_preview_count",
     "coverage_sparse_selected_marginal_fraction",
     "coverage_sparse_selected_overlap_fraction",
+    "posterior_prior_expected_count",
+    "posterior_prior_entropy_mean",
+    "posterior_selected_marginal_fraction",
+    "posterior_selected_overlap_fraction",
+    "posterior_refinement_prior_expected_count",
+    "posterior_refinement_posterior_expected_count",
+    "posterior_refinement_target_count",
+    "posterior_refinement_added",
+    "posterior_refinement_pruned",
+    "posterior_refinement_applied",
+    "aircomp_raw_mse",
+    "aircomp_missing_device_mse",
+    "aircomp_failed_invitation_mse",
+    "aircomp_power_clipping_mse",
+    "aircomp_receiver_noise_mse",
+    "aircomp_target_variance",
+    "aircomp_power_clipped_count",
+    "aircomp_power_clipping_rate",
+    "aircomp_pmax_device_count",
+    "aircomp_energy_per_success",
+    "stale_preview_calls",
+    "current_probe_calls",
+    "total_probe_calls",
+    "total_protocol_cost",
 )
 
 OPTIONAL_RESULT_DEFAULTS = {
@@ -78,6 +103,17 @@ OPTIONAL_RESULT_DEFAULTS = {
     "adaptive_sparse_v3_neighbor_count": 2,
     "adaptive_sparse_v3_history_count": 1,
     "learned_shortlist_extra_count": 1,
+    "posterior_sample_count": 64,
+    "posterior_uncertainty_scale": 1.0,
+    "posterior_probe_uncertainty_weight": 0.0,
+    "posterior_count_refinement_strength": 1.0,
+    "posterior_count_noise_std_scale": 1.0,
+    "posterior_invitation_threshold": 0.5,
+}
+
+OPTIONAL_TEXT_RESULT_DEFAULTS = {
+    "posterior_mean_mode": "ar1_predict",
+    "posterior_invitation_rule": "posterior_mean_topk",
 }
 
 METADATA_FIELDS = (
@@ -101,9 +137,20 @@ LEARNED_HIDDEN_LABEL_MARKERS = (
     "Gated Temporal Deviation",
 )
 
-HIDDEN_INFERENCE_MARKERS = (
+HIDDEN_UPPER_BOUND_MARKERS = (
     "Execution Oracle",
+    "Full Current Oracle",
+    "Oracle IRS with Oracle Invitation",
     "Temporal Deviation Oracle",
+)
+
+HIDDEN_INFERENCE_DIAGNOSTIC_MARKERS = (
+    "Oracle IRS with Stale Invitation",
+    "Deployable IRS with Oracle Invitation",
+)
+
+EXHAUSTIVE_DIAGNOSTIC_MARKERS = (
+    "Full Stale Exhaustive",
 )
 
 CSV_FIELDS = [
@@ -153,6 +200,14 @@ CSV_FIELDS = [
     "adaptive_sparse_v3_neighbor_count",
     "adaptive_sparse_v3_history_count",
     "learned_shortlist_extra_count",
+    "posterior_sample_count",
+    "posterior_uncertainty_scale",
+    "posterior_probe_uncertainty_weight",
+    "posterior_count_refinement_strength",
+    "posterior_count_noise_std_scale",
+    "posterior_mean_mode",
+    "posterior_invitation_rule",
+    "posterior_invitation_threshold",
     "success_mean",
     "success_ci95",
     "success_rate_mean",
@@ -169,6 +224,21 @@ CSV_FIELDS = [
     "failure_slot_rate",
     "decision_preview_calls_per_slot_mean",
     "oracle_tx_gap_mean",
+    "aircomp_nmse_mean",
+    "aircomp_raw_mse_mean",
+    "aircomp_missing_device_mse_mean",
+    "aircomp_failed_invitation_mse_mean",
+    "aircomp_power_clipping_mse_mean",
+    "aircomp_receiver_noise_mse_mean",
+    "aircomp_target_variance_mean",
+    "aircomp_energy_per_success_mean",
+    "power_clipped_count_mean",
+    "power_clipping_rate_mean",
+    "pmax_device_count_mean",
+    "stale_preview_calls_mean",
+    "current_probe_calls_mean",
+    "total_probe_calls_mean",
+    "total_protocol_cost_mean",
     "effective_risk_weight_mean",
     "adaptive_sparse_expansion_rate",
     "adaptive_sparse_margin_mean",
@@ -183,6 +253,16 @@ CSV_FIELDS = [
     "learned_shortlist_selected_extra_preview_mean",
     "coverage_sparse_selected_marginal_fraction_mean",
     "coverage_sparse_selected_overlap_fraction_mean",
+    "posterior_prior_expected_count_mean",
+    "posterior_prior_entropy_mean",
+    "posterior_selected_marginal_fraction_mean",
+    "posterior_selected_overlap_fraction_mean",
+    "posterior_refinement_prior_expected_count_mean",
+    "posterior_refinement_posterior_expected_count_mean",
+    "posterior_refinement_target_count_mean",
+    "posterior_refinement_added_mean",
+    "posterior_refinement_pruned_mean",
+    "posterior_refinement_applied_rate",
     "avg_reward",
 ]
 
@@ -207,16 +287,36 @@ def result_value(result, key):
     return result.get(key, OPTIONAL_RESULT_DEFAULTS[key])
 
 
+def result_text_value(result, key):
+    """Return text-valued config fields with stable defaults for external diagnostics."""
+    return result.get(key, OPTIONAL_TEXT_RESULT_DEFAULTS[key])
+
+
 def result_metadata(result):
     """处理result、元数据相关的局部逻辑，封装重复步骤并让调用处保持清晰。"""
     name = str(result.get("policy", result.get("name", "")))
     metadata = dict(DEFAULT_METADATA)
-    if any(marker in name for marker in HIDDEN_INFERENCE_MARKERS):
+    if any(marker in name for marker in HIDDEN_UPPER_BOUND_MARKERS):
         metadata.update(
             {
                 "result_role": "diagnostic_upper_bound",
                 "inference_uses_hidden_current_csi": "true",
                 "supervision_signal": "hidden_current_channel_oracle_at_evaluation",
+            }
+        )
+    elif any(marker in name for marker in HIDDEN_INFERENCE_DIAGNOSTIC_MARKERS):
+        metadata.update(
+            {
+                "result_role": "diagnostic",
+                "inference_uses_hidden_current_csi": "true",
+                "supervision_signal": "hidden_current_channel_oracle_at_evaluation",
+            }
+        )
+    elif any(marker in name for marker in EXHAUSTIVE_DIAGNOSTIC_MARKERS):
+        metadata.update(
+            {
+                "result_role": "diagnostic",
+                "supervision_signal": "full_stale_codebook_exhaustive_search",
             }
         )
     elif any(marker in name for marker in LEARNED_HIDDEN_LABEL_MARKERS):
@@ -279,6 +379,29 @@ def aggregate_seed_results(seed_result_sets):
             "adaptive_sparse_v3_neighbor_count": result_value(parts[0], "adaptive_sparse_v3_neighbor_count"),
             "adaptive_sparse_v3_history_count": result_value(parts[0], "adaptive_sparse_v3_history_count"),
             "learned_shortlist_extra_count": result_value(parts[0], "learned_shortlist_extra_count"),
+            "posterior_sample_count": result_value(parts[0], "posterior_sample_count"),
+            "posterior_uncertainty_scale": result_value(parts[0], "posterior_uncertainty_scale"),
+            "posterior_probe_uncertainty_weight": result_value(
+                parts[0],
+                "posterior_probe_uncertainty_weight",
+            ),
+            "posterior_count_refinement_strength": result_value(
+                parts[0],
+                "posterior_count_refinement_strength",
+            ),
+            "posterior_count_noise_std_scale": result_value(
+                parts[0],
+                "posterior_count_noise_std_scale",
+            ),
+            "posterior_mean_mode": result_text_value(parts[0], "posterior_mean_mode"),
+            "posterior_invitation_rule": result_text_value(
+                parts[0],
+                "posterior_invitation_rule",
+            ),
+            "posterior_invitation_threshold": result_value(
+                parts[0],
+                "posterior_invitation_threshold",
+            ),
         }
         aggregated.update(result_metadata(parts[0]))
         for key in NUMERIC_RESULT_KEYS:
@@ -355,6 +478,18 @@ def summarize_results(args, results):
                 "adaptive_sparse_v3_neighbor_count": int(result["adaptive_sparse_v3_neighbor_count"]),
                 "adaptive_sparse_v3_history_count": int(result["adaptive_sparse_v3_history_count"]),
                 "learned_shortlist_extra_count": int(result["learned_shortlist_extra_count"]),
+                "posterior_sample_count": int(result["posterior_sample_count"]),
+                "posterior_uncertainty_scale": float(result["posterior_uncertainty_scale"]),
+                "posterior_probe_uncertainty_weight": float(
+                    result["posterior_probe_uncertainty_weight"]
+                ),
+                "posterior_count_refinement_strength": float(
+                    result["posterior_count_refinement_strength"]
+                ),
+                "posterior_count_noise_std_scale": float(result["posterior_count_noise_std_scale"]),
+                "posterior_mean_mode": result["posterior_mean_mode"],
+                "posterior_invitation_rule": result["posterior_invitation_rule"],
+                "posterior_invitation_threshold": float(result["posterior_invitation_threshold"]),
                 "success_mean": success_mean,
                 "success_ci95": success_ci95,
                 "success_rate_mean": success_mean / args.num_nodes,
@@ -373,6 +508,21 @@ def summarize_results(args, results):
                     np.mean(result["decision_preview_calls_per_slot"])
                 ),
                 "oracle_tx_gap_mean": float(np.mean(result["oracle_tx_gap_mean"])),
+                "aircomp_nmse_mean": float(np.mean(result["aircomp_nmse"])),
+                "aircomp_raw_mse_mean": float(np.mean(result["aircomp_raw_mse"])),
+                "aircomp_missing_device_mse_mean": float(np.mean(result["aircomp_missing_device_mse"])),
+                "aircomp_failed_invitation_mse_mean": float(np.mean(result["aircomp_failed_invitation_mse"])),
+                "aircomp_power_clipping_mse_mean": float(np.mean(result["aircomp_power_clipping_mse"])),
+                "aircomp_receiver_noise_mse_mean": float(np.mean(result["aircomp_receiver_noise_mse"])),
+                "aircomp_target_variance_mean": float(np.mean(result["aircomp_target_variance"])),
+                "aircomp_energy_per_success_mean": float(np.mean(result["aircomp_energy_per_success"])),
+                "power_clipped_count_mean": float(np.mean(result["aircomp_power_clipped_count"])),
+                "power_clipping_rate_mean": float(np.mean(result["aircomp_power_clipping_rate"])),
+                "pmax_device_count_mean": float(np.mean(result["aircomp_pmax_device_count"])),
+                "stale_preview_calls_mean": float(np.mean(result["stale_preview_calls"])),
+                "current_probe_calls_mean": float(np.mean(result["current_probe_calls"])),
+                "total_probe_calls_mean": float(np.mean(result["total_probe_calls"])),
+                "total_protocol_cost_mean": float(np.mean(result["total_protocol_cost"])),
                 "effective_risk_weight_mean": float(np.mean(result["effective_risk_weight"])),
                 "adaptive_sparse_expansion_rate": float(np.mean(result["adaptive_sparse_expanded"])),
                 "adaptive_sparse_margin_mean": float(np.mean(result["adaptive_sparse_margin"])),
@@ -406,6 +556,36 @@ def summarize_results(args, results):
                 ),
                 "coverage_sparse_selected_overlap_fraction_mean": float(
                     np.mean(result["coverage_sparse_selected_overlap_fraction"])
+                ),
+                "posterior_prior_expected_count_mean": float(
+                    np.mean(result["posterior_prior_expected_count"])
+                ),
+                "posterior_prior_entropy_mean": float(
+                    np.mean(result["posterior_prior_entropy_mean"])
+                ),
+                "posterior_selected_marginal_fraction_mean": float(
+                    np.mean(result["posterior_selected_marginal_fraction"])
+                ),
+                "posterior_selected_overlap_fraction_mean": float(
+                    np.mean(result["posterior_selected_overlap_fraction"])
+                ),
+                "posterior_refinement_prior_expected_count_mean": float(
+                    np.mean(result["posterior_refinement_prior_expected_count"])
+                ),
+                "posterior_refinement_posterior_expected_count_mean": float(
+                    np.mean(result["posterior_refinement_posterior_expected_count"])
+                ),
+                "posterior_refinement_target_count_mean": float(
+                    np.mean(result["posterior_refinement_target_count"])
+                ),
+                "posterior_refinement_added_mean": float(
+                    np.mean(result["posterior_refinement_added"])
+                ),
+                "posterior_refinement_pruned_mean": float(
+                    np.mean(result["posterior_refinement_pruned"])
+                ),
+                "posterior_refinement_applied_rate": float(
+                    np.mean(result["posterior_refinement_applied"])
                 ),
                 "avg_reward": float(np.mean(result["episode_reward"])),
             }

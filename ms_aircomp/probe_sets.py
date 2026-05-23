@@ -5,12 +5,36 @@ import numpy as np
 import ms_aircomp.limited_csi as limited
 
 __all__ = [
+    "POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST",
+    "POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST_PLUS_COVERAGE",
+    "POSTERIOR_PROBE_OBJECTIVE_PLUS_COVERAGE",
+    "VALID_POSTERIOR_PROBE_OBJECTIVES",
     "circular_codebook_distance",
     "coverage_aware_sparse_indices",
     "coverage_increment_stats",
     "fill_diverse_codebook_indices",
     "ordered_unique_prefix",
+    "posterior_greedy_probe_indices",
+    "posterior_probe_objective",
+    "validate_posterior_probe_objective",
 ]
+
+POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST = "expected_best_count"
+POSTERIOR_PROBE_OBJECTIVE_PLUS_COVERAGE = "expected_best_count_plus_coverage"
+POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST_PLUS_COVERAGE = POSTERIOR_PROBE_OBJECTIVE_PLUS_COVERAGE
+VALID_POSTERIOR_PROBE_OBJECTIVES = (
+    POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST,
+    POSTERIOR_PROBE_OBJECTIVE_PLUS_COVERAGE,
+)
+
+
+def validate_posterior_probe_objective(objective):
+    """Normalize and validate the posterior-greedy probe objective."""
+    objective = str(objective).strip()
+    if objective not in VALID_POSTERIOR_PROBE_OBJECTIVES:
+        valid = ", ".join(VALID_POSTERIOR_PROBE_OBJECTIVES)
+        raise ValueError(f"unknown posterior probe objective {objective!r}; expected one of: {valid}")
+    return objective
 
 
 def ordered_unique_prefix(indices, budget, num_codebook_states):
@@ -141,3 +165,153 @@ def coverage_aware_sparse_indices(
         args.num_nodes,
     )
     return selected_indices, anchor_count, marginal_mean, overlap_mean
+
+
+def _posterior_probe_rng(episode_seed, slot_idx, seed_offset):
+    if episode_seed is None:
+        return np.random.default_rng()
+    seed = (
+        int(episode_seed)
+        + int(seed_offset)
+        + 0xB7E15162
+        + int(slot_idx) * 0x9E3779B1
+    ) % (2**32)
+    return np.random.default_rng(seed)
+
+
+def _selected_coverage(probabilities, selected_indices):
+    probabilities = np.asarray(probabilities, dtype=float)
+    if len(selected_indices) == 0 or probabilities.size == 0:
+        return 0.0
+    miss_probability = np.prod(1.0 - probabilities[:, selected_indices], axis=1)
+    return float(np.sum(1.0 - miss_probability))
+
+
+def posterior_probe_objective(probabilities, selected_indices, sample_counts=None, beta=0.0):
+    """Evaluate E[max_c Y_c] + beta * coverage for a selected IRS set."""
+    probabilities = np.asarray(probabilities, dtype=float)
+    selected_indices = [int(index) for index in selected_indices]
+    if not selected_indices:
+        return {
+            "objective_value": 0.0,
+            "expected_best_count": 0.0,
+            "coverage_score": 0.0,
+            "expected_count_per_selected_state": [],
+        }
+    expected_counts = np.sum(probabilities, axis=0)
+    if sample_counts is None:
+        expected_best_count = float(np.max(expected_counts[selected_indices]))
+    else:
+        counts = np.asarray(sample_counts, dtype=float)
+        expected_best_count = float(np.mean(np.max(counts[:, selected_indices], axis=1)))
+    coverage_score = _selected_coverage(probabilities, selected_indices)
+    return {
+        "objective_value": float(expected_best_count + float(beta) * coverage_score),
+        "expected_best_count": expected_best_count,
+        "coverage_score": coverage_score,
+        "expected_count_per_selected_state": [
+            float(expected_counts[index]) for index in selected_indices
+        ],
+    }
+
+
+def posterior_greedy_probe_indices(
+    probabilities,
+    budget,
+    *,
+    sample_count=128,
+    beta=0.0,
+    objective=POSTERIOR_PROBE_OBJECTIVE_EXPECTED_BEST,
+    seed_offset=0,
+    episode_seed=None,
+    slot_idx=0,
+    candidate_prefilter_size=0,
+):
+    """Greedily select IRS probes using posterior samples of feasible counts.
+
+    The sample matrix stores Y_c for each posterior draw, so each greedy step
+    only updates the sampled best-count vector. When `candidate_prefilter_size`
+    is positive, selection is restricted to the top expected-count states.
+    """
+    probabilities = np.clip(np.asarray(probabilities, dtype=float), 0.0, 1.0)
+    if probabilities.ndim != 2:
+        raise ValueError("probabilities must have shape K x C")
+    num_states = int(probabilities.shape[1])
+    budget = min(max(int(budget), 0), num_states)
+    if budget == 0:
+        return {
+            "selected_indices": [],
+            "candidate_prefilter_indices": [],
+            "objective_value": 0.0,
+            "expected_best_count": 0.0,
+            "coverage_score": 0.0,
+            "expected_count_per_selected_state": [],
+        }
+    objective = validate_posterior_probe_objective(objective)
+
+    expected_counts = np.sum(probabilities, axis=0)
+    prefilter_size = int(candidate_prefilter_size)
+    if prefilter_size <= 0 or prefilter_size > num_states:
+        prefilter_size = num_states
+    prefilter_size = max(prefilter_size, budget)
+    ranked_prefilter = sorted(
+        range(num_states),
+        key=lambda index: (float(expected_counts[index]), -int(index)),
+        reverse=True,
+    )[:prefilter_size]
+    prefilter_probs = probabilities[:, ranked_prefilter]
+    rng = _posterior_probe_rng(episode_seed, slot_idx, seed_offset)
+    draws = rng.random((max(int(sample_count), 1), probabilities.shape[0], prefilter_size))
+    sample_counts = np.sum(draws < prefilter_probs[np.newaxis, :, :], axis=1)
+
+    selected_positions = []
+    selected_indices = []
+    current_best = np.zeros(sample_counts.shape[0], dtype=float)
+    miss_probability = np.ones(probabilities.shape[0], dtype=float)
+    remaining_positions = set(range(prefilter_size))
+    use_coverage = objective == POSTERIOR_PROBE_OBJECTIVE_PLUS_COVERAGE
+    while len(selected_indices) < budget and remaining_positions:
+        def greedy_key(position):
+            candidate_best = np.maximum(current_best, sample_counts[:, position])
+            expected_best = float(np.mean(candidate_best))
+            if use_coverage:
+                coverage = float(
+                    np.sum(1.0 - miss_probability * (1.0 - prefilter_probs[:, position]))
+                )
+            else:
+                coverage = 0.0
+            original_index = int(ranked_prefilter[position])
+            return (
+                expected_best + float(beta) * coverage,
+                expected_best,
+                coverage,
+                float(expected_counts[original_index]),
+                -original_index,
+            )
+
+        best_position = max(remaining_positions, key=greedy_key)
+        remaining_positions.remove(best_position)
+        selected_positions.append(int(best_position))
+        selected_indices.append(int(ranked_prefilter[best_position]))
+        current_best = np.maximum(current_best, sample_counts[:, best_position])
+        miss_probability *= 1.0 - prefilter_probs[:, best_position]
+
+    full_sample_counts = np.zeros((sample_counts.shape[0], num_states), dtype=float)
+    full_sample_counts[:, ranked_prefilter] = sample_counts
+    details = posterior_probe_objective(
+        probabilities,
+        selected_indices,
+        sample_counts=full_sample_counts,
+        beta=float(beta) if use_coverage else 0.0,
+    )
+    details.update(
+        {
+            "selected_indices": selected_indices,
+            "candidate_prefilter_indices": [int(index) for index in ranked_prefilter],
+            "posterior_probe_candidate_prefilter_size": int(prefilter_size),
+            "posterior_probe_samples": int(sample_counts.shape[0]),
+            "posterior_probe_beta": float(beta),
+            "posterior_probe_objective": objective,
+        }
+    )
+    return details

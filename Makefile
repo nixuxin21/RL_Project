@@ -1,6 +1,6 @@
 PYTHON ?= ./.venv/bin/python
 
-.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figure1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
+.PHONY: smoke test pytest-test lint boundary-test regression-test mainline-audit check quick-audit quick-audit-dry-run paper-suite-smoke paper-suite-analyze-smoke paper-suite-main-hard-dry-run py-compile help docs policy-comparison policy-comparison-learning policy-comparison-static runtime parameter-sweep noisy-feature-sweep partial-probing-sweep learned-probing learned-feedback-probing learned-temporal-deviation learned-sparse-shortlist-pilot learned-sparse-shortlist-marginal-pilot learned-set-shortlist-pilot learned-execution-value-shortlist-pilot learned-pairwise-shortlist-pilot execution-baseline-summary main-results-analysis coverage-aware-analysis final-invitation-mask-analysis paper-table1 paper-tables paper-figure1 paper-figures coverage-b3-failure-diagnosis invitation-mask-correction-pilot invitation-mask-correction-formal invitation-mask-correction-noise-sweep invitation-mask-correction-noise-aware-pilot invitation-mask-correction-noise-aware-formal invitation-mask-rerank-ablation adaptive-feedback-probing probing-cost-tradeoff channel-estimation-sweep limited-csi-sweep execution-mismatch-sweep active-probe-set-pilot sparse-topk-cost-pilot sparse-topk-frontier coverage-sparse-topk-pilot coverage-sparse-topk-frontier coverage-sparse-topk-ablation coverage-sparse-power-pilot coverage-sparse-power-ablation coverage-budget-split-pilot coverage-budget-split-selected coverage-budget-split-formal posterior-guided-count-refine-pilot posterior-guided-count-refine-formal adaptive-sparse-topk-pilot adaptive-sparse-topk-v2-pilot adaptive-sparse-topk-v3-pilot bandit-feedback-sweep bandit-feedback-stress action-diagnostics
 
 py-compile:
 	$(PYTHON) -m py_compile \
@@ -11,15 +11,18 @@ py-compile:
 		ms_aircomp/experiment_utils.py \
 		ms_aircomp/execution_candidates.py \
 		ms_aircomp/execution_decision_dispatch.py \
+		ms_aircomp/execution_episode_metrics.py \
 		ms_aircomp/execution_output.py \
 		ms_aircomp/execution_policies.py \
 		ms_aircomp/execution_policy_registry.py \
 		ms_aircomp/execution_result_summary.py \
 		ms_aircomp/execution_risk_policies.py \
+		ms_aircomp/execution_slot_logging.py \
 		ms_aircomp/feedback.py \
 		ms_aircomp/invitation_mask_correction.py \
 		ms_aircomp/learned_shortlist.py \
 		ms_aircomp/limited_csi.py \
+		ms_aircomp/posterior_viability.py \
 		ms_aircomp/probe_sets.py \
 		ms_aircomp/temporal_policies.py \
 		test_env.py \
@@ -44,6 +47,8 @@ py-compile:
 		evaluate_bandit_feedback_ms_aircomp.py \
 		evaluate_bandit_feedback_stress_sweep.py \
 		evaluate_adaptive_feedback_probing.py \
+		experiments/analyze_paper_experiment_logs.py \
+		experiments/run_paper_experiment_suite.py \
 		diagnose_policy_actions.py \
 		benchmark_policy_runtime.py \
 		summarize_execution_baselines.py \
@@ -102,6 +107,26 @@ quick-audit-dry-run:
 		--fixed-irs-index 1 \
 		--no-plots \
 		--output-prefix /tmp/rl_project_quick_execution_mismatch
+
+paper-suite-smoke:
+	$(PYTHON) experiments/run_paper_experiment_suite.py \
+		--presets smoke_test \
+		--output-root /tmp/irs_aircomp_paper_suite \
+		--run-id smoke_test \
+		--overwrite
+
+paper-suite-analyze-smoke: paper-suite-smoke
+	$(PYTHON) experiments/analyze_paper_experiment_logs.py \
+		--input-dir /tmp/irs_aircomp_paper_suite \
+		--output-dir /tmp/irs_aircomp_paper_suite_analysis_smoke \
+		--analysis-name smoke_test
+
+paper-suite-main-hard-dry-run:
+	$(PYTHON) experiments/run_paper_experiment_suite.py \
+		--presets main_hard \
+		--dry-run \
+		--output-root /tmp/irs_aircomp_paper_suite \
+		--run-id main_hard_plan
 
 smoke: test
 	$(PYTHON) evaluate_policy_comparison.py \
@@ -496,6 +521,54 @@ coverage-budget-split-formal: coverage-sparse-topk-frontier coverage-budget-spli
 		--output-prefix results/execution_mismatch/coverage_budget_split_selected_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b8_sm1_tf0p75_cw0p5_cpw0 \
 		--no-plots
 
+posterior-guided-count-refine-pilot:
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 50 \
+		--num-seeds 1 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.9 \
+		--csi-delay-slots 1,3 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--probe-budgets 3 \
+		--sparse-topk-seed-multipliers 4.1 \
+		--sparse-topk-fractions 0.75 \
+		--coverage-sparse-weights 0.5 \
+		--coverage-sparse-power-weights 0 \
+		--posterior-sample-counts 32 \
+		--posterior-uncertainty-scales 1 \
+		--posterior-probe-uncertainty-weights 0 \
+		--posterior-count-refinement-strengths 1 \
+		--posterior-mean-mode ar1_predict \
+		--posterior-invitation-rule posterior_mean_topk \
+		--policies random_same_budget_feedback,coverage_sparse_topk_feedback,posterior_guided_count_refine_feedback,stale_topk_feedback,temporal_deviation_oracle \
+		--output-prefix results/execution_mismatch/posterior_guided_count_refine_pilot_ep50_runs1_rho0p9_delay1-3_b3_sm4p1_tf0p75_cw0p5_cpw0_ps32 \
+		--no-plots
+
+posterior-guided-count-refine-formal:
+	$(PYTHON) evaluate_execution_channel_mismatch.py \
+		--episodes 300 \
+		--num-seeds 3 \
+		--mismatch-models temporal_ar1 \
+		--channel-rho-values 0.7,0.9,0.98 \
+		--csi-delay-slots 1,2,3 \
+		--decision-error-std-values 0 \
+		--execution-error-std-values 0 \
+		--probe-budgets 3 \
+		--sparse-topk-seed-multipliers 4.1 \
+		--sparse-topk-fractions 0.75 \
+		--coverage-sparse-weights 0.5 \
+		--coverage-sparse-power-weights 0 \
+		--posterior-sample-counts 64 \
+		--posterior-uncertainty-scales 1 \
+		--posterior-probe-uncertainty-weights 0 \
+		--posterior-count-refinement-strengths 1 \
+		--posterior-mean-mode ar1_predict \
+		--posterior-invitation-rule posterior_mean_topk \
+		--policies random_same_budget_feedback,coverage_sparse_topk_feedback,posterior_guided_count_refine_feedback,stale_topk_feedback,temporal_deviation_oracle \
+		--output-prefix results/execution_mismatch/posterior_guided_count_refine_formal_ep300_runs3_rho0p7-0p9-0p98_delay1-2-3_b3_sm4p1_tf0p75_cw0p5_cpw0_ps64 \
+		--no-plots
+
 coverage-b3-failure-diagnosis:
 	$(PYTHON) diagnose_coverage_b3_failures.py \
 		--episodes 100 \
@@ -848,8 +921,14 @@ action-diagnostics:
 
 docs:
 	@printf '%s\n' \
+		'Core orientation:' \
 		'Project status: docs/PROJECT_STATUS.md' \
 		'Main story: docs/MAIN_STORY.md' \
+		'Project map: docs/PROJECT_MAP.md' \
+		'Chinese code explanation: docs/CODE_EXPLANATION_CN.md' \
+		'Environment: docs/ENVIRONMENT.md' \
+		'' \
+		'Paper freeze and writing boundary:' \
 		'Paper result package: docs/PAPER_RESULT_PACKAGE.md' \
 		'Paper structure map: docs/PAPER_STRUCTURE_MAP.md' \
 		'Paper figure/table specs: docs/PAPER_FIGURE_TABLE_SPECS.md' \
@@ -857,27 +936,23 @@ docs:
 		'Paper text outline: docs/PAPER_TEXT_OUTLINE.md' \
 		'Paper asset gap checklist: docs/PAPER_ASSET_GAP_CHECKLIST.md' \
 		'Paper freeze manifest: docs/PAPER_FREEZE_MANIFEST.md' \
-		'Environment: docs/ENVIRONMENT.md' \
-		'Chinese code explanation: docs/CODE_EXPLANATION_CN.md' \
+		'' \
+		'Paper-facing artifacts:' \
 		'Paper Figure 1 source: docs/figures/figure1_system_flow.mmd' \
 		'Paper Figure 1 SVG: results/paper/figure1_system_flow.svg' \
 		'Paper Figure 1 PDF: results/paper/figure1_system_flow.pdf' \
 		'Paper Table 1 main results: docs/PAPER_TABLE1_MAIN_RESULTS.md' \
-		'Paper Table 1 CSV: results/paper/table1_main_results.csv' \
 		'Paper Table 1 uncertainty: docs/PAPER_TABLE1_UNCERTAINTY.md' \
-		'Paper Table 1 scenario uncertainty CSV: results/paper/table1_scenario_uncertainty.csv' \
-		'Paper Table 1 paired deltas CSV: results/paper/table1_paired_scenario_deltas.csv' \
 		'Paper Table 2 coverage-aware ablation: docs/PAPER_TABLE2_COVERAGE_AWARE_ABLATION.md' \
-		'Paper Table 2 CSV: results/paper/table2_coverage_aware_ablation.csv' \
 		'Paper Table 3 failure diagnosis: docs/PAPER_TABLE3_FAILURE_DIAGNOSIS.md' \
-		'Paper Table 3 CSV: results/paper/table3_failure_diagnosis.csv' \
 		'Paper Figure 2/3 points: results/paper/figure2_figure3_points.csv' \
 		'Paper Figure 2 preview-gap: results/paper/figure2_preview_gap_frontier.png' \
 		'Paper Figure 3 failed-missed: results/paper/figure3_failed_missed_tradeoff.png' \
 		'Paper Figure 4 points: results/paper/figure4_invitation_mask_noise_points.csv' \
 		'Paper Figure 4 gap-noise: results/paper/figure4_invitation_mask_gap_noise.png' \
 		'Paper Figure 4 failed-missed-noise: results/paper/figure4_invitation_mask_failed_missed_noise.png' \
-		'Project map: docs/PROJECT_MAP.md' \
+		'' \
+		'Mainline analysis and indexes:' \
 		'Baseline strategy: docs/BASELINE_STRATEGY.md' \
 		'Results index: docs/RESULTS_INDEX.md' \
 		'Execution baseline summary: docs/EXECUTION_BASELINE_SUMMARY.md' \
@@ -890,11 +965,13 @@ docs:
 		'Invitation mask correction noise-aware: docs/INVITATION_MASK_CORRECTION_NOISE_AWARE.md' \
 		'Invitation mask rerank ablation: docs/INVITATION_MASK_RERANK_ABLATION.md' \
 		'Deprecated directions: docs/DEPRECATED_DIRECTIONS.md' \
+		'Archived project records: docs/archive/README.md' \
+		'Resolved audit report: docs/archive/AUDIT_REPORT.md' \
 		'Experiment report: EXPERIMENT_REPORT.md'
 
 help:
 	@printf '%s\n' \
-		'Core targets:' \
+		'Validation and orientation:' \
 		'  make test                  Compile scripts and run smoke checks' \
 		'  make pytest-test           Run standard pytest wrappers for project checks' \
 		'  make lint                  Run high-signal Ruff checks' \
@@ -905,39 +982,43 @@ help:
 		'  make quick-audit           Run clean-room compile/lint/tests, artifact audit, and /tmp dry-run' \
 		'  make quick-audit-dry-run   Run one tiny execution-mismatch dry-run writing only /tmp' \
 		'  make smoke                 Run broader one-shot smoke experiments' \
-		'  make policy-comparison     Run the main baseline table' \
-		'  make policy-comparison-learning  Add SAC/Codebook-Aware SAC baselines' \
-		'  make policy-comparison-static    Add Fixed/Best Fixed IRS ablations' \
-		'  make runtime               Reproduce the runtime benchmark' \
 		'  make docs                  Show documentation entry points' \
+		'' \
+		'Paper freeze artifacts:' \
 		'  make paper-tables          Generate paper-facing Table 1/2/3 artifacts' \
 		'  make paper-figure1         Export Figure 1 SVG/PDF from Mermaid source' \
+		'  make paper-figures         Generate paper-facing Figure 2/3/4 artifacts' \
 		'' \
-		'Current execution-mismatch frontier:' \
-		'  make sparse-topk-cost-pilot' \
-		'  make sparse-topk-frontier' \
-		'  make coverage-sparse-topk-pilot' \
-		'  make coverage-sparse-topk-frontier' \
-		'  make coverage-sparse-topk-ablation' \
-		'  make coverage-sparse-power-pilot' \
-		'  make coverage-sparse-power-ablation' \
-		'  make coverage-budget-split-pilot' \
-		'  make coverage-budget-split-selected' \
-		'  make coverage-budget-split-formal' \
-		'  make coverage-b3-failure-diagnosis' \
-		'  make invitation-mask-correction-pilot' \
-		'  make invitation-mask-correction-formal' \
-		'  make invitation-mask-correction-noise-sweep' \
-		'  make invitation-mask-correction-noise-aware-pilot' \
-		'  make invitation-mask-correction-noise-aware-formal' \
-		'  make invitation-mask-rerank-ablation' \
-		'  make adaptive-sparse-topk-v2-pilot' \
+		'Current mainline analysis:' \
 		'  make execution-baseline-summary' \
 		'  make main-results-analysis' \
 		'  make coverage-aware-analysis' \
+		'  make coverage-b3-failure-diagnosis' \
+		'  make invitation-mask-correction-formal' \
+		'  make invitation-mask-correction-noise-sweep' \
+		'  make invitation-mask-correction-noise-aware-formal' \
 		'  make final-invitation-mask-analysis' \
 		'' \
+		'Current mainline sweeps:' \
+		'  make sparse-topk-frontier' \
+		'  make coverage-sparse-topk-frontier' \
+		'  make coverage-sparse-topk-ablation' \
+		'  make coverage-sparse-power-ablation' \
+		'  make coverage-budget-split-selected' \
+		'  make coverage-budget-split-formal' \
+		'  make posterior-guided-count-refine-pilot' \
+		'  make posterior-guided-count-refine-formal' \
+		'  make invitation-mask-rerank-ablation' \
+		'  make adaptive-sparse-topk-v2-pilot' \
+		'' \
+		'Paper experiment suite:' \
+		'  make paper-suite-smoke' \
+		'  make paper-suite-analyze-smoke' \
+		'  make paper-suite-main-hard-dry-run' \
+		'' \
 		'Supporting baselines:' \
+		'  make policy-comparison' \
+		'  make runtime' \
 		'  make partial-probing-sweep' \
 		'  make limited-csi-sweep' \
 		'  make execution-mismatch-sweep' \
@@ -945,7 +1026,25 @@ help:
 		'  make adaptive-sparse-topk-pilot' \
 		'' \
 		'Diagnostic/archive targets:' \
+		'  make policy-comparison-learning' \
+		'  make policy-comparison-static' \
+		'  make parameter-sweep' \
+		'  make noisy-feature-sweep' \
+		'  make learned-probing' \
+		'  make learned-feedback-probing' \
+		'  make learned-temporal-deviation' \
+		'  make adaptive-feedback-probing' \
+		'  make probing-cost-tradeoff' \
+		'  make channel-estimation-sweep' \
+		'  make bandit-feedback-sweep' \
 		'  make bandit-feedback-stress' \
+		'  make action-diagnostics' \
+		'  make sparse-topk-cost-pilot' \
+		'  make coverage-sparse-topk-pilot' \
+		'  make coverage-sparse-power-pilot' \
+		'  make coverage-budget-split-pilot' \
+		'  make invitation-mask-correction-pilot' \
+		'  make invitation-mask-correction-noise-aware-pilot' \
 		'  make adaptive-sparse-topk-v3-pilot' \
 		'  make learned-sparse-shortlist-pilot' \
 		'  make learned-sparse-shortlist-marginal-pilot' \

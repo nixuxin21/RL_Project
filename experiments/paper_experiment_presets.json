@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "description": "Paper-grade reproducible experiment presets for IRS-assisted MS-AirComp under stale CSI.",
+  "feedback_noise_std": {
+    "none": 0.0,
+    "low": 0.02,
+    "medium": 0.05,
+    "high": 0.1
+  },
+  "method_aliases": {
+    "no_irs": "no_irs",
+    "random_same_budget": "random_same_budget",
+    "rotating_same_budget": "rotating_same_budget",
+    "sparse_topk_same_budget": "sparse_topk_same_budget",
+    "coverage_aware": "coverage_sparse_topk_feedback",
+    "count_only_mask_correction": "count_only_mask_correction",
+    "posterior_invitation": "posterior_invitation_feedback",
+    "posterior_greedy_probing": "posterior_greedy_feedback",
+    "posterior_greedy_probing_plus_posterior_invitation": "posterior_greedy_invitation_feedback",
+    "full_stale_exhaustive": "full_stale_exhaustive",
+    "hidden_current_oracle": "full_current_oracle"
+  },
+  "method_groups": {
+    "paper_core": [
+      "no_irs",
+      "random_same_budget",
+      "rotating_same_budget",
+      "sparse_topk_same_budget",
+      "coverage_aware",
+      "count_only_mask_correction",
+      "posterior_invitation",
+      "posterior_greedy_probing",
+      "posterior_greedy_probing_plus_posterior_invitation",
+      "full_stale_exhaustive",
+      "hidden_current_oracle"
+    ],
+    "posterior_invitation_ablation": [
+      "coverage_aware",
+      "count_only_mask_correction",
+      "posterior_invitation",
+      "hidden_current_oracle"
+    ],
+    "posterior_probing_ablation": [
+      "random_same_budget",
+      "rotating_same_budget",
+      "sparse_topk_same_budget",
+      "coverage_aware",
+      "posterior_greedy_probing",
+      "hidden_current_oracle"
+    ]
+  },
+  "defaults": {
+    "episodes": 30,
+    "num_seeds": 3,
+    "seed": 2026,
+    "seed_stride": 1000,
+    "mismatch_models": "temporal_ar1",
+    "decision_error_std_values": "0",
+    "execution_error_std_values": "0",
+    "sparse_topk_seed_multipliers": "2",
+    "sparse_topk_fractions": "0.75",
+    "coverage_sparse_weights": "0.5",
+    "coverage_sparse_power_weights": "0",
+    "confirmation_feedback_power_weight": 0.05,
+    "posterior_mode": "analytic",
+    "posterior_num_samples": 256,
+    "posterior_clip_eps": 1e-06,
+    "posterior_cardinality_policy": "invite_fixed_cardinality_y",
+    "posterior_cumulative_probability_target": 1.0,
+    "posterior_lambda_fail": 1.0,
+    "posterior_lambda_miss": 1.0,
+    "probing_policy": "coverage_aware",
+    "posterior_probe_budget": 0,
+    "posterior_probe_samples": 128,
+    "posterior_probe_beta": 0.0,
+    "posterior_probe_candidate_prefilter_size": 64,
+    "posterior_probe_objective": "expected_best_count",
+    "aircomp_signal_model": "synthetic_unit_variance",
+    "aircomp_signal_variance": 1.0,
+    "protocol_stale_preview_cost": 1.0,
+    "protocol_current_probe_cost": 1.0,
+    "protocol_execution_slot_cost": 1.0
+  },
+  "presets": {
+    "smoke_test": {
+      "description": "Tiny end-to-end run that exercises all paper-core deployable methods and oracle diagnostics.",
+      "method_group": "paper_core",
+      "episodes": 1,
+      "num_seeds": 1,
+      "axes": {
+        "num_nodes": [6],
+        "num_slots": [3],
+        "num_codebook_states": [4],
+        "num_irs_elements": [8],
+        "fixed_irs_index": [1],
+        "probe_budgets": ["2"],
+        "channel_rho_values": ["0.9"],
+        "csi_delay_slots": ["1"],
+        "feedback_noise": ["none"]
+      }
+    },
+    "main_easy": {
+      "description": "Easy stale-CSI cases with many slots, moderate budgets, and reliable feedback.",
+      "method_group": "paper_core",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [50],
+        "num_slots": [10],
+        "num_codebook_states": [16],
+        "num_irs_elements": [64],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.9,0.98"],
+        "csi_delay_slots": ["1"],
+        "feedback_noise": ["none", "low"]
+      }
+    },
+    "main_medium": {
+      "description": "Medium cases with larger K/codebook, shorter horizon, and moderate stale CSI.",
+      "method_group": "paper_core",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [100],
+        "num_slots": [6],
+        "num_codebook_states": [64],
+        "num_irs_elements": [64],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.7,0.9"],
+        "csi_delay_slots": ["1,2"],
+        "feedback_noise": ["none", "medium"]
+      }
+    },
+    "main_hard": {
+      "description": "Hard stress grid. Dry-run first; this preset is intentionally large.",
+      "method_group": "paper_core",
+      "episodes": 500,
+      "num_seeds": 10,
+      "axes": {
+        "num_nodes": [50, 100, 200],
+        "num_slots": [4, 6, 10],
+        "num_codebook_states": [16, 64, 128],
+        "num_irs_elements": [64, 128],
+        "probe_budgets": ["4,8,16,24"],
+        "channel_rho_values": ["0.5,0.7,0.9,0.98"],
+        "csi_delay_slots": ["1,2,3"],
+        "feedback_noise": ["none", "low", "medium", "high"]
+      }
+    },
+    "codebook_scaling": {
+      "description": "Scales codebook size and IRS elements while holding the stale-CSI difficulty fixed.",
+      "method_group": "paper_core",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [100],
+        "num_slots": [6],
+        "num_codebook_states": [16, 64, 128],
+        "num_irs_elements": [64, 128],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.9"],
+        "csi_delay_slots": ["2"],
+        "feedback_noise": ["low"]
+      }
+    },
+    "feedback_noise_sweep": {
+      "description": "Sweeps aggregate current-feedback noise at fixed system size.",
+      "method_group": "paper_core",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [100],
+        "num_slots": [6],
+        "num_codebook_states": [64],
+        "num_irs_elements": [64],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.7,0.9,0.98"],
+        "csi_delay_slots": ["1,2"],
+        "feedback_noise": ["none", "low", "medium", "high"]
+      }
+    },
+    "ablation_posterior_invitation": {
+      "description": "Isolates count-conditioned posterior invitation policies under the same Coverage-Aware probing budget.",
+      "method_group": "posterior_invitation_ablation",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [100],
+        "num_slots": [6],
+        "num_codebook_states": [64],
+        "num_irs_elements": [64],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.7,0.9"],
+        "csi_delay_slots": ["1,2"],
+        "feedback_noise": ["none", "medium"],
+        "posterior_cardinality_policy": [
+          "invite_fixed_cardinality_y",
+          "invite_top_expected_count",
+          "invite_until_cumulative_probability",
+          "invite_with_failure_penalty",
+          "invite_with_missed_penalty"
+        ]
+      }
+    },
+    "ablation_posterior_probing": {
+      "description": "Compares posterior-greedy probing against same-budget probing baselines.",
+      "method_group": "posterior_probing_ablation",
+      "episodes": 200,
+      "num_seeds": 5,
+      "axes": {
+        "num_nodes": [100],
+        "num_slots": [6],
+        "num_codebook_states": [64],
+        "num_irs_elements": [64],
+        "probe_budgets": ["8,16"],
+        "channel_rho_values": ["0.7,0.9"],
+        "csi_delay_slots": ["1,2"],
+        "feedback_noise": ["none", "medium"],
+        "posterior_probe_objective": [
+          "expected_best_count",
+          "expected_best_count_plus_coverage"
+        ],
+        "posterior_probe_beta": [0.0, 0.25]
+      }
+    }
+  }
+}

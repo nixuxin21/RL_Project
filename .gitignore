@@ -112,3 +112,10 @@ results/paper/*
 !results/paper/figure4_invitation_mask_noise_points.csv
 !results/paper/figure4_invitation_mask_gap_noise.png
 !results/paper/figure4_invitation_mask_failed_missed_noise.png
+
+# Local presentation/source bundle, not part of reproducible code checkpoints.
+ppt_context/
+
+# Local paper-evidence drafts. Promote explicitly with source artifacts and
+# freeze/index updates when a new evidence package becomes publication-facing.
+docs/paper_evidence/
